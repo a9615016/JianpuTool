@@ -1,158 +1,202 @@
 import os
-import subprocess
 import uuid
-import tempfile
+import shutil
+import subprocess
 
-
-print("CONVERTER MVP VERSION")
-
-
-LILYPOND = "lilypond"
+from music21 import converter
 
 
 
-def convert_musicxml(
-    musicxml_file
-):
+def clean_musicxml(input_xml):
+
+    """
+    MusicXML 清理
+    保留第一聲部
+    """
+
+    score = converter.parse(
+        input_xml
+    )
+
+
+    # 多聲部只留第一個
+    if len(score.parts) > 1:
+
+        score = score.parts[0]
+
+
+    output_xml = (
+        "/tmp/"
+        + str(uuid.uuid4())
+        + "_clean.musicxml"
+    )
+
+
+    score.write(
+        "musicxml",
+        fp=output_xml
+    )
+
+
+    return output_xml
+
+
+
+
+
+def convert_musicxml(xml_file):
 
     uid = str(uuid.uuid4())
 
 
-    # Render Linux 暫存目錄
-    temp_dir = tempfile.gettempdir()
+    temp_dir = "/tmp"
 
 
-    ly_file = os.path.join(
-        temp_dir,
-        f"{uid}.ly"
+    clean_xml = (
+        f"{temp_dir}/{uid}_clean.musicxml"
     )
 
 
-    pdf_file = os.path.join(
-        temp_dir,
-        f"{uid}.pdf"
+    ly_file = (
+        f"{temp_dir}/{uid}.ly"
     )
 
 
-    print("Input MusicXML:")
-    print(musicxml_file)
-
-
-    print("Generate LY:")
-    print(ly_file)
-
-
-
-    # ==========================
-    # MusicXML → jianpu ly
-    # ==========================
-
-    cmd1 = [
-        "python",
-        "-m",
-        "jianpu_ly",
-        musicxml_file
-    ]
-
-
-    result = subprocess.run(
-        cmd1,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True
+    pdf_file = (
+        f"{temp_dir}/{uid}.pdf"
     )
 
 
-    if result.returncode != 0:
 
-        print(result.stderr)
+    print(
+        "INPUT XML:",
+        xml_file
+    )
+
+
+
+    # =====================
+    # 1. MusicXML 清理
+    # =====================
+
+    try:
+
+        clean_xml = clean_musicxml(
+            xml_file
+        )
+
+
+        print(
+            "CLEAN XML:",
+            clean_xml
+        )
+
+
+    except Exception as e:
 
         raise Exception(
-            "jianpu_ly failed"
-        )
-
-
-    with open(
-        ly_file,
-        "w",
-        encoding="utf-8"
-    ) as f:
-
-        f.write(
-            result.stdout
+            "MusicXML clean failed: "
+            + str(e)
         )
 
 
 
-    print(
-        "LY generated"
-    )
+    # =====================
+    # 2. jianpu_ly
+    # =====================
+
+    try:
+
+        with open(
+            ly_file,
+            "w",
+            encoding="utf-8"
+        ) as f:
 
 
-
-    # ==========================
-    # LilyPond → PDF
-    # ==========================
-
-
-    cmd2 = [
-        LILYPOND,
-        "-o",
-        os.path.join(
-            temp_dir,
-            uid
-        ),
-        ly_file
-    ]
+            result = subprocess.run(
+                [
+                    "python",
+                    "-m",
+                    "jianpu_ly",
+                    clean_xml
+                ],
+                stdout=f,
+                stderr=subprocess.PIPE,
+                text=True
+            )
 
 
-    result2 = subprocess.run(
-        cmd2,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True
-    )
+        if result.returncode != 0:
+
+            print(
+                result.stderr
+            )
+
+            raise Exception(
+                "jianpu_ly failed"
+            )
 
 
-    print(
-        result2.stdout
-    )
+        print(
+            "LY:",
+            ly_file
+        )
 
 
-    print(
-        result2.stderr
-    )
-
-
-
-    if result2.returncode != 0:
+    except Exception as e:
 
         raise Exception(
-            "LilyPond failed"
+            str(e)
         )
 
 
 
-    generated_pdf = os.path.join(
-        temp_dir,
-        uid + ".pdf"
-    )
+    # =====================
+    # 3. LilyPond PDF
+    # =====================
+
+    try:
+
+        result = subprocess.run(
+            [
+                "lilypond",
+                "-o",
+                pdf_file.replace(
+                    ".pdf",
+                    ""
+                ),
+                ly_file
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
 
 
-    if not os.path.exists(
-        generated_pdf
-    ):
+        if result.returncode != 0:
+
+            print(
+                result.stderr
+            )
+
+            raise Exception(
+                "lilypond failed"
+            )
+
+
+        print(
+            "PDF:",
+            pdf_file
+        )
+
+
+    except Exception as e:
 
         raise Exception(
-            "PDF not created"
+            str(e)
         )
 
 
 
-    print(
-        "PDF created:",
-        generated_pdf
-    )
-
-
-    return generated_pdf
+    return pdf_file
