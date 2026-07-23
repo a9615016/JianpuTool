@@ -12,23 +12,37 @@ app = FastAPI()
 UPLOAD_DIR = "uploads"
 OUTPUT_DIR = "outputs"
 
+
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
 
+# =====================
+# 首頁
+# =====================
+
 @app.get("/", response_class=HTMLResponse)
 def home():
 
     return HTMLResponse("""
+    <!DOCTYPE html>
     <html>
+    <head>
+        <title>JianpuTool</title>
+    </head>
+
     <body>
 
     <h1>🎵 JianpuTool MIDI → 簡譜</h1>
 
     <form action="/midi" method="post" enctype="multipart/form-data">
 
-        <input type="file" name="file" accept=".mid">
+        <input 
+            type="file" 
+            name="file"
+            accept=".mid,.midi"
+        >
 
         <br><br>
 
@@ -44,40 +58,64 @@ def home():
 
 
 
+# =====================
+# 狀態
+# =====================
+
 @app.get("/status")
 def status():
 
     return {
-        "status": "JianpuTool MVP OK"
+        "status": "JianpuTool running",
+        "api": [
+            "/midi"
+        ]
     }
 
 
+
+# =====================
+# MIDI → MusicXML
+# =====================
 
 @app.post("/midi")
 async def midi(file: UploadFile = File(...)):
 
     try:
 
-        filename = str(uuid.uuid4()) + ".mid"
+        # 建立唯一檔名
+        midi_name = (
+            str(uuid.uuid4())
+            + ".mid"
+        )
+
 
         midi_path = os.path.join(
             UPLOAD_DIR,
-            filename
+            midi_name
         )
 
 
         # 儲存 MIDI
         with open(midi_path, "wb") as f:
-            f.write(await file.read())
+
+            content = await file.read()
+
+            f.write(content)
 
 
-        # MIDI → MusicXML
+
+        # music21 讀 MIDI
+
         score = converter.parse(
             midi_path
         )
 
 
-        xml_name = filename.replace(
+
+        # 輸出 MusicXML
+
+        xml_name = midi_name.replace(
             ".mid",
             ".musicxml"
         )
@@ -95,18 +133,24 @@ async def midi(file: UploadFile = File(...)):
         )
 
 
+
         return {
 
             "status": "success",
+
+            "midi": midi_name,
 
             "musicxml": xml_name
 
         }
 
 
+
     except Exception as e:
 
         return {
+
+            "status": "failed",
 
             "error": str(e)
 
