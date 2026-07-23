@@ -1,6 +1,5 @@
 print("converter version test")
 import os
-i
 mport subprocess
 import tempfile
 from pathlib import Path
