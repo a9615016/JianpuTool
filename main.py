@@ -18,7 +18,7 @@ app = FastAPI()
 def home():
 
     return FileResponse(
-        "index.html"
+        "static/index.html"
     )
 
 
