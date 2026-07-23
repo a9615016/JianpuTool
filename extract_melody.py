@@ -1,4 +1,4 @@
-from music21 import converter, stream
+from music21 import converter, stream, note, chord
 
 
 def extract_melody(input_xml, output_xml):
@@ -7,44 +7,35 @@ def extract_melody(input_xml, output_xml):
 
     melody = stream.Part()
 
-    melody.id = "Melody"
+    for part in score.parts:
+
+        for element in part.recurse():
+
+            if isinstance(element, chord.Chord):
+
+                # 取和弦最高音
+                highest = element.sortAscending().notes[-1]
+
+                melody.append(
+                    highest
+                )
+
+            elif isinstance(element, note.Note):
+
+                melody.append(element)
 
 
-    notes = []
-
-
-    # 收集所有音符
-    for element in score.recurse().notes:
-
-        if element.isChord:
-
-            # 和弦取最高音
-            n = element.sortAscending().notes[-1]
-
-            notes.append(n)
-
-        else:
-
-            notes.append(element)
-
-
-
-    # 建立單旋律
-    for n in notes:
-
-        melody.append(n)
-
-
-
-    new_score = stream.Score()
-
-    new_score.append(melody)
-
-
-    new_score.write(
+    melody.write(
         "musicxml",
         fp=output_xml
     )
 
 
-    return output_xml
+if __name__ == "__main__":
+
+    extract_melody(
+        "test.musicxml",
+        "melody.musicxml"
+    )
+
+    print("完成 melody.musicxml")
