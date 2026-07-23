@@ -71,8 +71,8 @@ async def convert(file: UploadFile = File(...)):
                 musicxml_file
             ],
             stdout=out,
-            stderr=subprocess.STDOUT,
-            check=True
+            stderr=subprocess.PIPE,
+            text=True
         )
 
 
