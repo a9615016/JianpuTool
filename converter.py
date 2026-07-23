@@ -6,18 +6,41 @@ import uuid
 from music21 import converter as music_converter
 
 
+def clean_melody(score):
+    """
+    保留第一聲部主旋律
+    移除 Piano 伴奏
+    """
+
+    parts = score.parts
+
+    if len(parts) == 0:
+        return score
+
+    # 只保留第一個 Part
+    melody = parts[0]
+
+    new_score = melody.stream()
+
+    return new_score
+
+
+
 def run_lilypond(ly_file):
 
     output_dir = os.path.dirname(ly_file)
+
+    output_name = os.path.join(
+        output_dir,
+        "jianpu_output"
+    )
+
 
     result = subprocess.run(
         [
             "lilypond",
             "-o",
-            os.path.join(
-                output_dir,
-                "jianpu_output"
-            ),
+            output_name,
             ly_file
         ],
         stdout=subprocess.PIPE,
@@ -25,34 +48,61 @@ def run_lilypond(ly_file):
         text=True
     )
 
+
     if result.returncode != 0:
         raise Exception(
-            "LilyPond Error:\n" +
             result.stderr
         )
 
-    pdf_file = os.path.join(
-        output_dir,
-        "jianpu_output.pdf"
+
+    return output_name + ".pdf"
+
+
+
+def musicxml_to_pdf(
+        musicxml_file
+):
+
+    temp = tempfile.gettempdir()
+
+    uid = str(uuid.uuid4())
+
+
+    clean_xml = os.path.join(
+        temp,
+        uid + "_clean.musicxml"
     )
 
-    return pdf_file
-
-
-
-def musicxml_to_pdf(musicxml_file):
-
-    temp_dir = tempfile.gettempdir()
-
-    name = str(uuid.uuid4())
 
     ly_file = os.path.join(
-        temp_dir,
-        name + ".ly"
+        temp,
+        uid + ".ly"
     )
 
 
-    # MusicXML → Jianpu Lilypond
+    # -----------------------
+    # MusicXML 清理
+    # -----------------------
+
+    score = music_converter.parse(
+        musicxml_file
+    )
+
+
+    score = clean_melody(
+        score
+    )
+
+
+    score.write(
+        "musicxml",
+        fp=clean_xml
+    )
+
+
+    # -----------------------
+    # MusicXML → Jianpu ly
+    # -----------------------
 
     with open(
         ly_file,
@@ -60,12 +110,12 @@ def musicxml_to_pdf(musicxml_file):
         encoding="utf-8"
     ) as f:
 
-        process = subprocess.run(
+        result = subprocess.run(
             [
                 "python",
                 "-m",
                 "jianpu_ly",
-                musicxml_file
+                clean_xml
             ],
             stdout=f,
             stderr=subprocess.PIPE,
@@ -73,52 +123,56 @@ def musicxml_to_pdf(musicxml_file):
         )
 
 
-    if process.returncode != 0:
+    if result.returncode != 0:
 
         raise Exception(
-            "jianpu-ly error:\n"
-            + process.stderr
+            "jianpu-ly error\n"
+            + result.stderr
         )
 
 
-    return run_lilypond(
+    # -----------------------
+    # ly → PDF
+    # -----------------------
+
+    pdf = run_lilypond(
         ly_file
     )
 
 
+    return pdf
 
 
-def midi_to_pdf(midi_file):
 
-    temp_dir = tempfile.gettempdir()
+def midi_to_pdf(
+        midi_file
+):
 
-    name = str(uuid.uuid4())
+    temp = tempfile.gettempdir()
+
+    uid = str(uuid.uuid4())
 
 
-    musicxml_file = os.path.join(
-        temp_dir,
-        name + ".musicxml"
+    musicxml = os.path.join(
+        temp,
+        uid + ".musicxml"
     )
 
-
-    # MIDI → MusicXML
 
     score = music_converter.parse(
         midi_file
     )
 
+
     score.write(
         "musicxml",
-        fp=musicxml_file
+        fp=musicxml
     )
 
-
-    # MusicXML → PDF
 
     return musicxml_to_pdf(
-        musicxml_file
+        musicxml
     )
-
 
 
 
