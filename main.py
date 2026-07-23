@@ -1,123 +1,31 @@
-from fastapi import FastAPI, UploadFile, File
-from fastapi.responses import HTMLResponse, FileResponse
-import shutil
+from fastapi import FastAPI
+from fastapi.responses import HTMLResponse
 import os
-import uuid
-
-from converter import midi_to_pdf
-
 
 app = FastAPI()
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-@app.get("/")
+
+@app.get("/", response_class=HTMLResponse)
 def home():
 
-    return HTMLResponse("""
-<!DOCTYPE html>
-<html lang="zh-TW">
+    index_path = os.path.join(
+        BASE_DIR,
+        "static",
+        "index.html"
+    )
 
-<head>
-<meta charset="UTF-8">
-<title>JianpuTool</title>
-</head>
-
-<body>
-
-<h1>
-🎵 JianpuTool MIDI → 簡譜
-</h1>
-
-
-<form action="/midi"
-method="post"
-enctype="multipart/form-data">
-
-
-<input type="file"
-name="file"
-accept=".mid,.midi">
-
-
-<br><br>
-
-
-<button type="submit">
-產生簡譜 PDF
-</button>
-
-
-</form>
-
-
-</body>
-
-</html>
-""")
+    with open(index_path, encoding="utf-8") as f:
+        return f.read()
 
 
 @app.get("/status")
 def status():
-
     return {
-        "status": "JianpuTool MVP OK",
+        "status": "JianpuTool running",
         "api": [
+            "/convert",
             "/midi"
         ]
     }
-
-
-
-@app.post("/midi")
-async def midi(
-    file: UploadFile = File(...)
-):
-
-    os.makedirs(
-        "uploads",
-        exist_ok=True
-    )
-
-
-    filename = (
-        str(uuid.uuid4())
-        + ".mid"
-    )
-
-
-    midi_path = os.path.join(
-        "uploads",
-        filename
-    )
-
-
-    with open(
-        midi_path,
-        "wb"
-    ) as f:
-
-        shutil.copyfileobj(
-            file.file,
-            f
-        )
-
-
-    try:
-
-        pdf_path = midi_to_pdf(
-            midi_path
-        )
-
-
-        return FileResponse(
-            pdf_path,
-            media_type="application/pdf",
-            filename="jianpu.pdf"
-        )
-
-
-    except Exception as e:
-
-        return {
-            "error": str(e)
-        }
