@@ -13,7 +13,7 @@ app = FastAPI()
 @app.get("/")
 def home():
 
-    with open("index.html", encoding="utf-8") as f:
+    with open("static/index.html", encoding="utf-8") as f:
         return HTMLResponse(f.read())
 
 
