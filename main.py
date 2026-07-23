@@ -9,6 +9,10 @@ from music21 import converter
 app = FastAPI()
 
 
+# =====================
+# 資料夾
+# =====================
+
 UPLOAD_DIR = "uploads"
 OUTPUT_DIR = "outputs"
 
@@ -17,26 +21,47 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
 
+# =====================
+# 首頁
+# =====================
+
 @app.get("/", response_class=HTMLResponse)
 def home():
 
-    return """
-    <h1>🎵 JianpuTool MIDI → 簡譜</h1>
+    return HTMLResponse(
+        content="""
+        <html>
+        <head>
+            <meta charset="utf-8">
+            <title>JianpuTool</title>
+        </head>
 
-    <form action="/midi" method="post" enctype="multipart/form-data">
+        <body>
 
-        <input type="file" name="file" accept=".mid">
+        <h1>🎵 JianpuTool MIDI → 簡譜</h1>
 
-        <br><br>
+        <form action="/midi" method="post" enctype="multipart/form-data">
 
-        <button>
-        產生簡譜 PDF
-        </button>
+            <input type="file" name="file" accept=".mid,.midi">
 
-    </form>
-    """
+            <br><br>
+
+            <button type="submit">
+                產生 MusicXML
+            </button>
+
+        </form>
+
+        </body>
+        </html>
+        """
+    )
 
 
+
+# =====================
+# 狀態
+# =====================
 
 @app.get("/status")
 def status():
@@ -50,31 +75,48 @@ def status():
 
 
 
+# =====================
+# MIDI → MusicXML
+# =====================
+
 @app.post("/midi")
 async def midi(file: UploadFile = File(...)):
 
     try:
 
-        filename = str(uuid.uuid4()) + ".mid"
+        # 儲存 MIDI
+
+        midi_name = (
+            str(uuid.uuid4())
+            + ".mid"
+        )
+
 
         midi_path = os.path.join(
             UPLOAD_DIR,
-            filename
+            midi_name
         )
 
 
         with open(midi_path, "wb") as f:
 
-            f.write(await file.read())
+            data = await file.read()
+
+            f.write(data)
 
 
+
+        # MIDI 解析
 
         score = converter.parse(
             midi_path
         )
 
 
-        xml_name = filename.replace(
+
+        # 輸出 MusicXML
+
+        xml_name = midi_name.replace(
             ".mid",
             ".musicxml"
         )
@@ -101,11 +143,13 @@ async def midi(file: UploadFile = File(...)):
         }
 
 
+
     except Exception as e:
 
         return {
 
-            "error": str(e)
+            "status": "error",
+
+            "message": str(e)
 
         }
-    """
