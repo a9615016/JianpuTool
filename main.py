@@ -1,5 +1,5 @@
 from fastapi import FastAPI, UploadFile, File
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.responses import HTMLResponse
 import shutil
 import os
 
@@ -29,6 +29,7 @@ def home():
 <form action="/midi"
 method="post"
 enctype="multipart/form-data">
+
 
 <input type="file"
 name="file"
@@ -64,7 +65,7 @@ def status():
 
 
 @app.post("/midi")
-async def midi_upload(
+async def midi(
     file: UploadFile = File(...)
 ):
 
@@ -77,6 +78,7 @@ async def midi_upload(
 
 
     with open(path, "wb") as f:
+
         shutil.copyfileobj(
             file.file,
             f
@@ -84,6 +86,6 @@ async def midi_upload(
 
 
     return {
-        "message": "MIDI uploaded",
+        "message": "MIDI upload OK",
         "file": file.filename
     }
