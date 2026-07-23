@@ -198,7 +198,7 @@ async def midi(file: UploadFile = File(...)):
                 "lilypond",
                 "-o",
                 OUTPUT_DIR,
-                ly_path
+                ly_name
             ],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
