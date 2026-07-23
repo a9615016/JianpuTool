@@ -9,54 +9,49 @@ from music21 import converter
 app = FastAPI()
 
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
-UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
-OUTPUT_DIR = os.path.join(BASE_DIR, "outputs")
-
+UPLOAD_DIR = "uploads"
+OUTPUT_DIR = "outputs"
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
-# =========================
-# 首頁
-# =========================
 
 @app.get("/", response_class=HTMLResponse)
 def home():
 
-    index_path = os.path.join(
-        BASE_DIR,
-        "static",
-        "index.html"
-    )
+    return HTMLResponse("""
+    <html>
+    <body>
 
-    with open(index_path, encoding="utf-8") as f:
-        return f.read()
+    <h1>🎵 JianpuTool MIDI → 簡譜</h1>
+
+    <form action="/midi" method="post" enctype="multipart/form-data">
+
+        <input type="file" name="file" accept=".mid">
+
+        <br><br>
+
+        <button type="submit">
+            產生 MusicXML
+        </button>
+
+    </form>
+
+    </body>
+    </html>
+    """)
 
 
-
-# =========================
-# 狀態測試
-# =========================
 
 @app.get("/status")
 def status():
 
     return {
-        "status": "JianpuTool running",
-        "api": [
-            "/midi",
-            "/convert"
-        ]
+        "status": "JianpuTool MVP OK"
     }
 
 
-
-# =========================
-# MIDI -> MusicXML
-# =========================
 
 @app.post("/midi")
 async def midi(file: UploadFile = File(...)):
@@ -76,13 +71,12 @@ async def midi(file: UploadFile = File(...)):
             f.write(await file.read())
 
 
-        # music21 讀取 MIDI
+        # MIDI → MusicXML
         score = converter.parse(
             midi_path
         )
 
 
-        # 輸出 MusicXML
         xml_name = filename.replace(
             ".mid",
             ".musicxml"
@@ -105,8 +99,6 @@ async def midi(file: UploadFile = File(...)):
 
             "status": "success",
 
-            "midi": filename,
-
             "musicxml": xml_name
 
         }
@@ -119,21 +111,3 @@ async def midi(file: UploadFile = File(...)):
             "error": str(e)
 
         }
-
-
-
-# =========================
-# 預留 MP3 / 其他轉換
-# =========================
-
-@app.post("/convert")
-async def convert(file: UploadFile = File(...)):
-
-
-    return {
-
-        "status": "convert api ready",
-
-        "filename": file.filename
-
-    }
