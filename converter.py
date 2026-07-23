@@ -1,202 +1,119 @@
 import os
-import uuid
-import shutil
 import subprocess
+import uuid
 
-from music21 import converter
-
-
-
-def clean_musicxml(input_xml):
-
-    """
-    MusicXML 清理
-    保留第一聲部
-    """
-
-    score = converter.parse(
-        input_xml
-    )
-
-
-    # 多聲部只留第一個
-    if len(score.parts) > 1:
-
-        score = score.parts[0]
-
-
-    output_xml = (
-        "/tmp/"
-        + str(uuid.uuid4())
-        + "_clean.musicxml"
-    )
-
-
-    score.write(
-        "musicxml",
-        fp=output_xml
-    )
-
-
-    return output_xml
-
-
+from extract_melody import extract_melody
 
 
 
 def convert_musicxml(xml_file):
 
+
     uid = str(uuid.uuid4())
 
 
-    temp_dir = "/tmp"
+    work = "/tmp"
 
 
-    clean_xml = (
-        f"{temp_dir}/{uid}_clean.musicxml"
+    melody_xml = os.path.join(
+        work,
+        uid + "_melody.musicxml"
     )
 
 
-    ly_file = (
-        f"{temp_dir}/{uid}.ly"
+    # 先抽主旋律
+    extract_melody(
+        xml_file,
+        melody_xml
     )
-
-
-    pdf_file = (
-        f"{temp_dir}/{uid}.pdf"
-    )
-
 
 
     print(
-        "INPUT XML:",
-        xml_file
+        "Melody XML:",
+        melody_xml
+    )
+
+
+    ly_file = os.path.join(
+        work,
+        uid + ".ly"
+    )
+
+
+    pdf_file = os.path.join(
+        work,
+        "jianpu.pdf"
     )
 
 
 
-    # =====================
-    # 1. MusicXML 清理
-    # =====================
+    # MusicXML → jianpu ly
 
-    try:
-
-        clean_xml = clean_musicxml(
-            xml_file
-        )
-
-
-        print(
-            "CLEAN XML:",
-            clean_xml
-        )
+    cmd = [
+        "python",
+        "-m",
+        "jianpu_ly",
+        melody_xml
+    ]
 
 
-    except Exception as e:
-
-        raise Exception(
-            "MusicXML clean failed: "
-            + str(e)
-        )
-
-
-
-    # =====================
-    # 2. jianpu_ly
-    # =====================
-
-    try:
-
-        with open(
-            ly_file,
-            "w",
-            encoding="utf-8"
-        ) as f:
+    result = subprocess.run(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True
+    )
 
 
-            result = subprocess.run(
-                [
-                    "python",
-                    "-m",
-                    "jianpu_ly",
-                    clean_xml
-                ],
-                stdout=f,
-                stderr=subprocess.PIPE,
-                text=True
-            )
+    if result.returncode != 0:
 
-
-        if result.returncode != 0:
-
-            print(
-                result.stderr
-            )
-
-            raise Exception(
-                "jianpu_ly failed"
-            )
-
-
-        print(
-            "LY:",
-            ly_file
-        )
-
-
-    except Exception as e:
+        print(result.stderr)
 
         raise Exception(
-            str(e)
+            "jianpu_ly failed"
         )
 
 
 
-    # =====================
-    # 3. LilyPond PDF
-    # =====================
+    with open(
+        ly_file,
+        "w",
+        encoding="utf-8"
+    ) as f:
 
-    try:
-
-        result = subprocess.run(
-            [
-                "lilypond",
-                "-o",
-                pdf_file.replace(
-                    ".pdf",
-                    ""
-                ),
-                ly_file
-            ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
-        )
+        f.write(result.stdout)
 
 
-        if result.returncode != 0:
 
-            print(
-                result.stderr
-            )
+    # Lilypond PDF
 
-            raise Exception(
-                "lilypond failed"
-            )
-
-
-        print(
-            "PDF:",
-            pdf_file
-        )
+    lilypond = [
+        "lilypond",
+        "-o",
+        "/tmp/" + uid,
+        ly_file
+    ]
 
 
-    except Exception as e:
+    r = subprocess.run(
+        lilypond,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True
+    )
+
+
+    if r.returncode != 0:
+
+        print(r.stderr)
 
         raise Exception(
-            str(e)
+            "lilypond failed"
         )
 
 
 
-    return pdf_file
+    generated_pdf = "/tmp/" + uid + ".pdf"
+
+
+    return generated_pdf
