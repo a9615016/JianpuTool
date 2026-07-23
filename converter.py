@@ -1,155 +1,94 @@
 import os
 import subprocess
-import glob
-import shutil
-
-
-LILYPOND = r"C:\lilypond-2.26.0\bin\lilypond.exe"
+import tempfile
 
 
 def convert_musicxml(musicxml_file):
 
-    print("==============================")
-    print("開始轉換")
-    print(musicxml_file)
-    print("==============================")
+    # Render Linux / Windows 都支援
+    temp_dir = tempfile.gettempdir()
 
-
-    base = os.path.splitext(
+    filename = os.path.splitext(
         os.path.basename(musicxml_file)
     )[0]
 
 
-    folder = os.path.dirname(
-        musicxml_file
-    )
-
-
+    # 輸出 ly
     ly_file = os.path.join(
-        folder,
-        base + "_jianpu.ly"
+        temp_dir,
+        filename + "_jianpu.ly"
     )
 
 
     pdf_file = os.path.join(
-        folder,
-        base + ".pdf"
+        temp_dir,
+        filename + "_jianpu.pdf"
     )
 
 
-    #
-    # 1. MusicXML → LilyPond
-    #
-    print("產生 LilyPond 檔...")
+    print("MusicXML:", musicxml_file)
+    print("LY:", ly_file)
 
 
-    cmd = [
-        "python",
-        "-m",
-        "jianpu_ly",
-        musicxml_file
-    ]
+    # MusicXML → jianpu ly
+    with open(
+        ly_file,
+        "w",
+        encoding="utf-8"
+    ) as f:
 
-
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="ignore"
-    )
-
-
-    print(result.stdout)
-    print(result.stderr)
-
-
-    #
-    # jianpu_ly 新版會輸出 Temp
-    #
-    temp_files = glob.glob(
-        os.path.join(
-            os.environ.get("TEMP", "/tmp")
-            "*.ly"
-        )
-    )
-
-
-    newest = None
-
-    if temp_files:
-
-        newest = max(
-            temp_files,
-            key=os.path.getmtime
+        result = subprocess.run(
+            [
+                "python",
+                "-m",
+                "jianpu_ly",
+                musicxml_file
+            ],
+            stdout=f,
+            stderr=subprocess.PIPE,
+            text=True
         )
 
 
-    if newest and os.path.getsize(newest) > 0:
-
-        shutil.copy(
-            newest,
-            ly_file
-        )
-
-    else:
-
-        # 舊版 fallback
-        with open(
-            ly_file,
-            "w",
-            encoding="utf-8"
-        ) as f:
-
-            f.write(
-                result.stdout
-            )
-
-
-    if not os.path.exists(ly_file):
+    if result.returncode != 0:
 
         raise Exception(
-            "沒有產生 LilyPond 檔"
+            "jianpu_ly error:\n"
+            + result.stderr
         )
 
 
-    print(
-        "完成:",
-        ly_file
-    )
+    # LilyPond → PDF
 
-
-    #
-    # 2. LilyPond → PDF
-    #
-    print("開始產生 PDF...")
-
-
-    subprocess.run(
+    result = subprocess.run(
         [
-            LILYPOND,
+            "lilypond",
             "-o",
-            os.path.join(folder, base),
+            os.path.join(
+                temp_dir,
+                filename + "_jianpu"
+            ),
             ly_file
         ],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="ignore"
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True
     )
+
+
+    if result.returncode != 0:
+
+        raise Exception(
+            "lilypond error:\n"
+            + result.stderr
+        )
 
 
     if not os.path.exists(pdf_file):
 
         raise Exception(
-            "沒有產生 PDF"
+            "PDF not generated"
         )
-
-
-    print(
-        "完成 PDF:",
-        pdf_file
-    )
 
 
     return pdf_file
