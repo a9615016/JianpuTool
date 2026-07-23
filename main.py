@@ -1,10 +1,13 @@
 from fastapi import FastAPI, UploadFile, File
 from fastapi.responses import FileResponse
 import shutil
-import os
 import uuid
+import os
 
 from converter import convert_musicxml
+
+
+print("MAIN VERSION WITH CONVERT")
 
 
 app = FastAPI()
@@ -21,8 +24,15 @@ def home():
     }
 
 
+@app.get("/test")
+def test():
+    return {
+        "message": "new main.py"
+    }
 
-# MusicXML → PDF
+
+
+# MusicXML → Jianpu PDF
 @app.post("/convert")
 async def convert(file: UploadFile = File(...)):
 
@@ -39,10 +49,16 @@ async def convert(file: UploadFile = File(...)):
         )
 
 
-    result = convert_musicxml(
+    print("MusicXML:", musicxml_path)
+
+
+    convert_musicxml(
         musicxml_path,
         pdf_path
     )
+
+
+    print("PDF:", pdf_path)
 
 
     return FileResponse(
@@ -53,7 +69,7 @@ async def convert(file: UploadFile = File(...)):
 
 
 
-# MIDI → PDF
+# MIDI → MusicXML → Jianpu PDF
 @app.post("/midi")
 async def midi_convert(file: UploadFile = File(...)):
 
@@ -64,17 +80,23 @@ async def midi_convert(file: UploadFile = File(...)):
     pdf_path = f"/tmp/{uid}.pdf"
 
 
-    with open(midi_path,"wb") as buffer:
+    with open(midi_path, "wb") as buffer:
         shutil.copyfileobj(
             file.file,
             buffer
         )
 
 
+    print("MIDI:", midi_path)
+
+
     # MIDI → MusicXML
     from music21 import converter
 
-    score = converter.parse(midi_path)
+    score = converter.parse(
+        midi_path
+    )
+
 
     score.write(
         "musicxml",
@@ -82,7 +104,6 @@ async def midi_convert(file: UploadFile = File(...)):
     )
 
 
-    print("MIDI:", midi_path)
     print("MusicXML:", musicxml_path)
 
 
