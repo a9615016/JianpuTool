@@ -1,12 +1,10 @@
-```python
+
 from fastapi import FastAPI, UploadFile, File
 from fastapi.responses import FileResponse, HTMLResponse
-import os
-import tempfile
 from pathlib import Path
+import tempfile
 
 from music21 import converter as music_converter
-
 from converter import convert_musicxml
 
 
@@ -17,6 +15,9 @@ app = FastAPI()
 def home():
 
     return HTMLResponse("""
+    <html>
+    <body>
+
     <h1>JianpuTool</h1>
 
     <h2>MIDI → 簡譜 PDF</h2>
@@ -24,13 +25,27 @@ def home():
     <form action="/midi" method="post" enctype="multipart/form-data">
 
         <input type="file" name="file">
-
         <button type="submit">
-        Convert
+            Convert MIDI
         </button>
 
     </form>
 
+
+    <h2>MusicXML → 簡譜 PDF</h2>
+
+    <form action="/musicxml" method="post" enctype="multipart/form-data">
+
+        <input type="file" name="file">
+        <button type="submit">
+            Convert MusicXML
+        </button>
+
+    </form>
+
+
+    </body>
+    </html>
     """)
 
 
@@ -40,14 +55,12 @@ async def midi(file: UploadFile = File(...)):
 
     try:
 
-        # 暫存 MIDI
-        temp_dir = tempfile.gettempdir()
+        temp = tempfile.gettempdir()
 
-        midi_path = Path(temp_dir) / file.filename
+        midi_path = Path(temp) / file.filename
 
 
         with open(midi_path, "wb") as f:
-
             f.write(await file.read())
 
 
@@ -55,7 +68,7 @@ async def midi(file: UploadFile = File(...)):
 
 
 
-        # MIDI -> MusicXML
+        # MIDI → MusicXML
 
         score = music_converter.parse(
             str(midi_path)
@@ -63,7 +76,7 @@ async def midi(file: UploadFile = File(...)):
 
 
         musicxml_path = (
-            Path(temp_dir)
+            Path(temp)
             /
             (midi_path.stem + ".musicxml")
         )
@@ -75,24 +88,18 @@ async def midi(file: UploadFile = File(...)):
         )
 
 
-        print(
-            "MusicXML:",
-            musicxml_path
-        )
+        print("MusicXML:", musicxml_path)
 
 
 
-        # MusicXML -> Jianpu PDF
+        # MusicXML → PDF
 
         pdf = convert_musicxml(
             str(musicxml_path)
         )
 
 
-        print(
-            "PDF:",
-            pdf
-        )
+        print("PDF:", pdf)
 
 
         return FileResponse(
@@ -104,10 +111,9 @@ async def midi(file: UploadFile = File(...)):
 
     except Exception as e:
 
-        print("===================")
-        print("MIDI ERROR")
+        print("====== MIDI ERROR ======")
         print(e)
-        print("===================")
+        print("========================")
 
         return {
             "error": str(e)
@@ -120,14 +126,17 @@ async def musicxml(file: UploadFile = File(...)):
 
     try:
 
-        temp_dir = tempfile.gettempdir()
+        temp = tempfile.gettempdir()
 
-        xml_path = Path(temp_dir) / file.filename
+        xml_path = Path(temp) / file.filename
 
 
-        with open(xml_path,"wb") as f:
-
+        with open(xml_path, "wb") as f:
             f.write(await file.read())
+
+
+        print("MusicXML:", xml_path)
+
 
 
         pdf = convert_musicxml(
@@ -144,10 +153,11 @@ async def musicxml(file: UploadFile = File(...)):
 
     except Exception as e:
 
-        print("MUSICXML ERROR")
+        print("====== MUSICXML ERROR ======")
         print(e)
+        print("============================")
 
         return {
             "error": str(e)
         }
-```
+
