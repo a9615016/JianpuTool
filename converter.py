@@ -1,99 +1,159 @@
-print("converter version test")
 import os
 import subprocess
 import tempfile
-from pathlib import Path
+import uuid
 
 
-def convert_musicxml(musicxml_file):
-
-    try:
-
-        # Render Linux 沒有 TEMP
-        temp_dir = tempfile.gettempdir()
-
-        input_file = Path(musicxml_file)
-
-        name = input_file.stem
-
-        ly_file = Path(temp_dir) / f"{name}.ly"
-        pdf_file = Path(temp_dir) / f"{name}.pdf"
+LILYPOND = "lilypond"
 
 
-        # MusicXML -> LilyPond
-        cmd1 = [
-            "python",
-            "-m",
-            "jianpu_ly",
-            str(input_file)
-        ]
+def convert_musicxml(xml_file):
 
+    uid = str(uuid.uuid4())
+
+    # Windows / Linux 自動判斷
+    temp_dir = tempfile.gettempdir()
+
+    work_dir = os.path.join(
+        temp_dir,
+        "jianputool_" + uid
+    )
+
+    os.makedirs(
+        work_dir,
+        exist_ok=True
+    )
+
+
+    print("WORK DIR:", work_dir)
+
+
+    ly_file = os.path.join(
+        work_dir,
+        "output.ly"
+    )
+
+    pdf_file = os.path.join(
+        work_dir,
+        "output.pdf"
+    )
+
+
+    #
+    # MusicXML → jianpu.ly
+    #
+    print("Running jianpu_ly...")
+
+
+    with open(
+        ly_file,
+        "w",
+        encoding="utf-8"
+    ) as f:
 
         result = subprocess.run(
-            cmd1,
-            capture_output=True,
+            [
+                "python",
+                "-m",
+                "jianpu_ly",
+                xml_file
+            ],
+            stdout=f,
+            stderr=subprocess.PIPE,
             text=True
         )
 
 
-        if result.returncode != 0:
-            raise Exception(
-                "jianpu-ly error:\n"
-                + result.stderr
-            )
+    if result.returncode != 0:
+
+        print(result.stderr)
+
+        raise Exception(
+            "jianpu_ly failed"
+        )
 
 
-        # 寫入 ly
-        with open(
-            ly_file,
-            "w",
-            encoding="utf-8"
-        ) as f:
-
-            f.write(result.stdout)
+    print("LY generated:", ly_file)
 
 
 
-        # LilyPond -> PDF
+    #
+    # 修正 LilyPond tempo
+    #
+    with open(
+        ly_file,
+        "r",
+        encoding="utf-8"
+    ) as f:
 
-        cmd2 = [
-            "lilypond",
-            "-fpdf",
+        ly = f.read()
+
+
+    ly = ly.replace(
+        "tempoWholesPerMinute = #(ly:make-moment 84 4)",
+        "tempoWholesPerMinute = #84"
+    )
+
+
+    with open(
+        ly_file,
+        "w",
+        encoding="utf-8"
+    ) as f:
+
+        f.write(ly)
+
+
+
+    #
+    # LilyPond PDF
+    #
+    print("Running LilyPond...")
+
+
+    result = subprocess.run(
+        [
+            LILYPOND,
+            "--pdf",
             "-o",
-            str(pdf_file.with_suffix("")),
-            str(ly_file)
-        ]
+            work_dir,
+            ly_file
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True
+    )
 
 
-        result2 = subprocess.run(
-            cmd2,
-            capture_output=True,
-            text=True
+    if result.returncode != 0:
+
+        print(result.stderr)
+
+        raise Exception(
+            "LilyPond failed"
         )
 
 
-        if result2.returncode != 0:
-
-            raise Exception(
-                "LilyPond error:\n"
-                + result2.stderr
-            )
-
-
-        if not pdf_file.exists():
-
-            raise Exception(
-                "PDF沒有產生"
-            )
+    #
+    # 找 PDF
+    #
+    generated_pdf = os.path.join(
+        work_dir,
+        "output.pdf"
+    )
 
 
-        return str(pdf_file)
+    if not os.path.exists(generated_pdf):
+
+        raise Exception(
+            "PDF not generated"
+        )
 
 
-    except Exception as e:
+    print(
+        "PDF OK:",
+        generated_pdf
+    )
 
-        print("CONVERTER ERROR:")
-        print(e)
 
-        raise e
-
+    return generated_pdf
