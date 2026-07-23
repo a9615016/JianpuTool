@@ -1,7 +1,10 @@
 from fastapi import FastAPI, UploadFile, File
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, FileResponse
 import shutil
 import os
+import uuid
+
+from converter import midi_to_pdf
 
 
 app = FastAPI()
@@ -64,6 +67,7 @@ def status():
     }
 
 
+
 @app.post("/midi")
 async def midi(
     file: UploadFile = File(...)
@@ -74,10 +78,23 @@ async def midi(
         exist_ok=True
     )
 
-    path = "uploads/" + file.filename
+
+    filename = (
+        str(uuid.uuid4())
+        + ".mid"
+    )
 
 
-    with open(path, "wb") as f:
+    midi_path = os.path.join(
+        "uploads",
+        filename
+    )
+
+
+    with open(
+        midi_path,
+        "wb"
+    ) as f:
 
         shutil.copyfileobj(
             file.file,
@@ -85,7 +102,22 @@ async def midi(
         )
 
 
-    return {
-        "message": "MIDI upload OK",
-        "file": file.filename
-    }
+    try:
+
+        pdf_path = midi_to_pdf(
+            midi_path
+        )
+
+
+        return FileResponse(
+            pdf_path,
+            media_type="application/pdf",
+            filename="jianpu.pdf"
+        )
+
+
+    except Exception as e:
+
+        return {
+            "error": str(e)
+        }
