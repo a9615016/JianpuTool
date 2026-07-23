@@ -3,5 +3,5 @@ uvicorn
 python-multipart
 music21
 lxml
-jianpu_ly
+jianpu-ly
 # update
