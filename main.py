@@ -5,8 +5,9 @@ import uuid
 import os
 
 from converter import convert_musicxml
-from music21 import converter as m21converter
 
+
+print("MAIN VERSION MIDI + MUSICXML CLEAN")
 
 app = FastAPI()
 
@@ -15,7 +16,11 @@ app = FastAPI()
 def home():
 
     if os.path.exists("static/index.html"):
-        with open("static/index.html", encoding="utf-8") as f:
+        with open(
+            "static/index.html",
+            "r",
+            encoding="utf-8"
+        ) as f:
             return HTMLResponse(f.read())
 
     return {
@@ -28,53 +33,53 @@ def home():
 
 
 
+@app.get("/test")
+def test():
+    return {
+        "message": "server ok"
+    }
+
+
+
 # =========================
-# MusicXML → 主旋律 → Jianpu PDF
+# MusicXML → Jianpu PDF
 # =========================
+
 @app.post("/convert")
-async def convert(file: UploadFile = File(...)):
+async def convert(
+    file: UploadFile = File(...)
+):
 
     uid = str(uuid.uuid4())
 
-    input_xml = f"/tmp/{uid}.musicxml"
-    clean_xml = f"/tmp/{uid}_melody.musicxml"
+    xml_file = f"/tmp/{uid}.musicxml"
 
 
-    with open(input_xml, "wb") as buffer:
+    with open(xml_file,"wb") as buffer:
         shutil.copyfileobj(
             file.file,
             buffer
         )
 
 
-    print("Input XML:", input_xml)
-
-
-    # 讀取 MusicXML
-    score = m21converter.parse(input_xml)
-
-
-    # 只取第一個 part (主旋律)
-    melody = score.parts[0]
-
-
-    melody_score = melody.makeMeasures()
-
-
-    melody_score.write(
-        "musicxml",
-        fp=clean_xml
+    print(
+        "MusicXML:",
+        xml_file
     )
 
 
-    print("Clean XML:", clean_xml)
+    try:
+
+        pdf = convert_musicxml(
+            xml_file
+        )
 
 
+    except Exception as e:
 
-    # MusicXML → Jianpu PDF
-    pdf = convert_musicxml(
-        clean_xml
-    )
+        return {
+            "error": str(e)
+        }
 
 
     return FileResponse(
@@ -86,52 +91,73 @@ async def convert(file: UploadFile = File(...)):
 
 
 
-
 # =========================
 # MIDI → MusicXML → Jianpu
 # =========================
+
 @app.post("/midi")
-async def midi_convert(file: UploadFile = File(...)):
+async def midi_convert(
+    file: UploadFile = File(...)
+):
 
     uid = str(uuid.uuid4())
 
 
-    midi = f"/tmp/{uid}.mid"
-    xml = f"/tmp/{uid}.musicxml"
+    midi_file = f"/tmp/{uid}.mid"
+    xml_file = f"/tmp/{uid}.musicxml"
 
 
-    with open(midi,"wb") as buffer:
+    with open(midi_file,"wb") as buffer:
         shutil.copyfileobj(
             file.file,
             buffer
         )
 
 
-    print("MIDI:", midi)
-
-
-    score = m21converter.parse(
-        midi
+    print(
+        "MIDI:",
+        midi_file
     )
 
 
-    # 取主旋律
-    melody = score.parts[0]
+    try:
+
+        from music21 import converter
 
 
-    melody.write(
-        "musicxml",
-        fp=xml
-    )
+        score = converter.parse(
+            midi_file
+        )
 
 
-    print("XML:", xml)
+        # 只保留第一個旋律 Part
+        if len(score.parts) > 1:
+            score = score.parts[0]
 
 
+        score.write(
+            "musicxml",
+            fp=xml_file
+        )
 
-    pdf = convert_musicxml(
-        xml
-    )
+
+        print(
+            "MusicXML:",
+            xml_file
+        )
+
+
+        pdf = convert_musicxml(
+            xml_file
+        )
+
+
+    except Exception as e:
+
+        return {
+            "error": str(e)
+        }
+
 
 
     return FileResponse(
