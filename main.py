@@ -4,6 +4,8 @@ import subprocess
 import uuid
 import os
 import glob
+import music21
+
 
 app = FastAPI()
 
@@ -12,7 +14,10 @@ app = FastAPI()
 def home():
     return {
         "status": "JianpuTool running",
-        "api": ["/convert"]
+        "api": [
+            "/convert",
+            "/midi"
+        ]
     }
 
 
@@ -23,40 +28,17 @@ def status():
     }
 
 
-@app.post("/convert")
-async def convert(file: UploadFile = File(...)):
 
-    # 建立工作資料夾
-    job_id = str(uuid.uuid4())
+# ==========================
+# 共用：MusicXML -> PDF
+# ==========================
 
-    work_dir = os.path.join(
-        "outputs",
-        job_id
-    )
-
-    os.makedirs(
-        work_dir,
-        exist_ok=True
-    )
-
-
-    musicxml_file = os.path.join(
-        work_dir,
-        "input.musicxml"
-    )
+def musicxml_to_pdf(musicxml_file, work_dir):
 
     ly_file = os.path.join(
         work_dir,
         "input.ly"
     )
-
-
-    # 儲存上傳 MusicXML
-    with open(
-        musicxml_file,
-        "wb"
-    ) as f:
-        f.write(await file.read())
 
 
     # MusicXML -> LilyPond
@@ -80,20 +62,10 @@ async def convert(file: UploadFile = File(...)):
 
 
     if result.returncode != 0:
-        return {
-            "error": "jianpu_ly failed",
-            "detail": result.stderr
-        }
+        return None, result.stderr
 
 
-    # 確認 ly
-    if not os.path.exists(ly_file):
-        return {
-            "error": "input.ly not created"
-        }
-
-
-    # LilyPond -> PDF
+    # LilyPond PDF
     result = subprocess.run(
         [
             "lilypond",
@@ -107,13 +79,10 @@ async def convert(file: UploadFile = File(...)):
 
 
     if result.returncode != 0:
-        return {
-            "error": "lilypond failed",
-            "detail": result.stdout
-        }
+        return None, result.stdout
 
 
-    # 搜尋 PDF
+
     pdf_files = glob.glob(
         os.path.join(
             work_dir,
@@ -123,20 +92,166 @@ async def convert(file: UploadFile = File(...)):
 
 
     if not pdf_files:
+        return None, "PDF not found"
+
+
+    return pdf_files[0], None
+
+
+
+
+
+# ==========================
+# MusicXML 上傳
+# ==========================
+
+@app.post("/convert")
+async def convert(
+    file: UploadFile = File(...)
+):
+
+    job_id = str(uuid.uuid4())
+
+    work_dir = os.path.join(
+        "outputs",
+        job_id
+    )
+
+    os.makedirs(
+        work_dir,
+        exist_ok=True
+    )
+
+
+    musicxml_file = os.path.join(
+        work_dir,
+        "input.musicxml"
+    )
+
+
+    with open(
+        musicxml_file,
+        "wb"
+    ) as f:
+
+        f.write(
+            await file.read()
+        )
+
+
+    pdf_file, error = musicxml_to_pdf(
+        musicxml_file,
+        work_dir
+    )
+
+
+    if error:
         return {
-            "error": "PDF not generated",
-            "files": os.listdir(work_dir)
+            "error": error
         }
 
 
-    pdf_file = pdf_files[0]
+    return FileResponse(
+        path=pdf_file,
+        filename="jianpu.pdf",
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition":
+            "attachment; filename=jianpu.pdf"
+        }
+    )
 
 
-    print("下載 PDF:", pdf_file)
-    print("PDF存在:", os.path.exists(pdf_file))
 
 
-    # 強制下載
+
+# ==========================
+# MIDI 上傳
+# ==========================
+
+@app.post("/midi")
+async def midi_convert(
+    file: UploadFile = File(...)
+):
+
+    job_id = str(uuid.uuid4())
+
+
+    work_dir = os.path.join(
+        "outputs",
+        job_id
+    )
+
+
+    os.makedirs(
+        work_dir,
+        exist_ok=True
+    )
+
+
+    midi_file = os.path.join(
+        work_dir,
+        "input.mid"
+    )
+
+
+    musicxml_file = os.path.join(
+        work_dir,
+        "input.musicxml"
+    )
+
+
+    # 儲存 MIDI
+
+    with open(
+        midi_file,
+        "wb"
+    ) as f:
+
+        f.write(
+            await file.read()
+        )
+
+
+    try:
+
+        # MIDI -> MusicXML
+
+        score = music21.converter.parse(
+            midi_file
+        )
+
+
+        score.write(
+            "musicxml",
+            fp=musicxml_file
+        )
+
+
+    except Exception as e:
+
+        return {
+            "error":
+            "MIDI convert failed",
+            "detail": str(e)
+        }
+
+
+
+    # MusicXML -> PDF
+
+    pdf_file, error = musicxml_to_pdf(
+        musicxml_file,
+        work_dir
+    )
+
+
+    if error:
+        return {
+            "error": error
+        }
+
+
     return FileResponse(
         path=pdf_file,
         filename="jianpu.pdf",
