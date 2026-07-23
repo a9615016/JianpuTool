@@ -21,40 +21,39 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 @app.get("/", response_class=HTMLResponse)
 def home():
 
-    return HTMLResponse(
-        """
-        <html>
-        <head>
-            <meta charset="utf-8">
-            <title>JianpuTool</title>
-        </head>
+    return HTMLResponse("""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <title>JianpuTool</title>
+    </head>
 
-        <body>
+    <body>
 
-        <h1>🎵 JianpuTool</h1>
+    <h1>🎵 JianpuTool</h1>
 
-        <h2>MIDI → 簡譜 PDF</h2>
+    <h2>MIDI → 簡譜 PDF</h2>
 
-        <form action="/midi"
-              method="post"
-              enctype="multipart/form-data">
+    <form action="/midi"
+          method="post"
+          enctype="multipart/form-data">
 
-            <input type="file"
-                   name="file"
-                   accept=".mid,.midi">
+        <input type="file"
+               name="file"
+               accept=".mid,.midi">
 
-            <br><br>
+        <br><br>
 
-            <button type="submit">
-                產生簡譜 PDF
-            </button>
+        <button type="submit">
+            產生簡譜 PDF
+        </button>
 
-        </form>
+    </form>
 
-        </body>
-        </html>
-        """
-    )
+    </body>
+    </html>
+    """)
 
 
 
@@ -75,9 +74,9 @@ async def midi(file: UploadFile = File(...)):
 
     try:
 
-        # =====================
+        # ======================
         # 儲存 MIDI
-        # =====================
+        # ======================
 
         midi_name = str(uuid.uuid4()) + ".mid"
 
@@ -98,9 +97,9 @@ async def midi(file: UploadFile = File(...)):
 
 
 
-        # =====================
+        # ======================
         # MIDI → MusicXML
-        # =====================
+        # ======================
 
         score = converter.parse(
             midi_path
@@ -126,9 +125,9 @@ async def midi(file: UploadFile = File(...)):
 
 
 
-        # =====================
+        # ======================
         # MusicXML → jianpu ly
-        # =====================
+        # ======================
 
         ly_name = xml_name.replace(
             ".musicxml",
@@ -142,44 +141,79 @@ async def midi(file: UploadFile = File(...)):
         )
 
 
+        jianpu_result = subprocess.run(
+            [
+                "python",
+                "-m",
+                "jianpu_ly",
+                xml_path
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+
+
+        if jianpu_result.returncode != 0:
+
+            return {
+                "status": "jianpu_ly error",
+                "error": jianpu_result.stderr.decode(
+                    "utf-8",
+                    errors="ignore"
+                )
+            }
+
+
         with open(
             ly_path,
-            "w",
-            encoding="utf-8"
+            "wb"
         ) as f:
 
-            subprocess.run(
-                [
-                    "python",
-                    "-m",
-                    "jianpu_ly",
-                    xml_path
-                ],
-                stdout=f,
-                stderr=subprocess.PIPE,
-                check=True
+            f.write(
+                jianpu_result.stdout
             )
 
 
 
-        # =====================
+        # ======================
         # LilyPond → PDF
-        # =====================
+        # ======================
 
-        subprocess.run(
+        lily_result = subprocess.run(
             [
                 "lilypond",
                 "-o",
                 ".",
-                os.path.basename(ly_path)
+                ly_name
             ],
             cwd=OUTPUT_DIR,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            check=True
+            stderr=subprocess.PIPE
         )
 
 
+        if lily_result.returncode != 0:
+
+            return {
+
+                "status": "lilypond error",
+
+                "stdout": lily_result.stdout.decode(
+                    "utf-8",
+                    errors="ignore"
+                ),
+
+                "stderr": lily_result.stderr.decode(
+                    "utf-8",
+                    errors="ignore"
+                )
+            }
+
+
+
+        # ======================
+        # 回傳 PDF
+        # ======================
 
         pdf_name = ly_name.replace(
             ".ly",
@@ -193,9 +227,21 @@ async def midi(file: UploadFile = File(...)):
         )
 
 
-        # =====================
-        # 回傳 PDF
-        # =====================
+        if not os.path.exists(pdf_path):
+
+            return {
+
+                "status": "error",
+
+                "message": "PDF not generated",
+
+                "files": os.listdir(
+                    OUTPUT_DIR
+                )
+
+            }
+
+
 
         return FileResponse(
             pdf_path,
@@ -205,20 +251,12 @@ async def midi(file: UploadFile = File(...)):
 
 
 
-    except subprocess.CalledProcessError as e:
-
-        return {
-            "status": "command error",
-            "error": e.stderr.decode(
-                "utf-8",
-                errors="ignore"
-            )
-        }
-
-
     except Exception as e:
 
         return {
-            "status": "error",
+
+            "status": "python error",
+
             "error": str(e)
+
         }
