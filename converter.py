@@ -69,7 +69,7 @@ def convert_musicxml(musicxml_file):
     #
     temp_files = glob.glob(
         os.path.join(
-            os.environ["TEMP"],
+            os.environ.get("TEMP", "/tmp")
             "*.ly"
         )
     )
