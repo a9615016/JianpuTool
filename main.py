@@ -1,6 +1,7 @@
 from fastapi import FastAPI, UploadFile, File
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
+from melody_cleaner import extract_melody
 
 import shutil
 import uuid
@@ -88,7 +89,7 @@ async def convert(
     try:
 
         pdf = convert_musicxml(
-            xml_file
+             clean_xml
         )
 
 
