@@ -1,6 +1,5 @@
 fastapi
-uvicorn[standard]
+uvicorn
 python-multipart
 music21
-lxml
-jianpu-ly
+jianpu_ly
