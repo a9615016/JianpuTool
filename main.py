@@ -1,163 +1,123 @@
-
 from fastapi import FastAPI, UploadFile, File
 from fastapi.responses import FileResponse, HTMLResponse
-from pathlib import Path
-import tempfile
+import os
+import shutil
+import uuid
 
-from music21 import converter as music_converter
 from converter import convert_musicxml
 
-
-app = FastAPI()
+app = FastAPI(
+    title="JianpuTool",
+    description="MIDI / MusicXML → Jianpu PDF",
+    version="1.0"
+)
 
 
 @app.get("/")
 def home():
-
     return HTMLResponse("""
-    <html>
-    <body>
-
     <h1>JianpuTool</h1>
 
-    <h2>MIDI → 簡譜 PDF</h2>
-
+    <h2>MIDI → Jianpu PDF</h2>
     <form action="/midi" method="post" enctype="multipart/form-data">
-
-        <input type="file" name="file">
-        <button type="submit">
-            Convert MIDI
-        </button>
-
+        <input type="file" name="file" accept=".mid,.midi">
+        <button type="submit">Convert MIDI</button>
     </form>
 
+    <hr>
 
-    <h2>MusicXML → 簡譜 PDF</h2>
-
+    <h2>MusicXML → Jianpu PDF</h2>
     <form action="/musicxml" method="post" enctype="multipart/form-data">
-
-        <input type="file" name="file">
-        <button type="submit">
-            Convert MusicXML
-        </button>
-
+        <input type="file" name="file" accept=".musicxml,.xml">
+        <button type="submit">Convert MusicXML</button>
     </form>
-
-
-    </body>
-    </html>
     """)
 
 
+# =========================
+# MIDI 上傳
+# =========================
 
 @app.post("/midi")
-async def midi(file: UploadFile = File(...)):
+async def midi_convert(file: UploadFile = File(...)):
 
-    try:
+    work = "/tmp"
 
-        temp = tempfile.gettempdir()
+    uid = str(uuid.uuid4())
 
-        midi_path = Path(temp) / file.filename
+    midi_path = os.path.join(
+        work,
+        uid + ".mid"
+    )
 
-
-        with open(midi_path, "wb") as f:
-            f.write(await file.read())
-
-
-        print("MIDI:", midi_path)
-
-
-
-        # MIDI → MusicXML
-
-        score = music_converter.parse(
-            str(midi_path)
-        )
+    musicxml_path = os.path.join(
+        work,
+        uid + ".musicxml"
+    )
 
 
-        musicxml_path = (
-            Path(temp)
-            /
-            (midi_path.stem + ".musicxml")
-        )
+    # 儲存 MIDI
+    with open(midi_path, "wb") as f:
+        shutil.copyfileobj(file.file, f)
 
 
-        score.write(
-            "musicxml",
-            fp=str(musicxml_path)
-        )
+    # MIDI → MusicXML
+    from music21 import converter
+
+    score = converter.parse(midi_path)
+
+    score.write(
+        "musicxml",
+        fp=musicxml_path
+    )
 
 
-        print("MusicXML:", musicxml_path)
+    # MusicXML → PDF
+    pdf = convert_musicxml(
+        musicxml_path
+    )
+
+
+    return FileResponse(
+        pdf,
+        media_type="application/pdf",
+        filename="jianpu.pdf"
+    )
 
 
 
-        # MusicXML → PDF
-
-        pdf = convert_musicxml(
-            str(musicxml_path)
-        )
-
-
-        print("PDF:", pdf)
-
-
-        return FileResponse(
-            pdf,
-            media_type="application/pdf",
-            filename="jianpu.pdf"
-        )
-
-
-    except Exception as e:
-
-        print("====== MIDI ERROR ======")
-        print(e)
-        print("========================")
-
-        return {
-            "error": str(e)
-        }
-
-
+# =========================
+# MusicXML 上傳
+# =========================
 
 @app.post("/musicxml")
-async def musicxml(file: UploadFile = File(...)):
+async def musicxml_convert(file: UploadFile = File(...)):
 
-    try:
+    work = "/tmp"
 
-        temp = tempfile.gettempdir()
+    uid = str(uuid.uuid4())
 
-        xml_path = Path(temp) / file.filename
-
-
-        with open(xml_path, "wb") as f:
-            f.write(await file.read())
-
-
-        print("MusicXML:", xml_path)
+    musicxml_path = os.path.join(
+        work,
+        uid + ".musicxml"
+    )
 
 
+    # 儲存 MusicXML
 
-        pdf = convert_musicxml(
-            str(xml_path)
-        )
-
-
-        return FileResponse(
-            pdf,
-            media_type="application/pdf",
-            filename="jianpu.pdf"
-        )
+    with open(musicxml_path, "wb") as f:
+        shutil.copyfileobj(file.file, f)
 
 
-    except Exception as e:
+    # MusicXML → PDF
 
-        print("====== MUSICXML ERROR ======")
-        print(e)
-        print("============================")
+    pdf = convert_musicxml(
+        musicxml_path
+    )
 
-        return {
-            "error": str(e)
-        }
 
+    return FileResponse(
+        pdf,
+        media_type="application/pdf",
+        filename="jianpu.pdf"
+    )
