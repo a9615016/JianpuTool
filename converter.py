@@ -5,20 +5,17 @@ import subprocess
 
 def convert_musicxml(input_file):
 
-    # Render Linux 暫存資料夾
     temp_dir = tempfile.gettempdir()
 
     print("TEMP DIR:", temp_dir)
 
 
-    # .ly 檔
     ly_file = os.path.join(
         temp_dir,
         "jianpu_output.ly"
     )
 
 
-    # PDF輸出
     pdf_file = os.path.join(
         temp_dir,
         "jianpu_output.pdf"
@@ -28,7 +25,7 @@ def convert_musicxml(input_file):
     try:
 
         # =========================
-        # MusicXML → LilyPond
+        # MusicXML → jianpu ly
         # =========================
 
         cmd1 = [
@@ -39,7 +36,11 @@ def convert_musicxml(input_file):
         ]
 
 
-        result = subprocess.run(
+        print("RUN:")
+        print(cmd1)
+
+
+        result1 = subprocess.run(
             cmd1,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -47,10 +48,15 @@ def convert_musicxml(input_file):
         )
 
 
-        if result.returncode != 0:
+        print("JIANPU-LY ERROR:")
+        print(result1.stderr)
+
+
+        if result1.returncode != 0:
+
             raise Exception(
-                "jianpu_ly error:\n"
-                + result.stderr
+                "jianpu-ly failed\n"
+                + result1.stderr
             )
 
 
@@ -60,11 +66,11 @@ def convert_musicxml(input_file):
             encoding="utf-8"
         ) as f:
 
-            f.write(result.stdout)
+            f.write(result1.stdout)
 
 
 
-        print("LY FILE:")
+        print("LY CREATED:")
         print(ly_file)
 
 
@@ -73,15 +79,22 @@ def convert_musicxml(input_file):
         # LilyPond → PDF
         # =========================
 
+        output_base = os.path.join(
+            temp_dir,
+            "jianpu_output"
+        )
+
+
         cmd2 = [
             "lilypond",
             "-o",
-            os.path.join(
-                temp_dir,
-                "jianpu_output"
-            ),
+            output_base,
             ly_file
         ]
+
+
+        print("RUN LILYPOND:")
+        print(cmd2)
 
 
         result2 = subprocess.run(
@@ -92,7 +105,15 @@ def convert_musicxml(input_file):
         )
 
 
+        print("================")
+        print("LILYPOND OUTPUT")
+        print("================")
         print(result2.stdout)
+
+
+        print("================")
+        print("LILYPOND ERROR")
+        print("================")
         print(result2.stderr)
 
 
@@ -100,7 +121,7 @@ def convert_musicxml(input_file):
         if not os.path.exists(pdf_file):
 
             raise Exception(
-                "LilyPond PDF產生失敗\n"
+                "PDF not created\n\n"
                 + result2.stderr
             )
 
@@ -112,9 +133,9 @@ def convert_musicxml(input_file):
 
     except Exception as e:
 
-        print(
-            "CONVERT ERROR:",
-            str(e)
-        )
+        print("================")
+        print("CONVERT ERROR")
+        print("================")
+        print(str(e))
 
         raise e
