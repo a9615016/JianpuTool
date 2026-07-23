@@ -4,14 +4,11 @@ import tempfile
 import uuid
 
 
-LILYPOND = "lilypond"
-
-
 def convert_musicxml(xml_file):
 
     uid = str(uuid.uuid4())
 
-    # Windows / Linux 自動判斷
+    # Windows / Linux 通用暫存路徑
     temp_dir = tempfile.gettempdir()
 
     work_dir = os.path.join(
@@ -30,26 +27,19 @@ def convert_musicxml(xml_file):
 
     ly_file = os.path.join(
         work_dir,
-        "output.ly"
-    )
-
-    pdf_file = os.path.join(
-        work_dir,
-        "output.pdf"
+        "jianpu.ly"
     )
 
 
-    #
-    # MusicXML → jianpu.ly
-    #
-    print("Running jianpu_ly...")
+    print("MusicXML -> Jianpu")
 
 
+    # MusicXML 轉 jianpu ly
     with open(
         ly_file,
         "w",
         encoding="utf-8"
-    ) as f:
+    ) as output:
 
         result = subprocess.run(
             [
@@ -58,7 +48,7 @@ def convert_musicxml(xml_file):
                 "jianpu_ly",
                 xml_file
             ],
-            stdout=f,
+            stdout=output,
             stderr=subprocess.PIPE,
             text=True
         )
@@ -69,27 +59,27 @@ def convert_musicxml(xml_file):
         print(result.stderr)
 
         raise Exception(
-            "jianpu_ly failed"
+            "jianpu_ly convert failed"
         )
 
 
-    print("LY generated:", ly_file)
+    print(
+        "LY created:",
+        ly_file
+    )
 
 
-
-    #
-    # 修正 LilyPond tempo
-    #
+    # 修正 LilyPond tempo 問題
     with open(
         ly_file,
         "r",
         encoding="utf-8"
     ) as f:
 
-        ly = f.read()
+        content = f.read()
 
 
-    ly = ly.replace(
+    content = content.replace(
         "tempoWholesPerMinute = #(ly:make-moment 84 4)",
         "tempoWholesPerMinute = #84"
     )
@@ -101,19 +91,17 @@ def convert_musicxml(xml_file):
         encoding="utf-8"
     ) as f:
 
-        f.write(ly)
+        f.write(content)
 
 
 
-    #
-    # LilyPond PDF
-    #
-    print("Running LilyPond...")
+    print("LilyPond PDF")
 
 
+    # Render Linux 使用 lilypond
     result = subprocess.run(
         [
-            LILYPOND,
+            "lilypond",
             "--pdf",
             "-o",
             work_dir,
@@ -134,16 +122,32 @@ def convert_musicxml(xml_file):
         )
 
 
-    #
-    # 找 PDF
-    #
-    generated_pdf = os.path.join(
+    pdf_file = os.path.join(
         work_dir,
-        "output.pdf"
+        "jianpu.pdf"
     )
 
 
-    if not os.path.exists(generated_pdf):
+    # 有些 LilyPond 會用 ly 名稱輸出
+    if not os.path.exists(pdf_file):
+
+        possible = os.path.join(
+            work_dir,
+            "jianpu.pdf"
+        )
+
+        if os.path.exists(possible):
+            pdf_file = possible
+
+
+    if not os.path.exists(pdf_file):
+
+        files = os.listdir(work_dir)
+
+        print(
+            "Files:",
+            files
+        )
 
         raise Exception(
             "PDF not generated"
@@ -151,9 +155,9 @@ def convert_musicxml(xml_file):
 
 
     print(
-        "PDF OK:",
-        generated_pdf
+        "PDF:",
+        pdf_file
     )
 
 
-    return generated_pdf
+    return pdf_file
