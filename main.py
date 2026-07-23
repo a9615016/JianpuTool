@@ -2,6 +2,7 @@ from fastapi import FastAPI, UploadFile, File
 from fastapi.responses import FileResponse
 import shutil
 import uuid
+import traceback
 
 from converter import convert_musicxml
 
@@ -35,35 +36,44 @@ def test():
 @app.post("/convert")
 async def convert(file: UploadFile = File(...)):
 
-    uid = str(uuid.uuid4())
+    try:
 
-    musicxml_path = f"/tmp/{uid}.musicxml"
+        uid = str(uuid.uuid4())
+
+        musicxml_path = f"/tmp/{uid}.musicxml"
 
 
-    with open(musicxml_path, "wb") as buffer:
-        shutil.copyfileobj(
-            file.file,
-            buffer
+        with open(musicxml_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+
+
+        print("MusicXML:", musicxml_path)
+
+
+        pdf_path = convert_musicxml(
+            musicxml_path
         )
 
 
-    print("MusicXML:", musicxml_path)
+        print("PDF:", pdf_path)
 
 
-    # converter.py 目前只需要一個參數
-    pdf_path = convert_musicxml(
-        musicxml_path
-    )
+        return FileResponse(
+            pdf_path,
+            media_type="application/pdf",
+            filename="jianpu.pdf"
+        )
 
 
-    print("PDF:", pdf_path)
+    except Exception:
+
+        traceback.print_exc()
+
+        return {
+            "error": "convert failed"
+        }
 
 
-    return FileResponse(
-        pdf_path,
-        media_type="application/pdf",
-        filename="jianpu.pdf"
-    )
 
 
 
@@ -71,50 +81,65 @@ async def convert(file: UploadFile = File(...)):
 @app.post("/midi")
 async def midi_convert(file: UploadFile = File(...)):
 
-    uid = str(uuid.uuid4())
+    try:
 
-    midi_path = f"/tmp/{uid}.mid"
-    musicxml_path = f"/tmp/{uid}.musicxml"
+        uid = str(uuid.uuid4())
+
+        midi_path = f"/tmp/{uid}.mid"
+        musicxml_path = f"/tmp/{uid}.musicxml"
 
 
-    with open(midi_path, "wb") as buffer:
-        shutil.copyfileobj(
-            file.file,
-            buffer
+        with open(midi_path, "wb") as buffer:
+            shutil.copyfileobj(
+                file.file,
+                buffer
+            )
+
+
+        print("MIDI:", midi_path)
+
+
+        from music21 import converter
+
+
+        score = converter.parse(
+            midi_path
         )
 
 
-    print("MIDI:", midi_path)
+        print("music21 OK")
 
 
-    # MIDI → MusicXML
-    from music21 import converter
-
-    score = converter.parse(
-        midi_path
-    )
+        score.write(
+            "musicxml",
+            fp=musicxml_path
+        )
 
 
-    score.write(
-        "musicxml",
-        fp=musicxml_path
-    )
+        print("MusicXML:", musicxml_path)
 
 
-    print("MusicXML:", musicxml_path)
+
+        pdf_path = convert_musicxml(
+            musicxml_path
+        )
 
 
-    # MusicXML → PDF
-    pdf_path = convert_musicxml(
-        musicxml_path
-    )
+        print("PDF:", pdf_path)
 
 
-    print("PDF:", pdf_path)
+
+        return FileResponse(
+            pdf_path,
+            media_type="application/pdf",
+            filename="jianpu.pdf"
+        )
 
 
-    return FileResponse(
-        pdf_path,
-        media_type="application/pdf",
-        filename="jianpu.pdf"
-    )
+    except Exception:
+
+        traceback.print_exc()
+
+        return {
+            "error": "midi convert failed"
+        }
