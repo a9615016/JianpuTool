@@ -1,13 +1,12 @@
 from fastapi import FastAPI, UploadFile, File
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse
 import shutil
 import uuid
-import os
 
 from converter import convert_musicxml
 
 
-print("MAIN VERSION MELODY MVP")
+print("MAIN VERSION MVP CLEAN")
 
 
 app = FastAPI()
@@ -15,7 +14,6 @@ app = FastAPI()
 
 @app.get("/")
 def home():
-
     return {
         "message": "JianpuTool MVP OK",
         "api": [
@@ -25,24 +23,16 @@ def home():
     }
 
 
-
-# =========================
 # MusicXML → Jianpu PDF
-# =========================
-
 @app.post("/convert")
-async def convert(
-    file: UploadFile = File(...)
-):
+async def convert(file: UploadFile = File(...)):
 
     uid = str(uuid.uuid4())
-
 
     xml_file = f"/tmp/{uid}.musicxml"
 
 
     with open(xml_file, "wb") as buffer:
-
         shutil.copyfileobj(
             file.file,
             buffer
@@ -52,17 +42,13 @@ async def convert(
     print("MusicXML:", xml_file)
 
 
-
-    # 先不抽取
-    # 直接轉換測試
-
+    # 直接轉換，不使用 clean_xml
     pdf_path = convert_musicxml(
         xml_file
     )
 
 
     print("PDF:", pdf_path)
-
 
 
     return FileResponse(
@@ -73,25 +59,17 @@ async def convert(
 
 
 
-# =========================
-# MIDI → MusicXML → Jianpu
-# =========================
-
+# MIDI → MusicXML → Jianpu PDF
 @app.post("/midi")
-async def midi_convert(
-    file: UploadFile = File(...)
-):
+async def midi_convert(file: UploadFile = File(...)):
 
     uid = str(uuid.uuid4())
 
-
     midi_file = f"/tmp/{uid}.mid"
-
-    musicxml_file = f"/tmp/{uid}.musicxml"
+    xml_file = f"/tmp/{uid}.musicxml"
 
 
     with open(midi_file, "wb") as buffer:
-
         shutil.copyfileobj(
             file.file,
             buffer
@@ -100,9 +78,6 @@ async def midi_convert(
 
     print("MIDI:", midi_file)
 
-
-
-    # MIDI → MusicXML
 
     from music21 import converter
 
@@ -114,23 +89,19 @@ async def midi_convert(
 
     score.write(
         "musicxml",
-        fp=musicxml_file
+        fp=xml_file
     )
 
 
-    print("MusicXML:", musicxml_file)
+    print("MusicXML:", xml_file)
 
-
-
-    # MusicXML → Jianpu PDF
 
     pdf_path = convert_musicxml(
-        musicxml_file
+        xml_file
     )
 
 
     print("PDF:", pdf_path)
-
 
 
     return FileResponse(
