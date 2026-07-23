@@ -1,262 +1,121 @@
 from fastapi import FastAPI, UploadFile, File
-from fastapi.responses import HTMLResponse, FileResponse
-import os
-import uuid
+from fastapi.responses import FileResponse
 import subprocess
-
-from music21 import converter
-
+import uuid
+import os
+import glob
 
 app = FastAPI()
 
 
-UPLOAD_DIR = "uploads"
-OUTPUT_DIR = "outputs"
-
-os.makedirs(UPLOAD_DIR, exist_ok=True)
-os.makedirs(OUTPUT_DIR, exist_ok=True)
-
-
-
-@app.get("/", response_class=HTMLResponse)
+@app.get("/")
 def home():
-
-    return HTMLResponse("""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset="utf-8">
-        <title>JianpuTool</title>
-    </head>
-
-    <body>
-
-    <h1>🎵 JianpuTool</h1>
-
-    <h2>MIDI → 簡譜 PDF</h2>
-
-    <form action="/midi"
-          method="post"
-          enctype="multipart/form-data">
-
-        <input type="file"
-               name="file"
-               accept=".mid,.midi">
-
-        <br><br>
-
-        <button type="submit">
-            產生簡譜 PDF
-        </button>
-
-    </form>
-
-    </body>
-    </html>
-    """)
-
+    return {
+        "status": "JianpuTool running",
+        "api": ["/convert"]
+    }
 
 
 @app.get("/status")
 def status():
-
     return {
-        "status": "JianpuTool running",
-        "api": [
-            "/midi"
-        ]
+        "status": "ok"
     }
 
 
+@app.post("/convert")
+async def convert(file: UploadFile = File(...)):
 
-@app.post("/midi")
-async def midi(file: UploadFile = File(...)):
+    # 建立工作資料夾
+    job_id = str(uuid.uuid4())
 
-    try:
+    work_dir = os.path.join(
+        "outputs",
+        job_id
+    )
 
-        # ======================
-        # 儲存 MIDI
-        # ======================
-
-        midi_name = str(uuid.uuid4()) + ".mid"
-
-        midi_path = os.path.join(
-            UPLOAD_DIR,
-            midi_name
-        )
-
-
-        with open(
-            midi_path,
-            "wb"
-        ) as f:
-
-            f.write(
-                await file.read()
-            )
+    os.makedirs(
+        work_dir,
+        exist_ok=True
+    )
 
 
+    musicxml_file = os.path.join(
+        work_dir,
+        "input.musicxml"
+    )
 
-        # ======================
-        # MIDI → MusicXML
-        # ======================
-
-        score = converter.parse(
-            midi_path
-        )
-
-
-        xml_name = midi_name.replace(
-            ".mid",
-            ".musicxml"
-        )
+    ly_file = os.path.join(
+        work_dir,
+        "input.ly"
+    )
 
 
-        xml_path = os.path.join(
-            OUTPUT_DIR,
-            xml_name
-        )
+    # 儲存 MusicXML
+    with open(musicxml_file, "wb") as f:
+        f.write(await file.read())
 
 
-        score.write(
-            "musicxml",
-            fp=xml_path
-        )
+    # MusicXML -> LilyPond
+    with open(
+        ly_file,
+        "w",
+        encoding="utf-8"
+    ) as out:
 
-
-
-        # ======================
-        # MusicXML → jianpu ly
-        # ======================
-
-        ly_name = xml_name.replace(
-            ".musicxml",
-            ".ly"
-        )
-
-
-        ly_path = os.path.join(
-            OUTPUT_DIR,
-            ly_name
-        )
-
-
-        jianpu_result = subprocess.run(
+        subprocess.run(
             [
                 "python",
                 "-m",
                 "jianpu_ly",
-                xml_path
+                musicxml_file
             ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE
+            stdout=out,
+            stderr=subprocess.STDOUT,
+            check=True
         )
 
 
-        if jianpu_result.returncode != 0:
-
-            return {
-                "status": "jianpu_ly error",
-                "error": jianpu_result.stderr.decode(
-                    "utf-8",
-                    errors="ignore"
-                )
-            }
+    # 檢查 ly
+    if not os.path.exists(ly_file):
+        return {
+            "error": "ly file not created"
+        }
 
 
-        with open(
-            ly_path,
-            "wb"
-        ) as f:
+    # LilyPond -> PDF
+    subprocess.run(
+        [
+            "lilypond",
+            "input.ly"
+        ],
+        cwd=work_dir,
+        check=True
+    )
 
-            f.write(
-                jianpu_result.stdout
-            )
 
-
-
-        # ======================
-        # LilyPond → PDF
-        # ======================
-
-        lily_result = subprocess.run(
-            [
-                "lilypond",
-                "-o",
-                ".",
-                ly_name
-            ],
-            cwd=OUTPUT_DIR,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE
+    # 找 PDF
+    pdf_files = glob.glob(
+        os.path.join(
+            work_dir,
+            "*.pdf"
         )
+    )
 
 
-        if lily_result.returncode != 0:
-
-            return {
-
-                "status": "lilypond error",
-
-                "stdout": lily_result.stdout.decode(
-                    "utf-8",
-                    errors="ignore"
-                ),
-
-                "stderr": lily_result.stderr.decode(
-                    "utf-8",
-                    errors="ignore"
-                )
-            }
-
-
-
-        # ======================
-        # 回傳 PDF
-        # ======================
-
-        pdf_name = ly_name.replace(
-            ".ly",
-            ".pdf"
-        )
-
-
-        pdf_path = os.path.join(
-            OUTPUT_DIR,
-            pdf_name
-        )
-
-
-        if not os.path.exists(pdf_path):
-
-            return {
-
-                "status": "error",
-
-                "message": "PDF not generated",
-
-                "files": os.listdir(
-                    OUTPUT_DIR
-                )
-
-            }
-
-
-
-        return FileResponse(
-            pdf_path,
-            media_type="application/pdf",
-            filename=pdf_name
-        )
-
-
-
-    except Exception as e:
+    if not pdf_files:
 
         return {
-
-            "status": "python error",
-
-            "error": str(e)
-
+            "error": "PDF not generated",
+            "files": os.listdir(work_dir)
         }
+
+
+    pdf_file = pdf_files[0]
+
+
+    return FileResponse(
+        pdf_file,
+        filename="jianpu.pdf",
+        media_type="application/pdf"
+    )
