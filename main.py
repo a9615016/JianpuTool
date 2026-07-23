@@ -2,12 +2,11 @@ from fastapi import FastAPI, UploadFile, File
 from fastapi.responses import FileResponse
 import shutil
 import uuid
-import os
 
 from converter import convert_musicxml
 
 
-print("MAIN VERSION WITH CONVERT")
+print("MAIN VERSION FINAL")
 
 
 app = FastAPI()
@@ -39,7 +38,6 @@ async def convert(file: UploadFile = File(...)):
     uid = str(uuid.uuid4())
 
     musicxml_path = f"/tmp/{uid}.musicxml"
-    pdf_path = f"/tmp/{uid}.pdf"
 
 
     with open(musicxml_path, "wb") as buffer:
@@ -52,9 +50,9 @@ async def convert(file: UploadFile = File(...)):
     print("MusicXML:", musicxml_path)
 
 
-    convert_musicxml(
-        musicxml_path,
-        pdf_path
+    # converter.py 目前只需要一個參數
+    pdf_path = convert_musicxml(
+        musicxml_path
     )
 
 
@@ -77,7 +75,6 @@ async def midi_convert(file: UploadFile = File(...)):
 
     midi_path = f"/tmp/{uid}.mid"
     musicxml_path = f"/tmp/{uid}.musicxml"
-    pdf_path = f"/tmp/{uid}.pdf"
 
 
     with open(midi_path, "wb") as buffer:
@@ -107,9 +104,9 @@ async def midi_convert(file: UploadFile = File(...)):
     print("MusicXML:", musicxml_path)
 
 
-    convert_musicxml(
-        musicxml_path,
-        pdf_path
+    # MusicXML → PDF
+    pdf_path = convert_musicxml(
+        musicxml_path
     )
 
 
