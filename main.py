@@ -1,145 +1,182 @@
 from fastapi import FastAPI, UploadFile, File
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
+
 import shutil
 import uuid
-import traceback
+import os
+import tempfile
+
 
 from converter import convert_musicxml
 
 
-print("MAIN VERSION FINAL")
+print("MAIN VERSION MVP WEB")
 
 
 app = FastAPI()
 
 
-@app.get("/")
+# static 網頁
+app.mount(
+    "/static",
+    StaticFiles(directory="static"),
+    name="static"
+)
+
+
+
+# 首頁
+@app.get("/", response_class=HTMLResponse)
 def home():
-    return {
-        "status": "JianpuTool running",
-        "api": [
-            "/convert",
-            "/midi"
-        ]
-    }
+
+    with open(
+        "static/index.html",
+        "r",
+        encoding="utf-8"
+    ) as f:
+        return f.read()
+
 
 
 @app.get("/test")
 def test():
+
     return {
-        "message": "new main.py"
+        "message": "JianpuTool MVP OK"
     }
 
 
 
+# ==========================
 # MusicXML → Jianpu PDF
+# ==========================
+
 @app.post("/convert")
-async def convert(file: UploadFile = File(...)):
+async def convert(
+    file: UploadFile = File(...)
+):
 
-    try:
-
-        uid = str(uuid.uuid4())
-
-        musicxml_path = f"/tmp/{uid}.musicxml"
+    uid = str(uuid.uuid4())
 
 
-        with open(musicxml_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+    xml_path = (
+        f"/tmp/{uid}.musicxml"
+    )
 
 
-        print("MusicXML:", musicxml_path)
+    with open(
+        xml_path,
+        "wb"
+    ) as buffer:
 
-
-        pdf_path = convert_musicxml(
-            musicxml_path
+        shutil.copyfileobj(
+            file.file,
+            buffer
         )
 
 
-        print("PDF:", pdf_path)
+    print(
+        "MusicXML:",
+        xml_path
+    )
 
 
-        return FileResponse(
-            pdf_path,
-            media_type="application/pdf",
-            filename="jianpu.pdf"
-        )
+    pdf_path = convert_musicxml(
+        xml_path
+    )
 
 
-    except Exception:
-
-        traceback.print_exc()
-
-        return {
-            "error": "convert failed"
-        }
+    print(
+        "PDF:",
+        pdf_path
+    )
 
 
+    return FileResponse(
+        pdf_path,
+        media_type="application/pdf",
+        filename="jianpu.pdf"
+    )
 
 
 
-# MIDI → MusicXML → Jianpu PDF
+# ==========================
+# MIDI → MusicXML → PDF
+# ==========================
+
 @app.post("/midi")
-async def midi_convert(file: UploadFile = File(...)):
+async def midi_convert(
+    file: UploadFile = File(...)
+):
 
-    try:
-
-        uid = str(uuid.uuid4())
-
-        midi_path = f"/tmp/{uid}.mid"
-        musicxml_path = f"/tmp/{uid}.musicxml"
+    uid = str(uuid.uuid4())
 
 
-        with open(midi_path, "wb") as buffer:
-            shutil.copyfileobj(
-                file.file,
-                buffer
-            )
+    midi_path = (
+        f"/tmp/{uid}.mid"
+    )
+
+    xml_path = (
+        f"/tmp/{uid}.musicxml"
+    )
 
 
-        print("MIDI:", midi_path)
+    with open(
+        midi_path,
+        "wb"
+    ) as buffer:
 
-
-        from music21 import converter
-
-
-        score = converter.parse(
-            midi_path
+        shutil.copyfileobj(
+            file.file,
+            buffer
         )
 
 
-        print("music21 OK")
+    print(
+        "MIDI:",
+        midi_path
+    )
 
 
-        score.write(
-            "musicxml",
-            fp=musicxml_path
-        )
+    # MIDI → MusicXML
+
+    from music21 import converter
 
 
-        print("MusicXML:", musicxml_path)
+    score = converter.parse(
+        midi_path
+    )
+
+
+    score.write(
+        "musicxml",
+        fp=xml_path
+    )
+
+
+    print(
+        "MusicXML:",
+        xml_path
+    )
 
 
 
-        pdf_path = convert_musicxml(
-            musicxml_path
-        )
+    # MusicXML → PDF
+
+    pdf_path = convert_musicxml(
+        xml_path
+    )
 
 
-        print("PDF:", pdf_path)
+    print(
+        "PDF:",
+        pdf_path
+    )
 
 
-
-        return FileResponse(
-            pdf_path,
-            media_type="application/pdf",
-            filename="jianpu.pdf"
-        )
-
-
-    except Exception:
-
-        traceback.print_exc()
-
-        return {
-            "error": "midi convert failed"
-        }
+    return FileResponse(
+        pdf_path,
+        media_type="application/pdf",
+        filename="jianpu.pdf"
+    )
