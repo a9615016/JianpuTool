@@ -1,108 +1,33 @@
 <!DOCTYPE html>
+
 <html lang="zh-TW">
-
-<head>
-    <meta charset="UTF-8">
-    <title>Jianpu Generator</title>
-
-    <style>{
-        body {
-            font-family: Arial;
-            margin: 50px;
-            text-align: center;
-        }
-
-        h1 {
-            color: #333;
-        }
-
-        .box {
-            border: 1px solid #ccc;
-            padding: 30px;
-            width: 400px;
-            margin: auto;
-            border-radius: 10px;
-        }
-
-        button {
-            margin-top: 20px;
-            padding: 10px 30px;
-            font-size: 16px;
-        }
-
-        input {
-            margin-top: 20px;
-        }
-    </style>
-
-</head>
-
 
 <body>
 
-
-<h1>🎵 Jianpu Generator</h1>
-
-
-<div class="box">
+<h1>
+🎵 JianpuTool MIDI → 簡譜
+</h1>
 
 
-<h3>
-MusicXML → 數字簡譜 PDF
-</h3>
-
-
-<form action="/convert"
-      method="post"
-      enctype="multipart/form-data">
+<form action="/midi"
+method="post"
+enctype="multipart/form-data">
 
 
 <input type="file"
-       name="file"
-       accept=".musicxml,.xml">
+name="file"
+accept=".mid">
 
 
-<br>
+<br><br>
 
 
-<button type="submit">
+<button>
 產生簡譜 PDF
 </button>
 
 
 </form>
-
-
-<hr>
-
-
-<h3>
-MIDI → MusicXML → 簡譜 PDF
-</h3>
-
-
-<form action="/midi"
-      method="post"
-      enctype="multipart/form-data">
-
-
-<input type="file"
-       name="file"
-       accept=".mid,.midi">
-
-
-<br>
-
-
-<button type="submit">
-MIDI 轉簡譜
-</button>
-
-
-</form>
-
-
-</div>
 
 
 </body>
