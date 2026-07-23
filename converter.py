@@ -1,94 +1,120 @@
 import os
-import subprocess
 import tempfile
+import subprocess
 
 
-def convert_musicxml(musicxml_file):
+def convert_musicxml(input_file):
 
-    # Render Linux / Windows 都支援
+    # Render Linux 暫存資料夾
     temp_dir = tempfile.gettempdir()
 
-    filename = os.path.splitext(
-        os.path.basename(musicxml_file)
-    )[0]
+    print("TEMP DIR:", temp_dir)
 
 
-    # 輸出 ly
+    # .ly 檔
     ly_file = os.path.join(
         temp_dir,
-        filename + "_jianpu.ly"
+        "jianpu_output.ly"
     )
 
 
+    # PDF輸出
     pdf_file = os.path.join(
         temp_dir,
-        filename + "_jianpu.pdf"
+        "jianpu_output.pdf"
     )
 
 
-    print("MusicXML:", musicxml_file)
-    print("LY:", ly_file)
+    try:
 
+        # =========================
+        # MusicXML → LilyPond
+        # =========================
 
-    # MusicXML → jianpu ly
-    with open(
-        ly_file,
-        "w",
-        encoding="utf-8"
-    ) as f:
+        cmd1 = [
+            "python",
+            "-m",
+            "jianpu_ly",
+            input_file
+        ]
+
 
         result = subprocess.run(
-            [
-                "python",
-                "-m",
-                "jianpu_ly",
-                musicxml_file
-            ],
-            stdout=f,
+            cmd1,
+            stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True
         )
 
 
-    if result.returncode != 0:
+        if result.returncode != 0:
+            raise Exception(
+                "jianpu_ly error:\n"
+                + result.stderr
+            )
 
-        raise Exception(
-            "jianpu_ly error:\n"
-            + result.stderr
-        )
+
+        with open(
+            ly_file,
+            "w",
+            encoding="utf-8"
+        ) as f:
+
+            f.write(result.stdout)
 
 
-    # LilyPond → PDF
 
-    result = subprocess.run(
-        [
+        print("LY FILE:")
+        print(ly_file)
+
+
+
+        # =========================
+        # LilyPond → PDF
+        # =========================
+
+        cmd2 = [
             "lilypond",
             "-o",
             os.path.join(
                 temp_dir,
-                filename + "_jianpu"
+                "jianpu_output"
             ),
             ly_file
-        ],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True
-    )
+        ]
 
 
-    if result.returncode != 0:
-
-        raise Exception(
-            "lilypond error:\n"
-            + result.stderr
+        result2 = subprocess.run(
+            cmd2,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
         )
 
 
-    if not os.path.exists(pdf_file):
+        print(result2.stdout)
+        print(result2.stderr)
 
-        raise Exception(
-            "PDF not generated"
+
+
+        if not os.path.exists(pdf_file):
+
+            raise Exception(
+                "LilyPond PDF產生失敗\n"
+                + result2.stderr
+            )
+
+
+
+        return pdf_file
+
+
+
+    except Exception as e:
+
+        print(
+            "CONVERT ERROR:",
+            str(e)
         )
 
-
-    return pdf_file
+        raise e
