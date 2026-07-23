@@ -1,10 +1,7 @@
 from fastapi import FastAPI, UploadFile, File
-from fastapi.responses import FileResponse, HTMLResponse
-import os
+from fastapi.responses import HTMLResponse, FileResponse
 import shutil
-import uuid
-
-from converter import midi_to_pdf
+import os
 
 
 app = FastAPI()
@@ -13,9 +10,46 @@ app = FastAPI()
 @app.get("/")
 def home():
 
-    with open("static/index.html", encoding="utf-8") as f:
-        return HTMLResponse(f.read())
+    return HTMLResponse("""
+<!DOCTYPE html>
+<html lang="zh-TW">
 
+<head>
+<meta charset="UTF-8">
+<title>JianpuTool</title>
+</head>
+
+<body>
+
+<h1>
+🎵 JianpuTool MIDI → 簡譜
+</h1>
+
+
+<form action="/midi"
+method="post"
+enctype="multipart/form-data">
+
+<input type="file"
+name="file"
+accept=".mid,.midi">
+
+
+<br><br>
+
+
+<button type="submit">
+產生簡譜 PDF
+</button>
+
+
+</form>
+
+
+</body>
+
+</html>
+""")
 
 
 @app.get("/status")
@@ -29,46 +63,27 @@ def status():
     }
 
 
-
 @app.post("/midi")
-async def midi_convert(
+async def midi_upload(
     file: UploadFile = File(...)
 ):
-
-    work_id = str(uuid.uuid4())
 
     os.makedirs(
         "uploads",
         exist_ok=True
     )
 
-    midi_file = f"uploads/{work_id}.mid"
+    path = "uploads/" + file.filename
 
 
-    with open(midi_file, "wb") as buffer:
-
+    with open(path, "wb") as f:
         shutil.copyfileobj(
             file.file,
-            buffer
+            f
         )
 
 
-    try:
-
-        pdf = midi_to_pdf(
-            midi_file
-        )
-
-
-        return FileResponse(
-            pdf,
-            media_type="application/pdf",
-            filename="jianpu.pdf"
-        )
-
-
-    except Exception as e:
-
-        return {
-            "error": str(e)
-        }
+    return {
+        "message": "MIDI uploaded",
+        "file": file.filename
+    }
