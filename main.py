@@ -1,4 +1,5 @@
 from fastapi import FastAPI, UploadFile, File
+<<<<<<< Updated upstream
 from fastapi.responses import HTMLResponse, FileResponse
 import os
 import uuid
@@ -6,21 +7,31 @@ import subprocess
 
 from music21 import converter
 
+=======
+from fastapi.responses import HTMLResponse
+import os
+>>>>>>> Stashed changes
 
 app = FastAPI()
 
 
+<<<<<<< Updated upstream
 UPLOAD_DIR = "uploads"
 OUTPUT_DIR = "outputs"
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
+=======
+# 取得目前 main.py 所在資料夾
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+>>>>>>> Stashed changes
 
 
 @app.get("/", response_class=HTMLResponse)
 def home():
 
+<<<<<<< Updated upstream
     html = """
     <!DOCTYPE html>
     <html>
@@ -53,23 +64,42 @@ def home():
 
     return HTMLResponse(content=html)
 
+=======
+    index_path = os.path.join(
+        BASE_DIR,
+        "static",
+        "index.html"
+    )
+
+    with open(index_path, encoding="utf-8") as f:
+        return f.read()
+>>>>>>> Stashed changes
 
 
 @app.get("/status")
 def status():
-
     return {
         "status": "JianpuTool running",
         "api": [
+            "/convert",
             "/midi"
         ]
     }
 
 
+@app.post("/convert")
+async def convert(file: UploadFile = File(...)):
+
+    return {
+        "filename": file.filename,
+        "message": "convert api ready"
+    }
+
 
 @app.post("/midi")
 async def midi(file: UploadFile = File(...)):
 
+<<<<<<< Updated upstream
     try:
 
         # -----------------
@@ -213,3 +243,9 @@ async def midi(file: UploadFile = File(...)):
             "status": "error",
             "error": str(e)
         }
+=======
+    return {
+        "filename": file.filename,
+        "message": "midi api ready"
+    }
+>>>>>>> Stashed changes
