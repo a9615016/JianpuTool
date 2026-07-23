@@ -1,141 +1,131 @@
 import os
 import tempfile
 import subprocess
+import uuid
+
+from music21 import converter as music_converter
 
 
-def convert_musicxml(input_file):
+def run_lilypond(ly_file):
 
-    temp_dir = tempfile.gettempdir()
+    output_dir = os.path.dirname(ly_file)
 
-    print("TEMP DIR:", temp_dir)
-
-
-    ly_file = os.path.join(
-        temp_dir,
-        "jianpu_output.ly"
+    result = subprocess.run(
+        [
+            "lilypond",
+            "-o",
+            os.path.join(
+                output_dir,
+                "jianpu_output"
+            ),
+            ly_file
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True
     )
 
+    if result.returncode != 0:
+        raise Exception(
+            "LilyPond Error:\n" +
+            result.stderr
+        )
 
     pdf_file = os.path.join(
-        temp_dir,
+        output_dir,
         "jianpu_output.pdf"
     )
 
-
-    try:
-
-        # =========================
-        # MusicXML → jianpu ly
-        # =========================
-
-        cmd1 = [
-            "python",
-            "-m",
-            "jianpu_ly",
-            input_file
-        ]
+    return pdf_file
 
 
-        print("RUN:")
-        print(cmd1)
+
+def musicxml_to_pdf(musicxml_file):
+
+    temp_dir = tempfile.gettempdir()
+
+    name = str(uuid.uuid4())
+
+    ly_file = os.path.join(
+        temp_dir,
+        name + ".ly"
+    )
 
 
-        result1 = subprocess.run(
-            cmd1,
-            stdout=subprocess.PIPE,
+    # MusicXML → Jianpu Lilypond
+
+    with open(
+        ly_file,
+        "w",
+        encoding="utf-8"
+    ) as f:
+
+        process = subprocess.run(
+            [
+                "python",
+                "-m",
+                "jianpu_ly",
+                musicxml_file
+            ],
+            stdout=f,
             stderr=subprocess.PIPE,
             text=True
         )
 
 
-        print("JIANPU-LY ERROR:")
-        print(result1.stderr)
+    if process.returncode != 0:
 
-
-        if result1.returncode != 0:
-
-            raise Exception(
-                "jianpu-ly failed\n"
-                + result1.stderr
-            )
-
-
-        with open(
-            ly_file,
-            "w",
-            encoding="utf-8"
-        ) as f:
-
-            f.write(result1.stdout)
-
-
-
-        print("LY CREATED:")
-        print(ly_file)
-
-
-
-        # =========================
-        # LilyPond → PDF
-        # =========================
-
-        output_base = os.path.join(
-            temp_dir,
-            "jianpu_output"
+        raise Exception(
+            "jianpu-ly error:\n"
+            + process.stderr
         )
 
 
-        cmd2 = [
-            "lilypond",
-            "-o",
-            output_base,
-            ly_file
-        ]
-
-
-        print("RUN LILYPOND:")
-        print(cmd2)
-
-
-        result2 = subprocess.run(
-            cmd2,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
-        )
-
-
-        print("================")
-        print("LILYPOND OUTPUT")
-        print("================")
-        print(result2.stdout)
-
-
-        print("================")
-        print("LILYPOND ERROR")
-        print("================")
-        print(result2.stderr)
+    return run_lilypond(
+        ly_file
+    )
 
 
 
-        if not os.path.exists(pdf_file):
 
-            raise Exception(
-                "PDF not created\n\n"
-                + result2.stderr
-            )
+def midi_to_pdf(midi_file):
 
+    temp_dir = tempfile.gettempdir()
 
-
-        return pdf_file
+    name = str(uuid.uuid4())
 
 
+    musicxml_file = os.path.join(
+        temp_dir,
+        name + ".musicxml"
+    )
 
-    except Exception as e:
 
-        print("================")
-        print("CONVERT ERROR")
-        print("================")
-        print(str(e))
+    # MIDI → MusicXML
 
-        raise e
+    score = music_converter.parse(
+        midi_file
+    )
+
+    score.write(
+        "musicxml",
+        fp=musicxml_file
+    )
+
+
+    # MusicXML → PDF
+
+    return musicxml_to_pdf(
+        musicxml_file
+    )
+
+
+
+
+def convert_musicxml(
+        input_file
+):
+
+    return musicxml_to_pdf(
+        input_file
+    )
