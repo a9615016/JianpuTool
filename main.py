@@ -1,125 +1,153 @@
+```python
 from fastapi import FastAPI, UploadFile, File
 from fastapi.responses import FileResponse, HTMLResponse
-from fastapi.staticfiles import StaticFiles
-
-import shutil
 import os
+import tempfile
+from pathlib import Path
+
+from music21 import converter as music_converter
 
 from converter import convert_musicxml
-from midi_to_musicxml import midi_to_musicxml
 
 
-app = FastAPI(
-    title="Jianpu Generator"
-)
+app = FastAPI()
 
 
-# 網頁
-app.mount(
-    "/static",
-    StaticFiles(directory="static"),
-    name="static"
-)
-
-
-@app.get("/", response_class=HTMLResponse)
+@app.get("/")
 def home():
 
-    with open(
-        "static/index.html",
-        encoding="utf-8"
-    ) as f:
-        return f.read()
+    return HTMLResponse("""
+    <h1>JianpuTool</h1>
+
+    <h2>MIDI → 簡譜 PDF</h2>
+
+    <form action="/midi" method="post" enctype="multipart/form-data">
+
+        <input type="file" name="file">
+
+        <button type="submit">
+        Convert
+        </button>
+
+    </form>
+
+    """)
 
 
 
-# MusicXML → 簡譜 PDF
-@app.post("/convert")
-async def convert(
-    file: UploadFile = File(...)
-):
-
-    os.makedirs(
-        "uploads",
-        exist_ok=True
-    )
-
-
-    xml_file = (
-        "uploads/"
-        + file.filename
-    )
-
-
-    with open(
-        xml_file,
-        "wb"
-    ) as f:
-
-        shutil.copyfileobj(
-            file.file,
-            f
-        )
-
-
-    pdf = convert_musicxml(
-        xml_file
-    )
-
-
-    return FileResponse(
-        pdf,
-        media_type="application/pdf",
-        filename="jianpu.pdf"
-    )
-
-
-
-# MIDI → MusicXML → 簡譜 PDF
 @app.post("/midi")
-async def midi_convert(
-    file: UploadFile = File(...)
-):
+async def midi(file: UploadFile = File(...)):
 
-    os.makedirs(
-        "uploads",
-        exist_ok=True
-    )
+    try:
 
+        # 暫存 MIDI
+        temp_dir = tempfile.gettempdir()
 
-    midi_file = (
-        "uploads/"
-        + file.filename
-    )
+        midi_path = Path(temp_dir) / file.filename
 
 
-    with open(
-        midi_file,
-        "wb"
-    ) as f:
+        with open(midi_path, "wb") as f:
 
-        shutil.copyfileobj(
-            file.file,
-            f
+            f.write(await file.read())
+
+
+        print("MIDI:", midi_path)
+
+
+
+        # MIDI -> MusicXML
+
+        score = music_converter.parse(
+            str(midi_path)
         )
 
 
-    # MIDI → MusicXML
-
-    musicxml = midi_to_musicxml(
-        midi_file
-    )
-
-
-    # MusicXML → Jianpu PDF
-
-    pdf = convert_musicxml(
-        musicxml
-    )
+        musicxml_path = (
+            Path(temp_dir)
+            /
+            (midi_path.stem + ".musicxml")
+        )
 
 
-    return FileResponse(
-        pdf,
-        media_type="application/pdf",
-        filename="jianpu.pdf"
-    )
+        score.write(
+            "musicxml",
+            fp=str(musicxml_path)
+        )
+
+
+        print(
+            "MusicXML:",
+            musicxml_path
+        )
+
+
+
+        # MusicXML -> Jianpu PDF
+
+        pdf = convert_musicxml(
+            str(musicxml_path)
+        )
+
+
+        print(
+            "PDF:",
+            pdf
+        )
+
+
+        return FileResponse(
+            pdf,
+            media_type="application/pdf",
+            filename="jianpu.pdf"
+        )
+
+
+    except Exception as e:
+
+        print("===================")
+        print("MIDI ERROR")
+        print(e)
+        print("===================")
+
+        return {
+            "error": str(e)
+        }
+
+
+
+@app.post("/musicxml")
+async def musicxml(file: UploadFile = File(...)):
+
+    try:
+
+        temp_dir = tempfile.gettempdir()
+
+        xml_path = Path(temp_dir) / file.filename
+
+
+        with open(xml_path,"wb") as f:
+
+            f.write(await file.read())
+
+
+        pdf = convert_musicxml(
+            str(xml_path)
+        )
+
+
+        return FileResponse(
+            pdf,
+            media_type="application/pdf",
+            filename="jianpu.pdf"
+        )
+
+
+    except Exception as e:
+
+        print("MUSICXML ERROR")
+        print(e)
+
+        return {
+            "error": str(e)
+        }
+```
