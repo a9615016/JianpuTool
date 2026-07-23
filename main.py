@@ -51,8 +51,11 @@ async def convert(file: UploadFile = File(...)):
     )
 
 
-    # 儲存 MusicXML
-    with open(musicxml_file, "wb") as f:
+    # 儲存上傳 MusicXML
+    with open(
+        musicxml_file,
+        "wb"
+    ) as f:
         f.write(await file.read())
 
 
@@ -63,7 +66,7 @@ async def convert(file: UploadFile = File(...)):
         encoding="utf-8"
     ) as out:
 
-        subprocess.run(
+        result = subprocess.run(
             [
                 "python",
                 "-m",
@@ -76,25 +79,41 @@ async def convert(file: UploadFile = File(...)):
         )
 
 
-    # 檢查 ly
+    if result.returncode != 0:
+        return {
+            "error": "jianpu_ly failed",
+            "detail": result.stderr
+        }
+
+
+    # 確認 ly
     if not os.path.exists(ly_file):
         return {
-            "error": "ly file not created"
+            "error": "input.ly not created"
         }
 
 
     # LilyPond -> PDF
-    subprocess.run(
+    result = subprocess.run(
         [
             "lilypond",
             "input.ly"
         ],
         cwd=work_dir,
-        check=True
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True
     )
 
 
-    # 找 PDF
+    if result.returncode != 0:
+        return {
+            "error": "lilypond failed",
+            "detail": result.stdout
+        }
+
+
+    # 搜尋 PDF
     pdf_files = glob.glob(
         os.path.join(
             work_dir,
@@ -104,7 +123,6 @@ async def convert(file: UploadFile = File(...)):
 
 
     if not pdf_files:
-
         return {
             "error": "PDF not generated",
             "files": os.listdir(work_dir)
@@ -114,8 +132,17 @@ async def convert(file: UploadFile = File(...)):
     pdf_file = pdf_files[0]
 
 
+    print("下載 PDF:", pdf_file)
+    print("PDF存在:", os.path.exists(pdf_file))
+
+
+    # 強制下載
     return FileResponse(
-        pdf_file,
+        path=pdf_file,
         filename="jianpu.pdf",
-        media_type="application/pdf"
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition":
+            "attachment; filename=jianpu.pdf"
+        }
     )
