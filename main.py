@@ -4,20 +4,22 @@ from fastapi.staticfiles import StaticFiles
 
 import shutil
 import uuid
-import os
-import tempfile
 
 
 from converter import convert_musicxml
 
 
-print("MAIN VERSION MVP WEB")
+print("MAIN VERSION MIDI MELODY MVP")
 
 
 app = FastAPI()
 
 
-# static 網頁
+
+# =========================
+# HTML
+# =========================
+
 app.mount(
     "/static",
     StaticFiles(directory="static"),
@@ -26,7 +28,6 @@ app.mount(
 
 
 
-# 首頁
 @app.get("/", response_class=HTMLResponse)
 def home():
 
@@ -35,6 +36,7 @@ def home():
         "r",
         encoding="utf-8"
     ) as f:
+
         return f.read()
 
 
@@ -48,9 +50,9 @@ def test():
 
 
 
-# ==========================
+# =========================
 # MusicXML → Jianpu PDF
-# ==========================
+# =========================
 
 @app.post("/convert")
 async def convert(
@@ -60,13 +62,13 @@ async def convert(
     uid = str(uuid.uuid4())
 
 
-    xml_path = (
+    xml_file = (
         f"/tmp/{uid}.musicxml"
     )
 
 
     with open(
-        xml_path,
+        xml_file,
         "wb"
     ) as buffer:
 
@@ -78,52 +80,67 @@ async def convert(
 
     print(
         "MusicXML:",
-        xml_path
+        xml_file
     )
 
 
-    pdf_path = convert_musicxml(
-        xml_path
-    )
+
+    try:
+
+        pdf = convert_musicxml(
+            xml_file
+        )
 
 
-    print(
-        "PDF:",
-        pdf_path
-    )
+    except Exception as e:
+
+        print(
+            "CONVERTER ERROR:",
+            e
+        )
+
+        return {
+            "error": str(e)
+        }
+
 
 
     return FileResponse(
-        pdf_path,
+        pdf,
         media_type="application/pdf",
         filename="jianpu.pdf"
     )
 
 
 
-# ==========================
-# MIDI → MusicXML → PDF
-# ==========================
+
+# =========================
+# MIDI → MusicXML → Jianpu
+# =========================
 
 @app.post("/midi")
 async def midi_convert(
     file: UploadFile = File(...)
 ):
 
+
     uid = str(uuid.uuid4())
 
 
-    midi_path = (
+    midi_file = (
         f"/tmp/{uid}.mid"
     )
 
-    xml_path = (
+    xml_file = (
         f"/tmp/{uid}.musicxml"
     )
 
 
+
+    # 儲存 MIDI
+
     with open(
-        midi_path,
+        midi_file,
         "wb"
     ) as buffer:
 
@@ -135,48 +152,85 @@ async def midi_convert(
 
     print(
         "MIDI:",
-        midi_path
+        midi_file
     )
 
 
+
+    # =====================
     # MIDI → MusicXML
+    # =====================
 
     from music21 import converter
 
 
     score = converter.parse(
-        midi_path
+        midi_file
     )
+
+
+    print(
+        "MIDI Parts:",
+        len(score.parts)
+    )
+
+
+
+    # MVP:
+    # 先只保留第一軌
+
+    if len(score.parts) > 0:
+
+        score = score.parts[0]
+
 
 
     score.write(
         "musicxml",
-        fp=xml_path
+        fp=xml_file
     )
 
 
     print(
         "MusicXML:",
-        xml_path
+        xml_file
     )
 
 
 
+    # =====================
     # MusicXML → PDF
+    # =====================
 
-    pdf_path = convert_musicxml(
-        xml_path
-    )
+
+    try:
+
+        pdf = convert_musicxml(
+            xml_file
+        )
+
+
+    except Exception as e:
+
+        print(
+            "CONVERTER ERROR:",
+            e
+        )
+
+        return {
+            "error": str(e)
+        }
+
 
 
     print(
         "PDF:",
-        pdf_path
+        pdf
     )
 
 
     return FileResponse(
-        pdf_path,
+        pdf,
         media_type="application/pdf",
         filename="jianpu.pdf"
     )
