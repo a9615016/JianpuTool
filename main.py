@@ -1,64 +1,74 @@
 from fastapi import FastAPI, UploadFile, File
-from fastapi.responses import FileResponse, HTMLResponse
-import os
+from fastapi.responses import FileResponse
 import shutil
+import os
 import uuid
 
 from converter import convert_musicxml
 
-app = FastAPI(
-    title="JianpuTool",
-    description="MIDI / MusicXML → Jianpu PDF",
-    version="1.0"
-)
+
+app = FastAPI()
 
 
 @app.get("/")
 def home():
-    return HTMLResponse("""
-    <h1>JianpuTool</h1>
-
-    <h2>MIDI → Jianpu PDF</h2>
-    <form action="/midi" method="post" enctype="multipart/form-data">
-        <input type="file" name="file" accept=".mid,.midi">
-        <button type="submit">Convert MIDI</button>
-    </form>
-
-    <hr>
-
-    <h2>MusicXML → Jianpu PDF</h2>
-    <form action="/musicxml" method="post" enctype="multipart/form-data">
-        <input type="file" name="file" accept=".musicxml,.xml">
-        <button type="submit">Convert MusicXML</button>
-    </form>
-    """)
+    return {
+        "status": "JianpuTool running",
+        "api": [
+            "/convert",
+            "/midi"
+        ]
+    }
 
 
-# =========================
-# MIDI 上傳
-# =========================
 
-@app.post("/midi")
-async def midi_convert(file: UploadFile = File(...)):
-
-    work = "/tmp"
+# MusicXML → PDF
+@app.post("/convert")
+async def convert(file: UploadFile = File(...)):
 
     uid = str(uuid.uuid4())
 
-    midi_path = os.path.join(
-        work,
-        uid + ".mid"
+    musicxml_path = f"/tmp/{uid}.musicxml"
+    pdf_path = f"/tmp/{uid}.pdf"
+
+
+    with open(musicxml_path, "wb") as buffer:
+        shutil.copyfileobj(
+            file.file,
+            buffer
+        )
+
+
+    result = convert_musicxml(
+        musicxml_path,
+        pdf_path
     )
 
-    musicxml_path = os.path.join(
-        work,
-        uid + ".musicxml"
+
+    return FileResponse(
+        pdf_path,
+        media_type="application/pdf",
+        filename="jianpu.pdf"
     )
 
 
-    # 儲存 MIDI
-    with open(midi_path, "wb") as f:
-        shutil.copyfileobj(file.file, f)
+
+# MIDI → PDF
+@app.post("/midi")
+async def midi_convert(file: UploadFile = File(...)):
+
+    uid = str(uuid.uuid4())
+
+    midi_path = f"/tmp/{uid}.mid"
+    musicxml_path = f"/tmp/{uid}.musicxml"
+    pdf_path = f"/tmp/{uid}.pdf"
+
+
+    with open(midi_path,"wb") as buffer:
+        shutil.copyfileobj(
+            file.file,
+            buffer
+        )
 
 
     # MIDI → MusicXML
@@ -72,52 +82,21 @@ async def midi_convert(file: UploadFile = File(...)):
     )
 
 
-    # MusicXML → PDF
-    pdf = convert_musicxml(
-        musicxml_path
+    print("MIDI:", midi_path)
+    print("MusicXML:", musicxml_path)
+
+
+    convert_musicxml(
+        musicxml_path,
+        pdf_path
     )
+
+
+    print("PDF:", pdf_path)
 
 
     return FileResponse(
-        pdf,
-        media_type="application/pdf",
-        filename="jianpu.pdf"
-    )
-
-
-
-# =========================
-# MusicXML 上傳
-# =========================
-
-@app.post("/musicxml")
-async def musicxml_convert(file: UploadFile = File(...)):
-
-    work = "/tmp"
-
-    uid = str(uuid.uuid4())
-
-    musicxml_path = os.path.join(
-        work,
-        uid + ".musicxml"
-    )
-
-
-    # 儲存 MusicXML
-
-    with open(musicxml_path, "wb") as f:
-        shutil.copyfileobj(file.file, f)
-
-
-    # MusicXML → PDF
-
-    pdf = convert_musicxml(
-        musicxml_path
-    )
-
-
-    return FileResponse(
-        pdf,
+        pdf_path,
         media_type="application/pdf",
         filename="jianpu.pdf"
     )
