@@ -2,118 +2,69 @@ import os
 import subprocess
 import uuid
 
-from extract_melody import extract_melody
+
+LILYPOND = (
+    r"C:\lilypond-2.26.0\bin\lilypond.exe"
+)
 
 
-
-def convert_musicxml(xml_file):
+def midi_to_pdf(mid_file):
 
 
     uid = str(uuid.uuid4())
 
+    xml = f"{uid}.musicxml"
+    ly = f"{uid}.ly"
 
-    work = "/tmp"
 
-
-    melody_xml = os.path.join(
-        work,
-        uid + "_melody.musicxml"
+    # MIDI → MusicXML
+    subprocess.run(
+        [
+            "python",
+            "-m",
+            "music21",
+            mid_file
+        ],
+        check=True
     )
 
 
-    # 先抽主旋律
-    extract_melody(
-        xml_file,
-        melody_xml
+    # 這裡接你之前成功的 MIDI analyzer
+    #
+    # 例如:
+    # analyzer.py
+    # output.musicxml
+
+
+    subprocess.run(
+        [
+            "python",
+            "-m",
+            "jianpu_ly",
+            xml
+        ],
+        stdout=open(
+            ly,
+            "w",
+            encoding="utf-8"
+        ),
+        check=True
     )
 
 
-    print(
-        "Melody XML:",
-        melody_xml
+    subprocess.run(
+        [
+            LILYPOND,
+            ly
+        ],
+        check=True
     )
 
 
-    ly_file = os.path.join(
-        work,
-        uid + ".ly"
+    pdf = ly.replace(
+        ".ly",
+        ".pdf"
     )
 
 
-    pdf_file = os.path.join(
-        work,
-        "jianpu.pdf"
-    )
-
-
-
-    # MusicXML → jianpu ly
-
-    cmd = [
-        "python",
-        "-m",
-        "jianpu_ly",
-        melody_xml
-    ]
-
-
-    result = subprocess.run(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True
-    )
-
-
-    if result.returncode != 0:
-
-        print(result.stderr)
-
-        raise Exception(
-            "jianpu_ly failed"
-        )
-
-
-
-    with open(
-        ly_file,
-        "w",
-        encoding="utf-8"
-    ) as f:
-
-        f.write(result.stdout)
-
-
-
-    # Lilypond PDF
-
-    lilypond = [
-        "lilypond",
-        "-o",
-        "/tmp/" + uid,
-        ly_file
-    ]
-
-
-    r = subprocess.run(
-        lilypond,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True
-    )
-
-
-    if r.returncode != 0:
-
-        print(r.stderr)
-
-        raise Exception(
-            "lilypond failed"
-        )
-
-
-
-    generated_pdf = "/tmp/" + uid + ".pdf"
-
-
-    return generated_pdf
+    return pdf
