@@ -6,11 +6,9 @@ print("CLEAN VERSION 20260724 V11")
 
 
 if len(sys.argv) < 3:
-
     print(
         "usage: python clean_musicxml.py input.musicxml output.musicxml"
     )
-
     sys.exit(1)
 
 
@@ -26,21 +24,22 @@ score = music21.converter.parse(
 )
 
 
-
 print("remove voices")
 
 
 for part in score.parts:
 
-    for v in part.recurse().getElementsByClass(
-        'Voice'
+    # 移除 Voice 結構
+    for measure in part.getElementsByClass(
+        'Measure'
     ):
 
-        try:
-            v.activeSite.remove(v)
+        voices = measure.getElementsByClass(
+            'Voice'
+        )
 
-        except:
-            pass
+        for v in voices:
+            measure.remove(v)
 
 
 
@@ -49,107 +48,89 @@ print("remove chords")
 
 for part in score.parts:
 
-    elements = list(
-        part.recurse()
-    )
-
-
-    for e in elements:
-
+    for element in part.recurse():
 
         if isinstance(
-            e,
+            element,
             music21.chord.Chord
         ):
 
-            print(
-                "Chord:",
-                e.pitchNames
-            )
+            # 只留最高音
+            note = element.notes[-1]
 
-
-            # 只保留最高音
-            note = e.notes[-1]
-
-
-            e.activeSite.replace(
-                e,
+            element.activeSite.replace(
+                element,
                 note
             )
-
 
 
 
 print("fix duration")
 
 
-for n in score.recurse().notesAndRests:
+for part in score.parts:
+
+    for n in part.recurse().notesAndRests:
 
 
-    try:
+        try:
 
-        if n.duration.quarterLength < 0.0625:
+            if n.duration.quarterLength < 0.0625:
 
-
-            print(
-                "tiny:",
-                n,
-                n.duration.quarterLength
-            )
+                n.duration.quarterLength = 0.25
 
 
-            n.duration.quarterLength = 0.25
+        except:
 
-
-
-    except:
-
-        pass
+            pass
 
 
 
-print("remove duplicate notes")
+print("remove grace notes")
 
 
 for part in score.parts:
-
-
-    last_pitch = None
-
 
     for n in list(
         part.recurse().notes
     ):
 
+        if n.duration.isGrace:
 
-        if last_pitch == n.pitch:
-
-
-            print(
-                "duplicate:",
-                n.pitch
+            n.activeSite.remove(
+                n
             )
 
 
-            try:
 
-                n.activeSite.remove(
-                    n
-                )
-
-            except:
-
-                pass
+print("normalize octave")
 
 
-        else:
+for part in score.parts:
 
-            last_pitch = n.pitch
-
-
+    for n in part.recurse().notes:
 
 
-print("write clean xml")
+        try:
+
+            # 限制音域
+            if n.pitch.octave < 3:
+
+                n.pitch.octave = 3
+
+
+            if n.pitch.octave > 6:
+
+                n.pitch.octave = 6
+
+
+        except:
+
+            pass
+
+
+
+print("write")
 
 
 score.write(
