@@ -18,7 +18,6 @@ os.makedirs(
 )
 
 
-
 # ==========================
 # 首頁
 # ==========================
@@ -27,14 +26,11 @@ os.makedirs(
 def home():
 
     return """
-
     <html>
-
     <head>
     <meta charset="utf-8">
     <title>JianpuTool</title>
     </head>
-
 
     <body>
 
@@ -44,20 +40,18 @@ def home():
     <h3>MusicXML → 簡譜 PDF</h3>
 
     <form action="/convert"
-          method="post"
-          enctype="multipart/form-data">
+    method="post"
+    enctype="multipart/form-data">
 
     <input type="file"
-           name="file"
-           accept=".musicxml,.xml">
-
+    name="file"
+    accept=".musicxml,.xml">
 
     <button>
     轉換簡譜
     </button>
 
     </form>
-
 
 
     <hr>
@@ -67,50 +61,76 @@ def home():
 
 
     <form action="/midi"
-          method="post"
-          enctype="multipart/form-data">
-
+    method="post"
+    enctype="multipart/form-data">
 
     <input type="file"
-           name="file"
-           accept=".mid">
-
+    name="file"
+    accept=".mid">
 
     <button>
     MIDI轉簡譜
     </button>
 
-
     </form>
 
 
     </body>
-
     </html>
-
     """
 
 
 
 # ==========================
-# 狀態
+# status
 # ==========================
 
 @app.get("/status")
 def status():
 
     return {
-
-        "status":
-        "JianpuTool running",
-
-        "api":
-        [
+        "status":"JianpuTool running",
+        "api":[
             "/convert",
             "/midi"
         ]
-
     }
+
+
+
+# ==========================
+# 執行 subprocess 工具
+# ==========================
+
+def run_cmd(cmd):
+
+    print("RUN:")
+    print(cmd)
+
+
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True
+    )
+
+
+    print("STDOUT:")
+    print(result.stdout)
+
+
+    print("STDERR:")
+    print(result.stderr)
+
+
+    if result.returncode != 0:
+
+        raise Exception(
+            result.stderr
+        )
+
+
+    return result
 
 
 
@@ -140,49 +160,35 @@ def generate_pdf(workdir, musicxml):
 
 
 
-    # clean
-
-    print(
-        "開始 clean MusicXML"
-    )
+    print("開始 clean MusicXML")
 
 
-    subprocess.run(
+    run_cmd(
         [
             "python",
             "clean_musicxml.py",
             musicxml,
             clean_file
-        ],
-        check=True
+        ]
     )
 
 
 
-    # rebuild
-
-    print(
-        "開始 rebuild MusicXML"
-    )
+    print("開始 rebuild MusicXML")
 
 
-    subprocess.run(
+    run_cmd(
         [
             "python",
             "rebuild_musicxml.py",
             clean_file,
             rebuild_file
-        ],
-        check=True
+        ]
     )
 
 
 
-    # jianpu_ly
-
-    print(
-        "開始 jianpu_ly"
-    )
+    print("開始 jianpu_ly")
 
 
     with open(
@@ -219,11 +225,12 @@ def generate_pdf(workdir, musicxml):
     )
 
 
-    if result.returncode != 0:
+    print(
+        result.stderr
+    )
 
-        print(
-            result.stderr
-        )
+
+    if result.returncode != 0:
 
         raise Exception(
             result.stderr
@@ -231,57 +238,20 @@ def generate_pdf(workdir, musicxml):
 
 
 
-    # LilyPond
-
-    print(
-        "開始 LilyPond"
-    )
+    print("開始 LilyPond")
 
 
-    abs_ly = os.path.abspath(
-        ly_file
-    )
-
-
-    abs_out = os.path.abspath(
-        os.path.join(
-            workdir,
-            "jianpu"
-        )
-    )
-
-
-
-    result = subprocess.run(
+    run_cmd(
         [
             "lilypond",
             "-o",
-            abs_out,
-            abs_ly
-        ],
-
-        cwd="/app",
-
-        capture_output=True,
-
-        text=True
+            os.path.join(
+                workdir,
+                "jianpu"
+            ),
+            ly_file
+        ]
     )
-
-
-    print(
-        result.stdout
-    )
-
-
-    if result.returncode != 0:
-
-        print(
-            result.stderr
-        )
-
-        raise Exception(
-            result.stderr
-        )
 
 
     pdf = os.path.join(
@@ -328,6 +298,7 @@ async def convert(
     )
 
 
+
     with open(
         input_file,
         "wb"
@@ -344,7 +315,6 @@ async def convert(
         workdir,
         input_file
     )
-
 
 
     return FileResponse(
@@ -391,7 +361,6 @@ async def midi_convert(
     )
 
 
-
     with open(
         midi_file,
         "wb"
@@ -409,15 +378,12 @@ async def midi_convert(
     )
 
 
-
-    subprocess.run(
+    run_cmd(
         [
             "python",
             "converter.py",
             midi_file
-        ],
-
-        check=True
+        ]
     )
 
 
