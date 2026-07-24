@@ -16,57 +16,48 @@ os.makedirs(BASE_DIR, exist_ok=True)
 
 
 
-# ==========================
-# 首頁
-# ==========================
-
 @app.get("/", response_class=HTMLResponse)
 def home():
 
     return """
     <html>
     <head>
-        <meta charset="utf-8">
-        <title>JianpuTool</title>
+    <meta charset="utf-8">
+    <title>JianpuTool</title>
     </head>
 
     <body>
 
     <h1>JianpuTool</h1>
 
+
     <h3>MusicXML → 簡譜 PDF</h3>
 
     <form action="/convert"
-          method="post"
-          enctype="multipart/form-data">
+    method="post"
+    enctype="multipart/form-data">
 
-        <input type="file"
-               name="file"
-               accept=".musicxml,.xml">
+    <input type="file" name="file">
 
-        <button>
-        轉換簡譜
-        </button>
+    <button>
+    轉換
+    </button>
 
     </form>
 
-
-    <hr>
 
 
     <h3>MIDI → 簡譜 PDF</h3>
 
     <form action="/midi"
-          method="post"
-          enctype="multipart/form-data">
+    method="post"
+    enctype="multipart/form-data">
 
-        <input type="file"
-               name="file"
-               accept=".mid">
+    <input type="file" name="file">
 
-        <button>
-        MIDI轉簡譜
-        </button>
+    <button>
+    MIDI轉換
+    </button>
 
     </form>
 
@@ -76,10 +67,6 @@ def home():
     """
 
 
-
-# ==========================
-# status
-# ==========================
 
 @app.get("/status")
 def status():
@@ -94,15 +81,8 @@ def status():
 
 
 
-# ==========================
-# 產生 PDF
-# ==========================
 
 def generate_pdf(workdir, musicxml):
-
-
-    # 不再 clean
-    clean_file = musicxml
 
 
     ly_file = os.path.join(
@@ -122,11 +102,12 @@ def generate_pdf(workdir, musicxml):
 
 
         result = subprocess.run(
+
             [
                 "python",
                 "-m",
                 "jianpu_ly",
-                clean_file
+                musicxml
             ],
 
             stdout=f,
@@ -137,15 +118,15 @@ def generate_pdf(workdir, musicxml):
         )
 
 
+
     print(
         "jianpu_ly return:",
         result.returncode
     )
 
 
-    if result.returncode != 0:
 
-        print(result.stderr)
+    if result.returncode != 0:
 
         raise Exception(
             result.stderr
@@ -156,23 +137,40 @@ def generate_pdf(workdir, musicxml):
     print("開始 LilyPond")
 
 
-    result = subprocess.run(
-        [
-            "lilypond",
-            "-o",
-            os.path.join(
-                workdir,
-                "jianpu"
-            ),
-            ly_file
-        ],
 
-        stdout=subprocess.PIPE,
+    old = os.getcwd()
 
-        stderr=subprocess.PIPE,
 
-        text=True
-    )
+    try:
+
+        os.chdir(workdir)
+
+
+
+        result = subprocess.run(
+
+            [
+                "lilypond",
+                "-o",
+                "jianpu",
+                "jianpu.ly"
+            ],
+
+            capture_output=True,
+
+            text=True
+        )
+
+
+
+    finally:
+
+        os.chdir(old)
+
+
+
+    print(result.stdout)
+
 
 
     if result.returncode != 0:
@@ -182,6 +180,7 @@ def generate_pdf(workdir, musicxml):
         raise Exception(
             result.stderr
         )
+
 
 
     pdf = os.path.join(
@@ -195,9 +194,6 @@ def generate_pdf(workdir, musicxml):
 
 
 
-# ==========================
-# MusicXML
-# ==========================
 
 @app.post("/convert")
 async def convert(
@@ -205,10 +201,10 @@ async def convert(
 ):
 
 
-    job = str(uuid.uuid4())
+    job=str(uuid.uuid4())
 
 
-    workdir = os.path.join(
+    workdir=os.path.join(
         BASE_DIR,
         job
     )
@@ -220,14 +216,15 @@ async def convert(
     )
 
 
-    input_file = os.path.join(
+    musicxml=os.path.join(
         workdir,
         "input.musicxml"
     )
 
 
+
     with open(
-        input_file,
+        musicxml,
         "wb"
     ) as f:
 
@@ -237,10 +234,12 @@ async def convert(
         )
 
 
-    pdf = generate_pdf(
+
+    pdf=generate_pdf(
         workdir,
-        input_file
+        musicxml
     )
+
 
 
     return FileResponse(
@@ -253,9 +252,6 @@ async def convert(
 
 
 
-# ==========================
-# MIDI
-# ==========================
 
 @app.post("/midi")
 async def midi_convert(
@@ -263,10 +259,10 @@ async def midi_convert(
 ):
 
 
-    job = str(uuid.uuid4())
+    job=str(uuid.uuid4())
 
 
-    workdir = os.path.join(
+    workdir=os.path.join(
         BASE_DIR,
         job
     )
@@ -278,14 +274,16 @@ async def midi_convert(
     )
 
 
-    midi_file = os.path.join(
+
+    midi=os.path.join(
         workdir,
         "input.mid"
     )
 
 
+
     with open(
-        midi_file,
+        midi,
         "wb"
     ) as f:
 
@@ -295,23 +293,31 @@ async def midi_convert(
         )
 
 
-    print("開始 MIDI → MusicXML")
 
-
-    subprocess.run(
-        [
-            "python",
-            "converter.py",
-            midi_file
-        ],
-
-        check=True
+    print(
+        "開始 MIDI → MusicXML"
     )
 
 
-    musicxml = os.path.splitext(
-        midi_file
-    )[0] + ".musicxml"
+
+    subprocess.run(
+
+        [
+            "python",
+            "converter.py",
+            midi
+        ],
+
+        check=True
+
+    )
+
+
+
+    musicxml=os.path.join(
+        workdir,
+        "input.musicxml"
+    )
 
 
 
@@ -322,14 +328,19 @@ async def midi_convert(
 
 
 
-    pdf = generate_pdf(
+    pdf=generate_pdf(
         workdir,
         musicxml
     )
 
 
+
     return FileResponse(
+
         pdf,
+
         media_type="application/pdf",
+
         filename="jianpu.pdf"
+
     )
