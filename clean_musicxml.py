@@ -1,8 +1,8 @@
 import sys
-from music21 import converter
+from music21 import converter, chord
 
 
-print("CLEAN VERSION 20260724 V6")
+print("CLEAN VERSION 20260724 V7")
 
 
 def clean(input_file, output_file):
@@ -13,29 +13,40 @@ def clean(input_file, output_file):
     score = converter.parse(input_file)
 
 
+
     for part in score.parts:
 
-        for element in part.recurse().notesAndRests:
+
+        # 移除和弦，只留最高音(主旋律)
+        for c in list(part.recurse().getElementsByClass('Chord')):
+
+            n = c.notes[0]
+
+            c.activeSite.replace(
+                c,
+                n
+            )
+
+
+
+        for element in list(part.recurse().notesAndRests):
 
 
             ql = element.duration.quarterLength
 
 
-            # jianpu_ly 不接受太短音符
             if ql < 0.5:
 
                 element.duration.quarterLength = 0.5
 
 
 
-            # 過長音符修正
-            elif ql > 8:
+            if ql > 8:
 
                 element.duration.quarterLength = 4
 
 
 
-            # 重新連結 duration
             element.duration.linked = True
 
 
@@ -46,31 +57,12 @@ def clean(input_file, output_file):
     )
 
 
-    print(
-        "clean完成"
-    )
-
-    print(
-        output_file
-    )
+    print("clean完成")
+    print(output_file)
 
 
 
 if __name__ == "__main__":
-
-
-    if len(sys.argv) < 3:
-
-        print(
-            "使用方式:"
-        )
-
-        print(
-            "python clean_musicxml.py input.musicxml output.musicxml"
-        )
-
-        sys.exit(1)
-
 
 
     clean(
