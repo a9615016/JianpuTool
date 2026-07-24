@@ -6,8 +6,8 @@ def clean_musicxml(input_file, output_file):
 
     print("開始 clean MusicXML")
 
-    tree = ET.parse(input_file)
 
+    tree = ET.parse(input_file)
     root = tree.getroot()
 
 
@@ -15,87 +15,90 @@ def clean_musicxml(input_file, output_file):
         return x.split("}")[-1]
 
 
-    # 移除 jianpu_ly 不支援項目
+    # 移除造成 jianpu_ly 錯誤元素
 
-    remove_tags = {
-
+    remove = {
         "backup",
         "forward",
         "grace",
         "notations",
         "accidental",
         "tie",
-        "chord",
-        "arpeggiate"
-
+        "lyric",
+        "chord"
     }
 
 
-
-    def recursive_clean(parent):
+    def clean(parent):
 
         for child in list(parent):
 
-            name = tag(child.tag)
-
-            if name in remove_tags:
+            if tag(child.tag) in remove:
 
                 parent.remove(child)
 
             else:
 
-                recursive_clean(child)
+                clean(child)
+
+
+    clean(root)
 
 
 
-    recursive_clean(root)
-
-
-
-    # voice 固定
-
-    for e in root.iter():
-
-        if tag(e.tag) == "voice":
-
-            e.text = "1"
-
-
-
-    # octave 全部改成標準音域
-
-    for e in root.iter():
-
-        if tag(e.tag) == "octave":
-
-            e.text = "4"
-
-
-
-    # 移除 pitch 裡重複 octave
+    # 所有 note 強制單聲部
 
     for note in root.iter():
 
-        if tag(note.tag) == "pitch":
+        if tag(note.tag) == "note":
 
-            octaves = []
+            has_pitch = False
+
+            for child in note:
+
+                if tag(child.tag) == "pitch":
+
+                    has_pitch = True
+
+
+
+            # 移除複雜標記
 
             for child in list(note):
 
-                if tag(child.tag) == "octave":
+                if tag(child.tag) in [
+                    "voice",
+                    "staff"
+                ]:
 
-                    octaves.append(child)
-
-
-            # 只保留一個 octave
-
-            for extra in octaves[1:]:
-
-                note.remove(extra)
+                    note.remove(child)
 
 
 
-    # 清理文字
+            voice = ET.Element(
+                "voice"
+            )
+
+            voice.text="1"
+
+
+            # 放回 voice
+
+            note.append(voice)
+
+
+
+    # octave 固定
+
+    for octave in root.iter():
+
+        if tag(octave.tag)=="octave":
+
+            octave.text="4"
+
+
+
+    # 移除空白
 
     for e in root.iter():
 
@@ -117,18 +120,7 @@ def clean_musicxml(input_file, output_file):
 
 
 
-
 if __name__=="__main__":
-
-
-    if len(sys.argv)<3:
-
-        print(
-            "python clean_musicxml.py input.musicxml output.musicxml"
-        )
-
-        exit()
-
 
     clean_musicxml(
         sys.argv[1],
