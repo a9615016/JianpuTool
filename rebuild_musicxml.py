@@ -2,10 +2,57 @@ import sys
 import music21
 
 
-print("REBUILD VERSION 20260724 V5")
+print("REBUILD VERSION 20260724 V4")
+
+
+def fix_duration(obj):
+
+    try:
+
+        ql = obj.duration.quarterLength
+
+
+        # jianpu_ly 支援的最大值
+        allowed = [
+            0.5,
+            0.75,
+            1,
+            1.5,
+            2,
+            3,
+            4,
+            6,
+            8,
+            12
+        ]
+
+
+        # 超長音符拆開
+        if ql > 12:
+
+            obj.duration.quarterLength = 12
+
+
+        # 不可表示的小數
+        elif ql not in allowed:
+
+            # 四捨五入到最近拍值
+            nearest = min(
+                allowed,
+                key=lambda x:abs(x-ql)
+            )
+
+            obj.duration.quarterLength = nearest
+
+
+    except Exception:
+
+        pass
+
 
 
 def rebuild(input_file, output_file):
+
 
     print("開始重建 MusicXML")
 
@@ -15,47 +62,19 @@ def rebuild(input_file, output_file):
     )
 
 
-    # 修正拍號
-    for ts in score.recurse().getElementsByClass(
-        "TimeSignature"
-    ):
+    for part in score.parts:
 
-        print(
-            "原拍號:",
-            ts.ratioString
-        )
+        for element in part.recurse():
 
+            if isinstance(
+                element,
+                (
+                    music21.note.Note,
+                    music21.note.Rest
+                )
+            ):
 
-        if ts.denominator == 16:
-
-            ts.numerator *= 1
-            ts.denominator = 4
-
-
-            print(
-                "修正拍號:",
-                ts.ratioString
-            )
-
-
-
-    # 修正音符長度
-    for element in score.recurse():
-
-        if hasattr(element, "duration"):
-
-            ql = element.duration.quarterLength
-
-
-            if ql <= 0:
-                ql = 1
-
-
-            if ql > 12:
-                ql = 12
-
-
-            element.duration.quarterLength = ql
+                fix_duration(element)
 
 
 
@@ -73,6 +92,7 @@ def rebuild(input_file, output_file):
 
 
 if __name__ == "__main__":
+
 
     rebuild(
         sys.argv[1],
