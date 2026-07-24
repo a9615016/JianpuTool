@@ -2,7 +2,7 @@ import sys
 import music21
 
 
-print("CLEAN VERSION 20260724 V12")
+print("CLEAN VERSION 20260724 V11")
 
 
 if len(sys.argv) < 3:
@@ -19,150 +19,69 @@ output_file = sys.argv[2]
 print("input:", input_file)
 
 
-score = music21.converter.parse(
-    input_file
-)
+score = music21.converter.parse(input_file)
 
 
-# ==========================
-# 強制 4/4
-# ==========================
 
-print("force 4/4")
-
+# =========================
+# 1. 保留第一聲部
+# =========================
 
 for part in score.parts:
 
-    old_ts = list(
-        part.recurse().getElementsByClass(
-            music21.meter.TimeSignature
-        )
-    )
+    if len(part.recurse().notes) > 0:
 
-    for ts in old_ts:
-        ts.ratioString = "4/4"
-
-
-    if len(old_ts) == 0:
-
-        part.insert(
-            0,
-            music21.meter.TimeSignature("4/4")
+        print(
+            "part:",
+            part.id
         )
 
 
 
-# ==========================
-# 移除 Voice
-# ==========================
-
-print("remove voices")
-
-
-for part in score.parts:
-
-    voices = list(
-        part.recurse().getElementsByClass(
-            music21.stream.Voice
-        )
-    )
-
-    for v in voices:
-
-        try:
-            v.flatten()
-        except:
-            pass
-
-
-
-# ==========================
-# 移除和弦
-# ==========================
+# =========================
+# 2. 移除 chord
+# =========================
 
 print("remove chords")
 
 
 for part in score.parts:
 
-
-    chords = list(
-        part.recurse().getElementsByClass(
-            music21.chord.Chord
-        )
-    )
-
-
-    for c in chords:
-
-        try:
-
-            # 只保留最高音
-            n = c.notes[-1]
-
-            c.activeSite.replace(
-                c,
-                n
-            )
-
-        except:
-
-            pass
-
-
-
-# ==========================
-# 移除重複音
-# ==========================
-
-print("remove duplicate notes")
-
-
-for part in score.parts:
-
-    seen = set()
-
-
-    for n in list(
-        part.recurse().notes
+    for element in list(
+        part.recurse()
     ):
 
+        if isinstance(
+            element,
+            music21.chord.Chord
+        ):
 
-        try:
-
-            key = (
-                n.offset,
-                n.pitch.ps
+            print(
+                "chord:",
+                element.pitchNames
             )
 
 
-            if key in seen:
+            # 只留下最高音
+            note = music21.note.Note(
+                element.pitches[-1]
+            )
 
-                n.activeSite.remove(
-                    n
-                )
+            note.duration = element.duration
 
 
-            else:
-
-                seen.add(
-                    key
-                )
-
-        except:
-
-            pass
+            element.activeSite.replace(
+                element,
+                note
+            )
 
 
 
-# ==========================
-# 修正過短音符
-# ==========================
+# =========================
+# 3. 修正過短音
+# =========================
 
-print("fix duration")
-
-
-count = 0
+print("fix tiny notes")
 
 
 for n in score.recurse().notesAndRests:
@@ -170,17 +89,9 @@ for n in score.recurse().notesAndRests:
 
     try:
 
-        if n.duration.quarterLength < 0.25:
-
-            print(
-                "fix tiny:",
-                n.duration.quarterLength
-            )
-
+        if n.duration.quarterLength < 0.0625:
 
             n.duration.quarterLength = 0.25
-
-            count += 1
 
 
     except:
@@ -189,41 +100,33 @@ for n in score.recurse().notesAndRests:
 
 
 
-print(
-    "fixed:",
-    count
-)
+# =========================
+# 4. 移除 Voice
+# =========================
+
+
+print("remove voices")
+
+
+for part in score.parts:
+
+    try:
+
+        part.removeByClass(
+            music21.stream.Voice
+        )
+
+    except:
+
+        pass
 
 
 
-# ==========================
-# 重新建立小節
-# ==========================
+# =========================
+# 5. 輸出
+# =========================
 
-print("make measures")
-
-
-try:
-
-    score.makeMeasures(
-        inPlace=True
-    )
-
-
-except Exception as e:
-
-    print(
-        "measure error:",
-        e
-    )
-
-
-
-# ==========================
-# 輸出
-# ==========================
-
-print("write clean xml")
+print("write")
 
 
 score.write(
@@ -233,6 +136,6 @@ score.write(
 
 
 print(
-    "clean完成:",
+    "完成:",
     output_file
 )
