@@ -1,6 +1,8 @@
 import music21
 import sys
 
+print("REBUILD VERSION 20260724 V2")
+
 
 def rebuild(input_file, output_file):
 
