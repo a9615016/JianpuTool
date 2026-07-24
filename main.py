@@ -1,10 +1,10 @@
 import os
-import subprocess
 import uuid
 import shutil
+import subprocess
 
 from fastapi import FastAPI, UploadFile, File
-from fastapi.responses import FileResponse
+from fastapi.responses import HTMLResponse, FileResponse
 
 
 app = FastAPI()
@@ -16,18 +16,64 @@ os.makedirs(BASE_DIR, exist_ok=True)
 
 
 
-@app.get("/")
+# 首頁
+
+@app.get("/", response_class=HTMLResponse)
 def home():
 
+    return """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <title>JianpuTool</title>
+    </head>
+
+    <body>
+
+    <h1>JianpuTool</h1>
+
+    <h3>MusicXML → 簡譜 PDF</h3>
+
+
+    <form action="/convert" method="post" enctype="multipart/form-data">
+
+        <input type="file"
+               name="file"
+               accept=".musicxml,.xml">
+
+
+        <br><br>
+
+
+        <button type="submit">
+            開始轉換
+        </button>
+
+    </form>
+
+
+    </body>
+    </html>
+    """
+
+
+
+# API 狀態
+
+@app.get("/status")
+def status():
+
     return {
-        "status": "JianpuTool running",
-        "api": [
+        "status":"JianpuTool running",
+        "api":[
             "/convert"
         ]
     }
 
 
 
+# 轉換
 
 @app.post("/convert")
 async def convert(file: UploadFile = File(...)):
@@ -35,20 +81,22 @@ async def convert(file: UploadFile = File(...)):
 
     job_id = str(uuid.uuid4())
 
+
     workdir = os.path.join(
         BASE_DIR,
         job_id
     )
 
+
     os.makedirs(workdir, exist_ok=True)
 
 
 
-    # 上傳檔案
+    # 儲存上傳檔案
 
     input_file = os.path.join(
         workdir,
-        file.filename
+        "input.musicxml"
     )
 
 
@@ -67,9 +115,9 @@ async def convert(file: UploadFile = File(...)):
 
 
 
-    #
-    # 1. clean MusicXML
-    #
+    # -----------------------
+    # clean MusicXML
+    # -----------------------
 
     clean_file = os.path.join(
         workdir,
@@ -77,11 +125,10 @@ async def convert(file: UploadFile = File(...)):
     )
 
 
-
     print("開始 clean MusicXML")
 
 
-    result = subprocess.run(
+    clean = subprocess.run(
         [
             "python",
             "clean_musicxml.py",
@@ -93,11 +140,12 @@ async def convert(file: UploadFile = File(...)):
     )
 
 
-    print(result.stdout)
+    print(clean.stdout)
 
-    if result.stderr:
 
-        print(result.stderr)
+    if clean.stderr:
+
+        print(clean.stderr)
 
 
 
@@ -105,9 +153,9 @@ async def convert(file: UploadFile = File(...)):
 
 
 
-    #
-    # 2. jianpu_ly
-    #
+    # -----------------------
+    # jianpu_ly
+    # -----------------------
 
     ly_file = os.path.join(
         workdir,
@@ -119,7 +167,11 @@ async def convert(file: UploadFile = File(...)):
 
 
 
-    with open(ly_file,"w",encoding="utf-8") as f:
+    with open(
+        ly_file,
+        "w",
+        encoding="utf-8"
+    ) as f:
 
 
         result = subprocess.run(
@@ -153,26 +205,18 @@ async def convert(file: UploadFile = File(...)):
 
 
 
-
-    #
-    # 3. LilyPond PDF
-    #
-
-    pdf_file = os.path.join(
-        workdir,
-        "jianpu.pdf"
-    )
-
+    # -----------------------
+    # LilyPond PDF
+    # -----------------------
 
     print("開始 LilyPond")
-
 
 
     result = subprocess.run(
         [
             "lilypond",
             "-o",
-            pdf_file.replace(".pdf",""),
+            os.path.join(workdir,"jianpu"),
             ly_file
         ],
         capture_output=True,
@@ -181,12 +225,18 @@ async def convert(file: UploadFile = File(...)):
 
 
 
-    if result.returncode !=0:
+    if result.returncode != 0:
 
         return {
-            "error": result.stderr
+            "error":result.stderr
         }
 
+
+
+    pdf_file = os.path.join(
+        workdir,
+        "jianpu.pdf"
+    )
 
 
     return FileResponse(
