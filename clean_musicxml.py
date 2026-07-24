@@ -5,69 +5,69 @@ import sys
 def clean_musicxml(input_file, output_file):
 
     tree = ET.parse(input_file)
-
     root = tree.getroot()
 
-
-    # namespace
     ns = "{http://www.musicxml.org/ns/musicxml}"
 
 
-    # ======================
-    # 移除 chord
-    # ======================
+    # ==========================
+    # 移除所有 chord 音符
+    # 保留第一個音
+    # ==========================
 
     for measure in root.iter(ns + "measure"):
 
         notes = list(measure)
 
-        remove_next = False
+        first_note = True
+
 
         for item in notes:
 
             if item.tag == ns + "note":
 
-                if item.find(ns + "chord") is not None:
+                chord = item.find(ns + "chord")
 
+
+                if chord is not None:
+
+                    # 刪除和弦後續音
                     measure.remove(item)
 
 
 
-    # ======================
+    # ==========================
     # 移除 backup
-    # ======================
+    # ==========================
 
-    for backup in root.iter(ns + "backup"):
+    for parent in root.iter():
 
-        for parent in root.iter():
+        for child in list(parent):
 
-            if backup in list(parent):
+            if child.tag == ns + "backup":
 
-                parent.remove(backup)
-
-                break
+                parent.remove(child)
 
 
 
-    # ======================
-    # 只保留 voice 1
-    # ======================
+    # ==========================
+    # 移除 voice 2以上
+    # ==========================
 
-    for note in root.iter(ns + "note"):
+    for parent in root.iter():
 
-        voice = note.find(ns + "voice")
+        for note in list(parent):
 
-        if voice is not None:
+            if note.tag == ns + "note":
 
-            if voice.text != "1":
+                voice = note.find(ns + "voice")
 
-                for parent in root.iter():
 
-                    if note in list(parent):
+                if voice is not None:
+
+                    if voice.text != "1":
 
                         parent.remove(note)
-
-                        break
 
 
 
@@ -80,6 +80,16 @@ def clean_musicxml(input_file, output_file):
 
 
 if __name__ == "__main__":
+
+
+    if len(sys.argv) < 3:
+
+        print(
+            "python clean_musicxml.py input.musicxml output.musicxml"
+        )
+
+        exit()
+
 
     clean_musicxml(
         sys.argv[1],
