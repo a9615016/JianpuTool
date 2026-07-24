@@ -1,5 +1,5 @@
 from fastapi import FastAPI, UploadFile, File
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 import subprocess
 import uuid
 import os
@@ -16,15 +16,17 @@ if os.name != "nt":
     LILYPOND = "lilypond"
 
 
-@app.get("/")
+@app.get("/", response_class=HTMLResponse)
 def home():
-    return {
-        "status": "JianpuTool running",
-        "api": [
-            "/convert",
-            "/midi"
-        ]
-    }
+    try:
+        with open("index.html", "r", encoding="utf-8") as f:
+            return f.read()
+    except FileNotFoundError:
+        return """
+        <h1>JianpuTool</h1>
+        <p>找不到 index.html</p>
+        <p>請確認 index.html 與 main.py 放在同一個資料夾。</p>
+        """
 
 
 @app.get("/status")
