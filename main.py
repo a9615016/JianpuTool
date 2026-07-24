@@ -1,7 +1,7 @@
 import os
 import uuid
-import subprocess
 import shutil
+import subprocess
 
 from fastapi import FastAPI, UploadFile, File
 from fastapi.responses import FileResponse
@@ -9,9 +9,7 @@ from fastapi.responses import FileResponse
 import music21
 
 
-app = FastAPI(
-    title="JianpuTool"
-)
+app = FastAPI()
 
 
 OUTPUT_DIR = "outputs"
@@ -23,13 +21,13 @@ os.makedirs(
 
 
 
-# =========================
-# MusicXML 清理
-# =========================
+# ==========================
+# MusicXML Cleaner
+# ==========================
 
 def clean_musicxml(input_file):
 
-    print("開始 MusicXML 清理")
+    print("開始 MusicXML 強力清理")
 
 
     score = music21.converter.parse(
@@ -40,7 +38,7 @@ def clean_musicxml(input_file):
     for part in score.parts:
 
 
-        # 移除 Voice
+        # 移除多聲部
 
         for measure in part.getElementsByClass(
             "Measure"
@@ -50,27 +48,26 @@ def clean_musicxml(input_file):
                 "Voice"
             )
 
-            for v in voices:
+            if len(voices):
 
-                measure.remove(v)
+                for v in list(voices):
+
+                    measure.remove(v)
 
 
 
-        # chord只留最高音
+        # chord 只留第一個音
 
-        chords = list(
+        for c in list(
             part.recurse()
             .getElementsByClass(
                 "Chord"
             )
-        )
+        ):
 
+            if len(c.notes):
 
-        for c in chords:
-
-            if len(c.notes) > 0:
-
-                n = c.notes[-1]
+                n = c.notes[0]
 
                 c.activeSite.replace(
                     c,
@@ -79,12 +76,37 @@ def clean_musicxml(input_file):
 
 
 
-        # 修正過短音符
+        # 移除裝飾音
+
+        for n in list(
+            part.recurse()
+            .notes
+        ):
+
+            try:
+
+                if n.duration.isGrace:
+
+                    n.activeSite.remove(
+                        n
+                    )
+
+            except:
+
+                pass
+
+
+
+        # 修正錯誤 duration
 
         for n in part.recurse().notesAndRests:
 
-
             try:
+
+                if n.duration.quarterLength <= 0:
+
+                    n.duration.quarterLength = 0.25
+
 
                 if n.duration.quarterLength < 0.0625:
 
@@ -94,6 +116,24 @@ def clean_musicxml(input_file):
             except:
 
                 pass
+
+
+
+    # 重新量化
+
+    try:
+
+        score.quantize(
+            quarterLengthDivisors=[
+                4,
+                8,
+                16
+            ]
+        )
+
+    except:
+
+        pass
 
 
 
@@ -121,16 +161,11 @@ def clean_musicxml(input_file):
 
 
 
-# =========================
-# jianpu_ly + lilypond
-# =========================
+# ==========================
+# jianpu_ly + LilyPond
+# ==========================
 
 def generate_pdf(xml_file):
-
-
-    folder = os.path.dirname(
-        xml_file
-    )
 
 
     ly_file = xml_file.replace(
@@ -152,19 +187,19 @@ def generate_pdf(xml_file):
 
 
 
-    cmd = [
-        "python",
-        "-m",
-        "jianpu_ly",
-        xml_file
-    ]
-
-
     result = subprocess.run(
-        cmd,
+
+        [
+            "python",
+            "-m",
+            "jianpu_ly",
+            xml_file
+        ],
+
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True
+
     )
 
 
@@ -201,23 +236,22 @@ def generate_pdf(xml_file):
     )
 
 
-    lily = [
-        "lilypond",
-        "-o",
-        ly_file.replace(
-            ".ly",
-            ""
-        ),
-        ly_file
-    ]
+    result2=subprocess.run(
 
+        [
+            "lilypond",
+            "-o",
+            ly_file.replace(
+                ".ly",
+                ""
+            ),
+            ly_file
+        ],
 
-
-    result2 = subprocess.run(
-        lily,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True
+
     )
 
 
@@ -229,21 +263,23 @@ def generate_pdf(xml_file):
         )
 
 
-
     return pdf_file
 
 
 
 
 
-# =========================
+
+
+# ==========================
 # 首頁
-# =========================
+# ==========================
 
 @app.get("/")
-def home():
+def index():
 
     return {
+
         "status":
         "JianpuTool running",
 
@@ -252,15 +288,18 @@ def home():
             "/convert",
             "/midi"
         ]
+
     }
 
 
 
 
 
-# =========================
+
+
+# ==========================
 # MusicXML → PDF
-# =========================
+# ==========================
 
 @app.post("/convert")
 async def convert(
@@ -283,10 +322,12 @@ async def convert(
     )
 
 
+
     xml=os.path.join(
         folder,
         file.filename
     )
+
 
 
     with open(
@@ -323,9 +364,9 @@ async def convert(
 
 
 
-# =========================
-# MIDI → MusicXML → PDF
-# =========================
+# ==========================
+# MIDI → PDF
+# ==========================
 
 @app.post("/midi")
 async def midi_convert(
@@ -348,11 +389,11 @@ async def midi_convert(
     )
 
 
+
     mid=os.path.join(
         folder,
         file.filename
     )
-
 
 
     with open(
@@ -372,8 +413,7 @@ async def midi_convert(
     )
 
 
-
-    score = music21.converter.parse(
+    score=music21.converter.parse(
         mid
     )
 
@@ -385,16 +425,9 @@ async def midi_convert(
     )
 
 
-
     score.write(
         "musicxml",
         fp=xml
-    )
-
-
-
-    print(
-        xml
     )
 
 
@@ -408,7 +441,6 @@ async def midi_convert(
     pdf=generate_pdf(
         clean
     )
-
 
 
     return FileResponse(
