@@ -149,6 +149,8 @@ async def convert(file: UploadFile = File(...)):
             "jianpu_ly:",
             result.returncode
         )
+        print("jianpu_ly error:")
+        print(result.stderr)
 
 
         if result.returncode !=0:
