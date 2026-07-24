@@ -1,6 +1,5 @@
 import xml.etree.ElementTree as ET
 import sys
-import os
 
 
 def clean_musicxml(input_file, output_file):
@@ -14,18 +13,18 @@ def clean_musicxml(input_file, output_file):
     # 移除 namespace
     for elem in root.iter():
         if "}" in elem.tag:
-            elem.tag = elem.tag.split("}", 1)[1]
+            elem.tag = elem.tag.split("}",1)[1]
 
 
     # =========================
-    # 修正音符
+    # 音符清理
     # =========================
 
     for note in root.iter("note"):
 
         # 移除 grace
-        for grace in note.findall("grace"):
-            note.remove(grace)
+        for g in note.findall("grace"):
+            note.remove(g)
 
 
         pitch = note.find("pitch")
@@ -37,71 +36,48 @@ def clean_musicxml(input_file, output_file):
             alter = pitch.find("alter")
 
 
-            # step 修正
             if step is not None:
-
                 if step.text not in [
                     "A","B","C","D","E","F","G"
                 ]:
                     step.text="C"
 
 
-            # octave 修正
             if octave is not None:
 
                 try:
-                    value=int(octave.text)
+                    o=int(octave.text)
 
-                    if value < 1 or value > 8:
+                    if o < 1 or o > 8:
                         octave.text="4"
 
                 except:
                     octave.text="4"
 
 
-
-            # 移除升降記號
+            # 移除升降半音
             if alter is not None:
 
                 try:
-
                     if int(alter.text)!=0:
                         pitch.remove(alter)
 
                 except:
-
                     pitch.remove(alter)
 
 
 
     # =========================
-    # 移除 backup / forward
-    # 避免 jianpu_ly position 錯誤
+    # 移除 backup forward
     # =========================
 
     for measure in root.iter("measure"):
 
-        for backup in measure.findall("backup"):
-            measure.remove(backup)
+        for b in measure.findall("backup"):
+            measure.remove(b)
 
-
-        for forward in measure.findall("forward"):
-            measure.remove(forward)
-
-
-
-    # =========================
-    # 移除 pickup / anacrusis
-    # =========================
-
-    for measure in root.iter("measure"):
-
-        attrs = measure.find("attributes")
-
-        if attrs is not None:
-
-            for ms in attrs.findall("measure-style"):
-                attrs.remove(ms)
+        for f in measure.findall("forward"):
+            measure.remove(f)
 
 
 
@@ -112,77 +88,90 @@ def clean_musicxml(input_file, output_file):
     for time in root.iter("time"):
 
         beats=time.find("beats")
-        beat_type=time.find("beat-type")
-
+        beat=time.find("beat-type")
 
         if beats is not None:
             beats.text="4"
 
-
-        if beat_type is not None:
-            beat_type.text="4"
+        if beat is not None:
+            beat.text="4"
 
 
 
     # =========================
-    # 第一小節補滿
+    # 移除 pickup / anacrusis
     # =========================
 
-    first_measure=None
+    for measure in root.iter("measure"):
+
+        if "implicit" in measure.attrib:
+            del measure.attrib["implicit"]
+
+
+
+    # =========================
+    # 第一小節補滿 4/4
+    # divisions=16
+    # 一小節=64
+    # =========================
+
+    first=None
 
     for m in root.iter("measure"):
-
-        first_measure=m
+        first=m
         break
 
 
-    if first_measure is not None:
+    if first is not None:
 
         total=0
 
-
-        for note in first_measure.findall("note"):
+        for note in first.findall("note"):
 
             duration=note.find("duration")
 
             if duration is not None:
 
                 try:
-                    total+=int(duration.text)
+                    total += int(duration.text)
 
                 except:
                     pass
 
 
 
-        # divisions=16
-        # 4/4 = 64
-
         if total < 64:
 
-            diff=64-total
+            rest=ET.Element("note")
+
+            ET.SubElement(
+                rest,
+                "rest"
+            )
 
 
-            notes=first_measure.findall("note")
+            duration=ET.SubElement(
+                rest,
+                "duration"
+            )
+
+            duration.text=str(64-total)
 
 
-            if notes:
+            typ=ET.SubElement(
+                rest,
+                "type"
+            )
 
-                duration=notes[-1].find("duration")
+            typ.text="quarter"
 
-                if duration is not None:
 
-                    try:
-                        old=int(duration.text)
-                        duration.text=str(old+diff)
-
-                    except:
-                        pass
+            first.append(rest)
 
 
 
     # =========================
-    # 輸出
+    # 輸出 UTF-8
     # =========================
 
     tree.write(
@@ -199,7 +188,6 @@ def clean_musicxml(input_file, output_file):
 
 if __name__=="__main__":
 
-
     if len(sys.argv)<3:
 
         print(
@@ -207,7 +195,6 @@ if __name__=="__main__":
         )
 
         sys.exit()
-
 
 
     clean_musicxml(
