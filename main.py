@@ -11,6 +11,7 @@ app = FastAPI()
 
 
 # LilyPond
+
 LILYPOND = r"C:\lilypond-2.26.0\bin\lilypond.exe"
 
 if os.name != "nt":
@@ -26,27 +27,30 @@ if os.name != "nt":
 def home():
 
     return """
-    <!DOCTYPE html>
+
     <html>
+
     <head>
-        <meta charset="utf-8">
-        <title>JianpuTool</title>
+    <meta charset="utf-8">
+    <title>JianpuTool</title>
     </head>
+
 
     <body>
 
     <h1>🎵 JianpuTool</h1>
 
-    <h3>MusicXML → 簡譜 PDF</h3>
 
-    <form action="/convert" method="post"
+    <h2>MusicXML → 簡譜 PDF</h2>
+
+    <form action="/convert"
+          method="post"
           enctype="multipart/form-data">
 
         <input type="file" name="file">
-        <br><br>
 
         <button>
-        產生簡譜 PDF
+        產生 PDF
         </button>
 
     </form>
@@ -55,13 +59,14 @@ def home():
     <hr>
 
 
-    <h3>MIDI → 簡譜 PDF</h3>
+    <h2>MIDI → 簡譜 PDF</h2>
 
-    <form action="/midi" method="post"
+
+    <form action="/midi"
+          method="post"
           enctype="multipart/form-data">
 
         <input type="file" name="file">
-        <br><br>
 
         <button>
         MIDI 轉簡譜
@@ -71,7 +76,9 @@ def home():
 
 
     </body>
+
     </html>
+
     """
 
 
@@ -87,12 +94,12 @@ def status():
 
 
 # ==========================
-# MusicXML -> PDF
+# MusicXML → PDF
 # ==========================
 
 def musicxml_to_pdf(
-    musicxml_file,
-    work_dir
+        musicxml_file,
+        work_dir
 ):
 
     print(
@@ -107,7 +114,8 @@ def musicxml_to_pdf(
     )
 
 
-    # MusicXML 清理
+
+    # 清理 MusicXML
 
     subprocess.run(
         [
@@ -133,6 +141,7 @@ def musicxml_to_pdf(
     )
 
 
+
     with open(
         ly_file,
         "w",
@@ -141,15 +150,20 @@ def musicxml_to_pdf(
 
 
         result = subprocess.run(
+
             [
                 "python",
                 "-m",
                 "jianpu_ly",
                 clean_file
             ],
+
             stdout=out,
+
             stderr=subprocess.PIPE,
+
             text=True
+
         )
 
 
@@ -161,9 +175,10 @@ def musicxml_to_pdf(
     )
 
 
+
     if result.returncode != 0:
 
-        return None, result.stderr
+        return None,result.stderr
 
 
 
@@ -171,47 +186,48 @@ def musicxml_to_pdf(
     # LilyPond
 
     result = subprocess.run(
+
         [
             LILYPOND,
             "input.ly"
         ],
+
         cwd=work_dir,
+
         stdout=subprocess.PIPE,
+
         stderr=subprocess.STDOUT,
+
         text=True
+
     )
 
 
 
     if result.returncode != 0:
 
-        return None, result.stdout
+        return None,result.stdout
 
 
 
-    pdf_files = glob.glob(
+
+    pdfs = glob.glob(
+
         os.path.join(
             work_dir,
             "*.pdf"
         )
+
     )
 
 
-    print(
-        "PDF:",
-        pdf_files,
-        flush=True
-    )
-
-
-    if not pdf_files:
+    if not pdfs:
 
         return None,"PDF not found"
 
 
 
-    return pdf_files[0],None
-
+    return pdfs[0],None
 
 
 
@@ -223,15 +239,16 @@ def musicxml_to_pdf(
 
 @app.post("/convert")
 async def convert(
-    file: UploadFile = File(...)
+        file:UploadFile=File(...)
 ):
 
-    job_id = str(uuid.uuid4())
+
+    job=str(uuid.uuid4())
 
 
-    work_dir = os.path.join(
+    work_dir=os.path.join(
         "outputs",
-        job_id
+        job
     )
 
 
@@ -241,10 +258,12 @@ async def convert(
     )
 
 
+
     musicxml_file=os.path.join(
         work_dir,
         "input.musicxml"
     )
+
 
 
     with open(
@@ -255,6 +274,7 @@ async def convert(
         f.write(
             await file.read()
         )
+
 
 
     pdf,error = musicxml_to_pdf(
@@ -272,9 +292,13 @@ async def convert(
 
 
     return FileResponse(
+
         pdf,
+
         filename="jianpu.pdf",
+
         media_type="application/pdf"
+
     )
 
 
@@ -289,15 +313,16 @@ async def convert(
 
 @app.post("/midi")
 async def midi_convert(
-    file: UploadFile = File(...)
+        file:UploadFile=File(...)
 ):
 
-    job_id=str(uuid.uuid4())
+
+    job=str(uuid.uuid4())
 
 
     work_dir=os.path.join(
         "outputs",
-        job_id
+        job
     )
 
 
@@ -334,35 +359,65 @@ async def midi_convert(
 
     try:
 
+
         score = music21.converter.parse(
             midi_file
         )
 
 
-        # ======================
-        # MIDI 主旋律抽取
-        # ======================
 
-        if len(score.parts) > 0:
-
-            score = score.parts[0]
-
-
-        score = score.flatten()
+        from music21 import stream
 
 
 
-        score.makeMeasures(
-            inPlace=True
+        # 建立單旋律
+
+        new_score = stream.Score()
+
+        new_part = stream.Part()
+
+
+
+        # 只取第一個聲部
+
+        if len(score.parts)>0:
+
+            part = score.parts[0]
+
+        else:
+
+            part = score
+
+
+
+        # 拆和弦
+
+        for n in part.flatten().notes:
+
+
+            if n.isChord:
+
+
+                # 只留下最高音
+
+                new_part.append(
+                    n.notes[-1]
+                )
+
+
+            else:
+
+                new_part.append(n)
+
+
+
+        new_score.append(
+            new_part
         )
 
 
-        score.makeTies(
-            inPlace=True
-        )
 
-
-        score.write(
+        new_score.write(
             "musicxml",
             fp=musicxml_file
         )
@@ -371,9 +426,15 @@ async def midi_convert(
 
     except Exception as e:
 
+
         return {
-            "error":"MIDI convert failed",
-            "detail":str(e)
+
+            "error":
+            "MIDI convert failed",
+
+            "detail":
+            str(e)
+
         }
 
 
@@ -394,7 +455,11 @@ async def midi_convert(
 
 
     return FileResponse(
+
         pdf,
+
         filename="jianpu.pdf",
+
         media_type="application/pdf"
+
     )
