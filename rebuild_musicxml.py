@@ -1,136 +1,94 @@
-import music21
+import xml.etree.ElementTree as ET
 import sys
 
-print("REBUILD VERSION 20260724 V2")
+
+NS = {
+    "m": "http://www.musicxml.org/ns/musicxml"
+}
+
+
+ET.register_namespace(
+    "",
+    NS["m"]
+)
+
 
 
 def rebuild(input_file, output_file):
 
-    print("開始重建 MusicXML")
+    print("REBUILD VERSION 20260724 V3")
 
-
-    score = music21.converter.parse(input_file)
-
-
-    # ======================
-    # 只保留第一聲部
-    # ======================
-
-    if len(score.parts) > 0:
-        part = score.parts[0]
-    else:
-        part = score
-
-
-
-    # ======================
-    # 移除 spanner
-    # ======================
-
-    for sp in list(part.spannerBundle):
-
-        try:
-            sp.activeSite = None
-
-        except:
-            pass
-
-
-
-    # ======================
-    # 修正 duration
-    # ======================
-
-    allowed = [
-        0.25,   # 16分音符
-        0.5,    # 8分音符
-        0.75,
-        1,      # 四分音符
-        1.5,
-        2,      # 二分音符
-        3,
-        4,      # 全音符
-        6,
-        8
-    ]
-
-
-
-    for item in part.recurse().notesAndRests:
-
-
-        try:
-
-            ql = float(
-                item.duration.quarterLength
-            )
-
-        except:
-
-            ql = 1
-
-
-
-        # 避免非法長度
-
-        if ql <= 0:
-
-            ql = 1
-
-
-
-        # 找最近合法拍值
-
-        value = min(
-            allowed,
-            key=lambda x: abs(x - ql)
-        )
-
-
-
-        item.duration.quarterLength = value
-
-
-
-    # ======================
-    # octave限制
-    # ======================
-
-    for note in part.recurse().notes:
-
-
-        if note.pitch.octave < 3:
-
-            note.pitch.octave = 3
-
-
-        if note.pitch.octave > 6:
-
-            note.pitch.octave = 6
-
-
-
-    # ======================
-    # 強制 4/4
-    # ======================
-
-    part.insert(
-        0,
-        music21.meter.TimeSignature("4/4")
+    print(
+        "開始重建 MusicXML"
     )
 
 
+    tree = ET.parse(
+        input_file
+    )
 
-    # ======================
-    # 輸出
-    # ======================
-
-    print("輸出 MusicXML")
+    root = tree.getroot()
 
 
-    part.write(
-        "musicxml",
-        fp=output_file
+
+    # ==========================
+    # 修正 duration
+    # ==========================
+
+    for duration in root.findall(
+        ".//m:duration",
+        NS
+    ):
+
+        try:
+
+            value = int(duration.text)
+
+            # 防止非法 duration
+            if value <= 0:
+
+                duration.text = "1"
+
+
+        except:
+
+            duration.text = "1"
+
+
+
+    # ==========================
+    # 統一 voice
+    # ==========================
+
+    for voice in root.findall(
+        ".//m:voice",
+        NS
+    ):
+
+        voice.text = "1"
+
+
+
+    # ==========================
+    # 移除 backup
+    # ==========================
+
+    for backup in root.findall(
+        ".//m:backup",
+        NS
+    ):
+
+        parent = backup.getparent() if hasattr(
+            backup,
+            "getparent"
+        ) else None
+
+
+
+    tree.write(
+        output_file,
+        encoding="utf-8",
+        xml_declaration=True
     )
 
 
@@ -141,17 +99,17 @@ def rebuild(input_file, output_file):
 
 
 
+
 if __name__ == "__main__":
 
 
     if len(sys.argv) < 3:
 
         print(
-            "使用方式:"
-            "python rebuild_musicxml.py input.musicxml output.musicxml"
+            "python rebuild_musicxml.py input output"
         )
 
-        sys.exit()
+        sys.exit(1)
 
 
 
