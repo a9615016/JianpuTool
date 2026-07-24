@@ -9,137 +9,50 @@ def rebuild(input_file, output_file):
 
     print("開始重建 MusicXML")
 
-
-    score = converter.parse(
-        input_file
-    )
+    score = converter.parse(input_file)
 
 
     for part in score.parts:
 
 
-        # 移除原本怪拍號
+        # 移除所有原本拍號
         for ts in part.recurse().getElementsByClass(
             meter.TimeSignature
         ):
             ts.activeSite.remove(ts)
 
 
-        # 加入4/4
+        # 強制 4/4
         part.insert(
             0,
             meter.TimeSignature("4/4")
         )
 
 
-        # 重新建立 measure
-        measures = []
+        for measure in part.getElementsByClass(
+            stream.Measure
+        ):
 
 
-        current = stream.Measure(
-            number=1
-        )
+            for item in measure.notesAndRests:
 
 
-        total = 0
+                ql = item.duration.quarterLength
 
 
-        for n in part.flat.notesAndRests:
+                # 防止超長
+                if ql > 4:
+                    item.duration.quarterLength = 4
 
 
-            ql = n.duration.quarterLength
-
-
-            # 修正非法長度
-            if ql <= 0:
-                continue
-
-
-            # 超過一拍拆掉
-            while ql > 4:
-
-                n.duration.quarterLength = 4
-                ql = 4
-
-
-            # 小節滿了換下一小節
-
-            if total + ql > 4:
-
-
-                measures.append(
-                    current
-                )
-
-
-                current = stream.Measure(
-                    number=len(measures)+1
-                )
-
-
-                total = 0
+                # 修正非法 duration
+                if ql <= 0:
+                    item.duration.quarterLength = 1
 
 
 
-            current.append(
-                n
-            )
-
-
-            total += ql
-
-
-
-            if total == 4:
-
-
-                measures.append(
-                    current
-                )
-
-
-                current = stream.Measure(
-                    number=len(measures)+1
-                )
-
-
-                total = 0
-
-
-
-        if len(current.notesAndRests) > 0:
-
-            measures.append(
-                current
-            )
-
-
-        new_part = stream.Part()
-
-
-        new_part.insert(
-            0,
-            meter.TimeSignature("4/4")
-        )
-
-
-        for m in measures:
-
-            new_part.append(
-                m
-            )
-
-
-
-        score.remove(
-            part
-        )
-
-
-        score.insert(
-            0,
-            new_part
-        )
+                # 重新切割 duration
+                item.duration.splitDot = False
 
 
 
@@ -157,7 +70,6 @@ def rebuild(input_file, output_file):
 
 
 if __name__ == "__main__":
-
 
     rebuild(
         sys.argv[1],
