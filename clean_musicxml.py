@@ -9,26 +9,65 @@ def clean_musicxml(input_file, output_file):
     root = tree.getroot()
 
 
-    ns = {
-        "m": "http://www.musicxml.org/ns/musicxml"
-    }
+    # namespace
+    ns = "{http://www.musicxml.org/ns/musicxml}"
 
 
-    # 移除 chord 標記
-    for chord in root.findall(".//{*}chord"):
+    # ======================
+    # 移除 chord
+    # ======================
 
-        parent = None
+    for measure in root.iter(ns + "measure"):
 
-        for p in root.iter():
+        notes = list(measure)
 
-            if chord in list(p):
-                parent = p
+        remove_next = False
+
+        for item in notes:
+
+            if item.tag == ns + "note":
+
+                if item.find(ns + "chord") is not None:
+
+                    measure.remove(item)
+
+
+
+    # ======================
+    # 移除 backup
+    # ======================
+
+    for backup in root.iter(ns + "backup"):
+
+        for parent in root.iter():
+
+            if backup in list(parent):
+
+                parent.remove(backup)
+
                 break
 
 
-        if parent is not None:
 
-            parent.remove(chord)
+    # ======================
+    # 只保留 voice 1
+    # ======================
+
+    for note in root.iter(ns + "note"):
+
+        voice = note.find(ns + "voice")
+
+        if voice is not None:
+
+            if voice.text != "1":
+
+                for parent in root.iter():
+
+                    if note in list(parent):
+
+                        parent.remove(note)
+
+                        break
 
 
 
@@ -41,15 +80,6 @@ def clean_musicxml(input_file, output_file):
 
 
 if __name__ == "__main__":
-
-    if len(sys.argv) < 3:
-
-        print(
-            "python clean_musicxml.py input.musicxml output.musicxml"
-        )
-
-        sys.exit(1)
-
 
     clean_musicxml(
         sys.argv[1],
