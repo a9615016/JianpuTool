@@ -19,7 +19,7 @@ if os.name != "nt":
 @app.get("/", response_class=HTMLResponse)
 def home():
     try:
-        with open("index.html", "r", encoding="utf-8") as f:
+        with open("static/index.html", "r", encoding="utf-8") as f:
             return f.read()
     except FileNotFoundError:
         return """
