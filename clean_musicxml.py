@@ -1,8 +1,10 @@
+print("CLEAN VERSION 20260724 V7")
+
+
+
 import sys
 from music21 import converter, chord
 
-
-print("CLEAN VERSION 20260724 V7")
 
 
 def clean(input_file, output_file):
