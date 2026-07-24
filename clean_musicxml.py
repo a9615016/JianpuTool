@@ -1,11 +1,9 @@
-print("CLEAN VERSION 20260724 V13")
-
 import sys
 import os
 import music21
 
 
-
+print("CLEAN VERSION 20260724 V14")
 
 
 if len(sys.argv) < 3:
@@ -23,7 +21,7 @@ print("input:", input_file)
 
 
 # ==========================
-# Load
+# 讀取 MusicXML
 # ==========================
 
 score = music21.converter.parse(
@@ -31,8 +29,9 @@ score = music21.converter.parse(
 )
 
 
+
 # ==========================
-# Remove voices
+# 移除 Voice
 # ==========================
 
 print("remove voices")
@@ -40,13 +39,9 @@ print("remove voices")
 
 for part in score.parts:
 
-    for measure in part.getElementsByClass(
-        "Measure"
-    ):
+    for measure in part.getElementsByClass("Measure"):
 
-        voices = measure.getElementsByClass(
-            "Voice"
-        )
+        voices = measure.getElementsByClass("Voice")
 
         for v in list(voices):
 
@@ -55,7 +50,7 @@ for part in score.parts:
 
 
 # ==========================
-# Chord -> Note
+# Chord 只留第一音
 # ==========================
 
 print("remove chords")
@@ -70,11 +65,11 @@ for chord in list(
 
         if len(chord.notes):
 
-            n = chord.notes[0]
+            note = chord.notes[0]
 
             chord.activeSite.replace(
                 chord,
-                n
+                note
             )
 
     except:
@@ -84,7 +79,7 @@ for chord in list(
 
 
 # ==========================
-# Remove grace
+# 移除 Grace Note
 # ==========================
 
 print("remove grace notes")
@@ -108,7 +103,7 @@ for n in list(
 
 
 # ==========================
-# Fix duration
+# 修正 duration
 # ==========================
 
 print("fix duration")
@@ -118,38 +113,37 @@ for n in score.recurse().notesAndRests:
 
     try:
 
-        # 清除所有 tuplets
-        if n.duration.tuplets:
-
-            n.duration.clearTuplet()
+        # 清除 tuplet
+        n.duration.tuplets = []
 
 
+        if hasattr(n.duration, "_tuplets"):
 
-        ql = n.duration.quarterLength
+            n.duration._tuplets = []
 
 
-        # 負值修正
-        if ql <= 0:
+
+        # 太短音符修正
+
+        if n.duration.quarterLength <= 0:
+
+            n.duration.quarterLength = 0.25
+
+
+        elif n.duration.quarterLength < 0.25:
 
             n.duration.quarterLength = 0.25
 
 
 
-        # 太短修正
-        elif ql < 0.25:
-
-            n.duration.quarterLength = 0.25
-
-
-
-    except Exception:
+    except:
 
         pass
 
 
 
 # ==========================
-# Final hard cleanup
+# Final 強制清理
 # ==========================
 
 print("final cleanup")
@@ -159,12 +153,26 @@ for n in score.recurse().notesAndRests:
 
     try:
 
-        # 再清一次 tuplet
+        # 再清一次所有 tuplet
 
-        n.duration.clearTuplet()
+        n.duration.tuplets = []
 
 
-        # 強制移除不可匯出的 duration
+        if hasattr(n.duration, "_tuplets"):
+
+            n.duration._tuplets = []
+
+
+
+        # 防止 2048th / 1024th
+
+        if n.duration.quarterLength < 0.25:
+
+            n.duration.quarterLength = 0.25
+
+
+
+        # 移除 type 問題
 
         if n.duration.type in [
 
@@ -176,15 +184,7 @@ for n in score.recurse().notesAndRests:
 
         ]:
 
-            n.duration.quarterLength = 0.25
-
-
-
-        # 防止 MusicXML 太短
-
-        if n.duration.quarterLength < 0.25:
-
-            n.duration.quarterLength = 0.25
+            n.duration.type = "16th"
 
 
 
@@ -222,7 +222,32 @@ except Exception as e:
 
 
 # ==========================
-# Write
+# 最後移除 Rest tuplet
+# ==========================
+
+print("REMOVE ALL TUPLETS FINAL")
+
+
+for n in score.recurse().notesAndRests:
+
+    try:
+
+        n.duration.tuplets = []
+
+
+        if hasattr(n.duration, "_tuplets"):
+
+            n.duration._tuplets = []
+
+
+    except:
+
+        pass
+
+
+
+# ==========================
+# 輸出
 # ==========================
 
 print("write")
