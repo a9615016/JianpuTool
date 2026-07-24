@@ -197,3 +197,22 @@ if __name__ == "__main__":
         sys.argv[1],
         sys.argv[2]
     )
+
+from music21 import converter, meter
+
+
+score = converter.parse(input_file)
+
+
+for part in score.parts:
+
+    part.insert(
+        0,
+        meter.TimeSignature("4/4")
+    )
+
+
+score.write(
+    "musicxml",
+    fp=output_file
+)
