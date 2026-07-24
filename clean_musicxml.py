@@ -6,94 +6,102 @@ def clean_musicxml(input_file, output_file):
 
     print("開始 clean MusicXML")
 
-
     tree = ET.parse(input_file)
+
     root = tree.getroot()
 
 
-    # namespace
-    ns = {
-        "m": "http://www.musicxml.org/ns/musicxml"
+    def tag(x):
+        return x.split("}")[-1]
+
+
+    # 移除 jianpu_ly 不支援項目
+
+    remove_tags = {
+
+        "backup",
+        "forward",
+        "grace",
+        "notations",
+        "accidental",
+        "tie",
+        "chord",
+        "arpeggiate"
+
     }
 
 
-    # 移除 octave-change
-    for elem in root.iter():
 
-        tag = elem.tag.split("}")[-1]
-
-        if tag == "octave-change":
-            parent = None
-
-    # 清除所有 octave 元素
-    for parent in root.iter():
-
-        remove = []
+    def recursive_clean(parent):
 
         for child in list(parent):
 
-            tag = child.tag.split("}")[-1]
+            name = tag(child.tag)
 
-            if tag in [
-                "octave-change",
-                "accidental-text",
-                "credit"
-            ]:
-                remove.append(child)
+            if name in remove_tags:
 
+                parent.remove(child)
 
-        for child in remove:
-            parent.remove(child)
+            else:
+
+                recursive_clean(child)
 
 
 
-    # 修正 divisions
-    for elem in root.iter():
-
-        tag = elem.tag.split("}")[-1]
-
-        if tag == "divisions":
-
-            try:
-                value=int(elem.text)
-
-                if value > 16:
-                    elem.text="16"
-
-            except:
-                elem.text="16"
+    recursive_clean(root)
 
 
 
-    # 移除異常 voice
+    # voice 固定
+
+    for e in root.iter():
+
+        if tag(e.tag) == "voice":
+
+            e.text = "1"
+
+
+
+    # octave 全部改成標準音域
+
+    for e in root.iter():
+
+        if tag(e.tag) == "octave":
+
+            e.text = "4"
+
+
+
+    # 移除 pitch 裡重複 octave
+
     for note in root.iter():
 
-        tag=note.tag.split("}")[-1]
+        if tag(note.tag) == "pitch":
 
-        if tag=="voice":
+            octaves = []
 
-            if note.text not in ["1", "2"]:
-                note.text="1"
+            for child in list(note):
+
+                if tag(child.tag) == "octave":
+
+                    octaves.append(child)
+
+
+            # 只保留一個 octave
+
+            for extra in octaves[1:]:
+
+                note.remove(extra)
 
 
 
-    # 移除 backup 過大的問題
-    for elem in root.iter():
+    # 清理文字
 
-        tag=elem.tag.split("}")[-1]
+    for e in root.iter():
 
-        if tag=="backup":
+        if e.text:
 
-            duration=elem.find(".//duration")
-
-            if duration is not None:
-
-                try:
-                    if int(duration.text)>64:
-                        duration.text="0"
-
-                except:
-                    duration.text="0"
+            e.text=e.text.strip()
 
 
 
@@ -109,7 +117,9 @@ def clean_musicxml(input_file, output_file):
 
 
 
+
 if __name__=="__main__":
+
 
     if len(sys.argv)<3:
 
@@ -117,9 +127,10 @@ if __name__=="__main__":
             "python clean_musicxml.py input.musicxml output.musicxml"
         )
 
-    else:
+        exit()
 
-        clean_musicxml(
-            sys.argv[1],
-            sys.argv[2]
-        )
+
+    clean_musicxml(
+        sys.argv[1],
+        sys.argv[2]
+    )
