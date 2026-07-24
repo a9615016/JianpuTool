@@ -1,8 +1,8 @@
 import sys
-from music21 import converter, stream, note, chord
+from music21 import converter, stream, note, chord, duration
 
 
-print("CLEAN VERSION 20260724 V8")
+print("CLEAN VERSION 20260724 V9")
 
 
 def clean_musicxml(input_file, output_file):
@@ -13,10 +13,6 @@ def clean_musicxml(input_file, output_file):
     score = converter.parse(input_file)
 
 
-    # ======================
-    # 只取第一聲部
-    # ======================
-
     part = score.parts[0]
 
 
@@ -25,38 +21,46 @@ def clean_musicxml(input_file, output_file):
 
     # 保留拍號
     for ts in part.recurse().getElementsByClass(
-        'TimeSignature'
+        "TimeSignature"
     ):
         new_part.insert(0, ts)
 
 
-    # ======================
-    # 只留下 Note
-    # ======================
 
     for n in part.flatten().notes:
 
 
+        if isinstance(n, chord.Chord):
+
+            n = note.Note(
+                n.pitches[0]
+            )
+
+
         if isinstance(n, note.Note):
+
+
+            # =====================
+            # 修正超短音符
+            # =====================
+
+            if n.duration.quarterLength < 0.25:
+
+                n.duration = duration.Duration(
+                    0.25
+                )
+
 
             new_part.append(
                 n
             )
 
 
-        elif isinstance(n, chord.Chord):
-
-            # 和弦只取最高音
-            new_part.append(
-                note.Note(
-                    n.pitches[0]
-                )
-            )
-
 
     new_score = stream.Score()
 
-    new_score.append(
+    new_score.insert(
+        0,
         new_part
     )
 
@@ -75,15 +79,6 @@ def clean_musicxml(input_file, output_file):
 
 
 if __name__ == "__main__":
-
-
-    if len(sys.argv) != 3:
-
-        print(
-            "python clean_musicxml.py input.musicxml output.musicxml"
-        )
-
-        sys.exit(1)
 
 
     clean_musicxml(
