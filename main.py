@@ -46,7 +46,7 @@ def home():
             <input 
                 type="file" 
                 name="file"
-                accept=".musicxml,.xml"
+                
             >
 
             <br><br>
@@ -68,7 +68,7 @@ def home():
             <input 
                 type="file"
                 name="file"
-                accept=".mid,.midi"
+              
             >
 
             <br><br>
