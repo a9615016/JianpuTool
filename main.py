@@ -10,10 +10,10 @@ import music21
 app = FastAPI()
 
 
-# Windows 本機
+# LilyPond 路徑
 LILYPOND = r"C:\lilypond-2.26.0\bin\lilypond.exe"
 
-# Render / Linux
+# Render Linux
 if os.name != "nt":
     LILYPOND = "lilypond"
 
@@ -34,20 +34,32 @@ def home():
         <title>JianpuTool</title>
     </head>
 
-
     <body>
 
         <h1>🎵 JianpuTool MIDI → 簡譜</h1>
 
-        <p>上傳 MIDI 或 MusicXML</p>
+        <h3>MusicXML → 簡譜 PDF</h3>
 
-        <input type="file">
+        <form action="/convert" method="post" enctype="multipart/form-data">
+            <input type="file" name="file">
+            <button type="submit">
+                產生簡譜 PDF
+            </button>
+        </form>
 
-        <br><br>
 
-        <button>
-            產生簡譜 PDF
-        </button>
+        <hr>
+
+
+        <h3>MIDI → 簡譜 PDF</h3>
+
+        <form action="/midi" method="post" enctype="multipart/form-data">
+            <input type="file" name="file">
+            <button type="submit">
+                MIDI 轉簡譜
+            </button>
+        </form>
+
 
     </body>
 
@@ -62,6 +74,7 @@ def status():
     return {
         "status": "JianpuTool MVP OK"
     }
+
 
 
 
@@ -99,7 +112,6 @@ def musicxml_to_pdf(musicxml_file, work_dir):
 
 
     if result.returncode != 0:
-
         return None, result.stderr
 
 
@@ -119,7 +131,6 @@ def musicxml_to_pdf(musicxml_file, work_dir):
 
 
     if result.returncode != 0:
-
         return None, result.stdout
 
 
@@ -133,8 +144,8 @@ def musicxml_to_pdf(musicxml_file, work_dir):
 
 
     if not pdf_files:
-
         return None, "PDF not found"
+
 
 
     return pdf_files[0], None
@@ -166,12 +177,10 @@ async def convert(
     )
 
 
-
     musicxml_file = os.path.join(
         work_dir,
         "input.musicxml"
     )
-
 
 
     with open(
@@ -191,6 +200,7 @@ async def convert(
     )
 
 
+
     if error:
 
         return {
@@ -204,6 +214,7 @@ async def convert(
         filename="jianpu.pdf",
         media_type="application/pdf"
     )
+
 
 
 
@@ -284,6 +295,7 @@ async def midi_convert(
         musicxml_file,
         work_dir
     )
+
 
 
     if error:
