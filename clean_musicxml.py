@@ -2,7 +2,7 @@ import sys
 from music21 import converter
 
 
-print("CLEAN VERSION 20260724 V5")
+print("CLEAN VERSION 20260724 V6")
 
 
 def clean(input_file, output_file):
@@ -15,23 +15,28 @@ def clean(input_file, output_file):
 
     for part in score.parts:
 
-
-        for note in part.recurse().notesAndRests:
-
-
-            ql = note.duration.quarterLength
+        for element in part.recurse().notesAndRests:
 
 
-            # jianpu_ly 不接受超短音符
+            ql = element.duration.quarterLength
+
+
+            # jianpu_ly 不接受太短音符
             if ql < 0.5:
 
-                note.duration.quarterLength = 0.5
+                element.duration.quarterLength = 0.5
 
 
-            # 修正怪長度
-            if ql > 8:
 
-                note.duration.quarterLength = 4
+            # 過長音符修正
+            elif ql > 8:
+
+                element.duration.quarterLength = 4
+
+
+
+            # 重新連結 duration
+            element.duration.linked = True
 
 
 
@@ -42,13 +47,31 @@ def clean(input_file, output_file):
 
 
     print(
-        "clean完成",
+        "clean完成"
+    )
+
+    print(
         output_file
     )
 
 
 
 if __name__ == "__main__":
+
+
+    if len(sys.argv) < 3:
+
+        print(
+            "使用方式:"
+        )
+
+        print(
+            "python clean_musicxml.py input.musicxml output.musicxml"
+        )
+
+        sys.exit(1)
+
+
 
     clean(
         sys.argv[1],
