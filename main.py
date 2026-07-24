@@ -16,8 +16,6 @@ os.makedirs(BASE_DIR, exist_ok=True)
 
 
 
-# 首頁
-
 @app.get("/", response_class=HTMLResponse)
 def home():
 
@@ -35,31 +33,27 @@ def home():
 
     <h3>MusicXML → 簡譜 PDF</h3>
 
-
-    <form action="/convert" method="post" enctype="multipart/form-data">
+    <form action="/convert"
+          method="post"
+          enctype="multipart/form-data">
 
         <input type="file"
                name="file"
                accept=".musicxml,.xml">
 
-
         <br><br>
 
-
         <button type="submit">
-            開始轉換
+        開始轉換
         </button>
 
     </form>
-
 
     </body>
     </html>
     """
 
 
-
-# API 狀態
 
 @app.get("/status")
 def status():
@@ -73,10 +67,10 @@ def status():
 
 
 
-# 轉換
-
 @app.post("/convert")
-async def convert(file: UploadFile = File(...)):
+async def convert(
+    file: UploadFile = File(...)
+):
 
 
     job_id = str(uuid.uuid4())
@@ -88,11 +82,12 @@ async def convert(file: UploadFile = File(...)):
     )
 
 
-    os.makedirs(workdir, exist_ok=True)
+    os.makedirs(
+        workdir,
+        exist_ok=True
+    )
 
 
-
-    # 儲存上傳檔案
 
     input_file = os.path.join(
         workdir,
@@ -100,7 +95,11 @@ async def convert(file: UploadFile = File(...)):
     )
 
 
-    with open(input_file,"wb") as f:
+
+    with open(
+        input_file,
+        "wb"
+    ) as f:
 
         shutil.copyfileobj(
             file.file,
@@ -109,15 +108,20 @@ async def convert(file: UploadFile = File(...)):
 
 
 
-    print("開始 MusicXML -> jianpu")
+    print(
+        "開始 MusicXML -> jianpu"
+    )
 
-    print("輸入:", input_file)
+    print(
+        "輸入:",
+        input_file
+    )
 
 
 
-    # -----------------------
-    # clean MusicXML
-    # -----------------------
+    # ==========================
+    # clean
+    # ==========================
 
     clean_file = os.path.join(
         workdir,
@@ -125,10 +129,12 @@ async def convert(file: UploadFile = File(...)):
     )
 
 
-    print("開始 clean MusicXML")
+    print(
+        "開始 clean MusicXML"
+    )
 
 
-    clean = subprocess.run(
+    result = subprocess.run(
         [
             "python",
             "clean_musicxml.py",
@@ -140,22 +146,74 @@ async def convert(file: UploadFile = File(...)):
     )
 
 
-    print(clean.stdout)
+    print(result.stdout)
 
 
-    if clean.stderr:
+    if result.returncode != 0:
 
-        print(clean.stderr)
-
-
-
-    print(clean_file)
-
+        return {
+            "error":
+            result.stderr
+        }
 
 
-    # -----------------------
+
+    print(
+        clean_file
+    )
+
+
+
+    # ==========================
+    # rebuild
+    # ==========================
+
+    rebuild_file = os.path.join(
+        workdir,
+        "rebuild.musicxml"
+    )
+
+
+    print(
+        "開始 rebuild MusicXML"
+    )
+
+
+    result = subprocess.run(
+        [
+            "python",
+            "rebuild_musicxml.py",
+            clean_file,
+            rebuild_file
+        ],
+        capture_output=True,
+        text=True
+    )
+
+
+    print(
+        result.stdout
+    )
+
+
+    if result.returncode != 0:
+
+        return {
+            "error":
+            result.stderr
+        }
+
+
+
+    print(
+        rebuild_file
+    )
+
+
+
+    # ==========================
     # jianpu_ly
-    # -----------------------
+    # ==========================
 
     ly_file = os.path.join(
         workdir,
@@ -163,8 +221,9 @@ async def convert(file: UploadFile = File(...)):
     )
 
 
-    print("開始 jianpu_ly")
-
+    print(
+        "開始 jianpu_ly"
+    )
 
 
     with open(
@@ -179,7 +238,7 @@ async def convert(file: UploadFile = File(...)):
                 "python",
                 "-m",
                 "jianpu_ly",
-                clean_file
+                rebuild_file
             ],
             stdout=f,
             stderr=subprocess.PIPE,
@@ -194,29 +253,36 @@ async def convert(file: UploadFile = File(...)):
     )
 
 
-
     if result.returncode != 0:
 
-        print(result.stderr)
+        print(
+            result.stderr
+        )
 
         return {
-            "error": result.stderr
+            "error":
+            result.stderr
         }
 
 
 
-    # -----------------------
-    # LilyPond PDF
-    # -----------------------
+    # ==========================
+    # LilyPond
+    # ==========================
 
-    print("開始 LilyPond")
+    print(
+        "開始 LilyPond"
+    )
 
 
     result = subprocess.run(
         [
             "lilypond",
             "-o",
-            os.path.join(workdir,"jianpu"),
+            os.path.join(
+                workdir,
+                "jianpu"
+            ),
             ly_file
         ],
         capture_output=True,
@@ -228,7 +294,8 @@ async def convert(file: UploadFile = File(...)):
     if result.returncode != 0:
 
         return {
-            "error":result.stderr
+            "error":
+            result.stderr
         }
 
 
@@ -237,6 +304,15 @@ async def convert(file: UploadFile = File(...)):
         workdir,
         "jianpu.pdf"
     )
+
+
+    if not os.path.exists(pdf_file):
+
+        return {
+            "error":
+            "PDF沒有產生"
+        }
+
 
 
     return FileResponse(
