@@ -13,9 +13,7 @@ def clean_musicxml(input_file, output_file):
     ns = "{http://www.musicxml.org/ns/musicxml}"
 
 
-    # -------------------------
-    # 1. 固定 4/4
-    # -------------------------
+    # 固定 4/4
 
     for time in root.findall(".//"+ns+"time"):
 
@@ -30,88 +28,54 @@ def clean_musicxml(input_file, output_file):
 
 
 
-    # -------------------------
-    # 2. 移除 chord
-    # 保留第一個音
-    # -------------------------
-
-    for measure in root.findall(".//"+ns+"measure"):
-
-        notes = measure.findall(ns+"note")
-
-        chord_found=False
-
-        for note in notes:
-
-            chord = note.find(ns+"chord")
-
-            if chord is not None:
-
-                # 刪掉後續和弦音
-                if chord_found:
-                    measure.remove(note)
-
-                else:
-                    note.remove(chord)
-                    chord_found=True
-
-            else:
-                chord_found=False
-
-
-
-    # -------------------------
-    # 3. 移除 grace note
-    # -------------------------
-
-    for grace in root.findall(".//"+ns+"grace"):
-
-        parent=None
-
-        for p in root.iter():
-
-            if grace in list(p):
-                parent=p
-                break
-
-
-        if parent is not None:
-
-            note=parent
-
-            if note.tag==ns+"note":
-
-                for x in note.findall(ns+"grace"):
-                    note.remove(x)
-
-
-
-    # -------------------------
-    # 4. 移除八度記號問題來源
-    # -------------------------
+    # =========================
+    # 只保留 Voice 1
+    # =========================
 
     for note in root.findall(".//"+ns+"note"):
 
-        pitch=note.find(ns+"pitch")
+        voice = note.find(ns+"voice")
 
-        if pitch is not None:
+        if voice is not None:
 
-            octave=pitch.find(ns+"octave")
+            if voice.text != "1":
 
-            if octave is not None:
+                # 找父節點刪除
 
-                try:
-                    value=int(octave.text)
+                for measure in root.findall(".//"+ns+"measure"):
 
-                    # 限制正常音域
-                    if value < 1:
-                        octave.text="1"
+                    if note in list(measure):
 
-                    if value > 7:
-                        octave.text="7"
+                        measure.remove(note)
+                        break
 
-                except:
-                    octave.text="4"
+
+
+    # =========================
+    # 移除 chord
+    # =========================
+
+    for chord in root.findall(".//"+ns+"chord"):
+
+        for note in root.findall(".//"+ns+"note"):
+
+            if chord in list(note):
+
+                note.remove(chord)
+
+
+
+    # =========================
+    # 移除 grace
+    # =========================
+
+    for grace in root.findall(".//"+ns+"grace"):
+
+        for note in root.findall(".//"+ns+"note"):
+
+            if grace in list(note):
+
+                note.remove(grace)
 
 
 
@@ -128,13 +92,6 @@ def clean_musicxml(input_file, output_file):
 
 
 if __name__=="__main__":
-
-    if len(sys.argv)<3:
-        print(
-        "python clean_musicxml.py input.musicxml output.musicxml"
-        )
-        exit()
-
 
     clean_musicxml(
         sys.argv[1],
