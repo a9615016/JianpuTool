@@ -60,9 +60,7 @@ def status():
 
     return {
         "status":"JianpuTool running",
-        "api":[
-            "/convert"
-        ]
+        "api":["/convert"]
     }
 
 
@@ -87,13 +85,14 @@ async def convert(file: UploadFile = File(...)):
     )
 
 
+
     input_file = os.path.join(
         workdir,
         "input.musicxml"
     )
 
 
-    with open(input_file,"wb") as f:
+    with open(input_file, "wb") as f:
 
         shutil.copyfileobj(
             file.file,
@@ -101,14 +100,15 @@ async def convert(file: UploadFile = File(...)):
         )
 
 
+
     print("開始 MusicXML -> jianpu")
     print("輸入:", input_file)
 
 
 
-    # ======================
+    # =====================
     # clean
-    # ======================
+    # =====================
 
     clean_file = os.path.join(
         workdir,
@@ -119,7 +119,7 @@ async def convert(file: UploadFile = File(...)):
     print("開始 clean MusicXML")
 
 
-    result = subprocess.run(
+    r = subprocess.run(
         [
             "python",
             "clean_musicxml.py",
@@ -131,13 +131,13 @@ async def convert(file: UploadFile = File(...)):
     )
 
 
-    print(result.stdout)
+    print(r.stdout)
 
 
-    if result.returncode != 0:
+    if r.returncode != 0:
 
         return {
-            "error": result.stderr
+            "error": r.stderr
         }
 
 
@@ -146,9 +146,9 @@ async def convert(file: UploadFile = File(...)):
 
 
 
-    # ======================
+    # =====================
     # rebuild
-    # ======================
+    # =====================
 
     rebuild_file = os.path.join(
         workdir,
@@ -159,7 +159,7 @@ async def convert(file: UploadFile = File(...)):
     print("開始 rebuild MusicXML")
 
 
-    result = subprocess.run(
+    r = subprocess.run(
         [
             "python",
             "rebuild_musicxml.py",
@@ -171,23 +171,24 @@ async def convert(file: UploadFile = File(...)):
     )
 
 
-    print(result.stdout)
+    print(r.stdout)
 
 
-    if result.returncode != 0:
+    if r.returncode != 0:
 
         return {
-            "error": result.stderr
+            "error": r.stderr
         }
+
 
 
     print(rebuild_file)
 
 
 
-    # ======================
+    # =====================
     # jianpu_ly
-    # ======================
+    # =====================
 
     ly_file = os.path.join(
         workdir,
@@ -205,7 +206,7 @@ async def convert(file: UploadFile = File(...)):
     ) as f:
 
 
-        result = subprocess.run(
+        r = subprocess.run(
             [
                 "python",
                 "-m",
@@ -218,63 +219,77 @@ async def convert(file: UploadFile = File(...)):
         )
 
 
+
     print(
         "jianpu_ly:",
-        result.returncode
+        r.returncode
     )
 
 
-    if result.returncode != 0:
 
-        print(result.stderr)
+    if r.returncode != 0:
+
+        print(r.stderr)
 
         return {
-            "error": result.stderr
+            "error": r.stderr
         }
 
 
 
-    # ======================
+    # =====================
     # LilyPond
-    # ======================
+    # =====================
 
     print("開始 LilyPond")
 
 
-    result = subprocess.run(
+    print(
+        "jianpu.ly exists:",
+        os.path.exists(ly_file)
+    )
+
+
+    print(
+        "LilyPond workdir:",
+        os.path.abspath(workdir)
+    )
+
+
+    r = subprocess.run(
         [
             "lilypond",
             "-o",
             "jianpu",
             "jianpu.ly"
         ],
-        cwd=workdir,
+        cwd=os.path.abspath(workdir),
         capture_output=True,
         text=True,
         timeout=120
     )
 
 
-    print(result.stdout)
+    print(r.stdout)
 
 
-    if result.stderr:
+    if r.stderr:
 
-        print(result.stderr)
+        print(r.stderr)
 
 
 
-    if result.returncode != 0:
+    if r.returncode != 0:
 
         return {
-            "error": result.stderr
+            "error": r.stderr
         }
 
 
 
-    # ======================
+    # =====================
     # PDF
-    # ======================
+    # =====================
 
     pdf_file = os.path.join(
         workdir,
@@ -293,7 +308,6 @@ async def convert(file: UploadFile = File(...)):
         "PDF完成:",
         pdf_file
     )
-
 
 
     return FileResponse(
