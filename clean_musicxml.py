@@ -1,103 +1,113 @@
 import xml.etree.ElementTree as ET
 import sys
+import os
 
 
 def clean_musicxml(input_file, output_file):
 
-    print("讀取 MusicXML:", input_file)
+    print("開始 clean MusicXML")
 
-    # =========================
-    # 強制處理編碼
-    # =========================
+    tree = ET.parse(input_file)
+    root = tree.getroot()
 
-    with open(input_file, "rb") as f:
-        data = f.read()
+    ns = ""
 
-    try:
-        text = data.decode("utf-8-sig")
+    # 移除 backup
+    for backup in root.findall(".//backup"):
+        parent = None
+        for p in root.iter():
+            if backup in list(p):
+                parent = p
+                break
 
-    except:
-
-        try:
-            text = data.decode("utf-16")
-
-        except:
-
-            text = data.decode(
-                "cp950",
-                errors="ignore"
-            )
+        if parent is not None:
+            parent.remove(backup)
 
 
-    # =========================
-    # XML 解析
-    # =========================
+    # 修正音符
+    for note in root.findall(".//note"):
 
-    root = ET.fromstring(text)
-
-
-    # =========================
-    # 清理資料
-    # =========================
-
-    for elem in root.iter():
-
-        tag = elem.tag.split("}")[-1]
+        # 移除 chord 標記
+        for chord in note.findall("chord"):
+            note.remove(chord)
 
 
         # 修正 octave
-        if tag == "octave":
+        pitch = note.find("pitch")
+
+        if pitch is not None:
+
+            octave = pitch.find("octave")
+
+            if octave is not None:
+
+                try:
+                    value = int(octave.text)
+
+                    # 限制合理音域
+                    if value < 1:
+                        octave.text = "1"
+
+                    if value > 8:
+                        octave.text = "8"
+
+                except:
+                    octave.text = "4"
+
+
+
+        # 移除奇怪 duration
+        duration = note.find("duration")
+
+        if duration is not None:
 
             try:
+                d = int(duration.text)
 
-                value = int(elem.text)
-
-                if value < 0 or value > 8:
-                    elem.text = "4"
+                if d <= 0:
+                    duration.text = "16"
 
             except:
-
-                elem.text = "4"
-
-
-
-        # 修正 step
-        if tag == "step":
-
-            if elem.text not in [
-                "A",
-                "B",
-                "C",
-                "D",
-                "E",
-                "F",
-                "G"
-            ]:
-
-                elem.text = "C"
+                duration.text = "16"
 
 
 
-        # 修正 voice
-        if tag == "voice":
+    # 修正 divisions
 
-            if elem.text:
+    for div in root.findall(".//divisions"):
 
-                if elem.text not in [
-                    "1",
-                    "2"
-                ]:
+        try:
 
-                    elem.text = "1"
+            value=int(div.text)
+
+            if value > 32:
+                div.text="16"
+
+            if value <=0:
+                div.text="16"
+
+        except:
+
+            div.text="16"
 
 
 
-    # =========================
-    # 輸出 UTF-8 MusicXML
-    # =========================
+    # 修正 time signature
 
-    tree = ET.ElementTree(root)
+    for beats in root.findall(".//beats"):
 
+        if beats.text not in ["2","3","4","6"]:
+            beats.text="4"
+
+
+    for beat_type in root.findall(".//beat-type"):
+
+        if beat_type.text not in ["2","4","8"]:
+            beat_type.text="4"
+
+
+
+    # UTF-8輸出
     tree.write(
         output_file,
         encoding="utf-8",
@@ -105,25 +115,21 @@ def clean_musicxml(input_file, output_file):
     )
 
 
-    print("clean完成:", output_file)
+    print("clean完成")
+    print(output_file)
 
 
 
-if __name__ == "__main__":
+if __name__=="__main__":
 
-
-    if len(sys.argv) < 3:
-
-        print(
-            "使用方式:"
-        )
+    if len(sys.argv)<3:
 
         print(
-            "python clean_musicxml.py input.musicxml output.musicxml"
+        "使用方式:\n"
+        "python clean_musicxml.py input.musicxml output.musicxml"
         )
 
-        exit()
-
+        sys.exit()
 
 
     clean_musicxml(
