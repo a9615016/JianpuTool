@@ -1,86 +1,83 @@
 import sys
-from music21 import converter, stream, note, chord, duration
+import music21
 
 
 print("CLEAN VERSION 20260724 V10")
 
 
-def clean_musicxml(input_file, output_file):
-
-    print("開始 clean MusicXML")
-
-    score = converter.parse(input_file)
-
-    new_score = stream.Score()
-
-    for part in score.parts:
-
-        new_part = stream.Part()
+if len(sys.argv) < 3:
+    print(
+        "usage: python clean_musicxml.py input.musicxml output.musicxml"
+    )
+    sys.exit(1)
 
 
-        for element in part.flatten().notesAndRests:
+input_file = sys.argv[1]
+output_file = sys.argv[2]
 
 
-            # 處理和弦
-            if isinstance(element, chord.Chord):
+print("input:", input_file)
 
-                n = note.Note(
-                    element.pitches[0]
+
+score = music21.converter.parse(
+    input_file
+)
+
+
+print("remove bad duration")
+
+
+for part in score.parts:
+
+    for n in part.recurse().notesAndRests:
+
+
+        # 修正超短音符
+        try:
+
+            if n.duration.quarterLength < 0.0625:
+
+                print(
+                    "fix tiny note:",
+                    n,
+                    n.duration.quarterLength
                 )
 
-                n.offset = element.offset
+                n.duration.quarterLength = 0.25
 
+        except:
 
-            else:
-
-                n = element
-
-
-
-            # 只保留音符
-            if isinstance(n, note.Note):
-
-
-                # 修正超短音符
-                if n.duration.quarterLength < 0.25:
-
-                    n.duration = duration.Duration(0.25)
-
-
-                # 強制限制 type
-                n.duration.type = "16th"
+            pass
 
 
 
-            new_part.insert(
-                n.offset,
-                n
-            )
+print("remove voices")
 
 
-        new_score.insert(
-            0,
-            new_part
+for part in score.parts:
+
+    try:
+
+        part.removeByClass(
+            'Voice'
         )
 
+    except:
 
-
-    new_score.write(
-        "musicxml",
-        fp=output_file
-    )
-
-
-    print(
-        "clean完成",
-        output_file
-    )
+        pass
 
 
 
-if __name__ == "__main__":
+print("write clean xml")
 
-    clean_musicxml(
-        sys.argv[1],
-        sys.argv[2]
-    )
+
+score.write(
+    "musicxml",
+    fp=output_file
+)
+
+
+print(
+    "clean完成",
+    output_file
+)
