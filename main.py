@@ -12,10 +12,8 @@ app = FastAPI()
 
 BASE_DIR = "outputs"
 
-os.makedirs(
-    BASE_DIR,
-    exist_ok=True
-)
+os.makedirs(BASE_DIR, exist_ok=True)
+
 
 
 # ==========================
@@ -59,7 +57,6 @@ def home():
 
     <h3>MIDI → 簡譜 PDF</h3>
 
-
     <form action="/midi"
     method="post"
     enctype="multipart/form-data">
@@ -82,24 +79,7 @@ def home():
 
 
 # ==========================
-# status
-# ==========================
-
-@app.get("/status")
-def status():
-
-    return {
-        "status":"JianpuTool running",
-        "api":[
-            "/convert",
-            "/midi"
-        ]
-    }
-
-
-
-# ==========================
-# 執行 subprocess 工具
+# 執行命令
 # ==========================
 
 def run_cmd(cmd):
@@ -115,11 +95,8 @@ def run_cmd(cmd):
     )
 
 
-    print("STDOUT:")
     print(result.stdout)
 
-
-    print("STDERR:")
     print(result.stderr)
 
 
@@ -130,12 +107,9 @@ def run_cmd(cmd):
         )
 
 
-    return result
-
-
 
 # ==========================
-# 產生 PDF
+# MusicXML → PDF
 # ==========================
 
 def generate_pdf(workdir, musicxml):
@@ -147,12 +121,6 @@ def generate_pdf(workdir, musicxml):
     )
 
 
-    rebuild_file = os.path.join(
-        workdir,
-        "rebuild.musicxml"
-    )
-
-
     ly_file = os.path.join(
         workdir,
         "jianpu.ly"
@@ -160,7 +128,13 @@ def generate_pdf(workdir, musicxml):
 
 
 
-    print("開始 clean MusicXML")
+    # ----------------------
+    # clean
+    # ----------------------
+
+    print(
+        "開始 clean MusicXML"
+    )
 
 
     run_cmd(
@@ -174,21 +148,13 @@ def generate_pdf(workdir, musicxml):
 
 
 
-    print("開始 rebuild MusicXML")
+    # ----------------------
+    # jianpu_ly
+    # ----------------------
 
-
-    run_cmd(
-        [
-            "python",
-            "rebuild_musicxml.py",
-            clean_file,
-            rebuild_file
-        ]
+    print(
+        "開始 jianpu_ly"
     )
-
-
-
-    print("開始 jianpu_ly")
 
 
     with open(
@@ -208,7 +174,7 @@ def generate_pdf(workdir, musicxml):
                 "python",
                 "-m",
                 "jianpu_ly",
-                rebuild_file
+                clean_file
             ],
 
             stdout=f,
@@ -238,7 +204,13 @@ def generate_pdf(workdir, musicxml):
 
 
 
-    print("開始 LilyPond")
+    # ----------------------
+    # LilyPond
+    # ----------------------
+
+    print(
+        "開始 LilyPond"
+    )
 
 
     run_cmd(
@@ -254,6 +226,7 @@ def generate_pdf(workdir, musicxml):
     )
 
 
+
     pdf = os.path.join(
         workdir,
         "jianpu.pdf"
@@ -266,7 +239,7 @@ def generate_pdf(workdir, musicxml):
 
 
 # ==========================
-# MusicXML
+# MusicXML API
 # ==========================
 
 @app.post("/convert")
@@ -275,9 +248,7 @@ async def convert(
 ):
 
 
-    job = str(
-        uuid.uuid4()
-    )
+    job = str(uuid.uuid4())
 
 
     workdir = os.path.join(
@@ -298,7 +269,6 @@ async def convert(
     )
 
 
-
     with open(
         input_file,
         "wb"
@@ -317,6 +287,7 @@ async def convert(
     )
 
 
+
     return FileResponse(
         pdf,
         media_type="application/pdf",
@@ -328,7 +299,7 @@ async def convert(
 
 
 # ==========================
-# MIDI
+# MIDI API
 # ==========================
 
 @app.post("/midi")
@@ -337,9 +308,7 @@ async def midi_convert(
 ):
 
 
-    job = str(
-        uuid.uuid4()
-    )
+    job = str(uuid.uuid4())
 
 
     workdir = os.path.join(
@@ -359,6 +328,7 @@ async def midi_convert(
         workdir,
         "input.mid"
     )
+
 
 
     with open(
@@ -406,3 +376,20 @@ async def midi_convert(
         media_type="application/pdf",
         filename="jianpu.pdf"
     )
+
+
+
+# ==========================
+# Status
+# ==========================
+
+@app.get("/status")
+def status():
+
+    return {
+        "status":"JianpuTool running",
+        "api":[
+            "/convert",
+            "/midi"
+        ]
+    }
