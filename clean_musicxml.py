@@ -1,11 +1,9 @@
-print("CLEAN VERSION 20260724 V12")
-
 import sys
 import os
 import music21
 
 
-
+print("CLEAN VERSION 20260724 V13")
 
 
 if len(sys.argv) < 3:
@@ -23,7 +21,7 @@ print("input:", input_file)
 
 
 # ==========================
-# 讀取 MusicXML
+# Load
 # ==========================
 
 score = music21.converter.parse(
@@ -32,15 +30,14 @@ score = music21.converter.parse(
 
 
 # ==========================
-# 清理
+# Remove voices
 # ==========================
+
+print("remove voices")
+
 
 for part in score.parts:
 
-    print("remove voices")
-
-
-    # 移除 Voice
     for measure in part.getElementsByClass(
         "Measure"
     ):
@@ -50,98 +47,122 @@ for part in score.parts:
         )
 
         for v in list(voices):
+
             measure.remove(v)
 
 
 
-    print("remove chords")
+# ==========================
+# Chord -> Note
+# ==========================
+
+print("remove chords")
 
 
-    # Chord 只留第一音
-    for chord in list(
-        part.recurse()
-        .getElementsByClass("Chord")
-    ):
+for chord in list(
+    score.recurse()
+    .getElementsByClass("Chord")
+):
 
-        try:
+    try:
 
-            if len(chord.notes) > 0:
+        if len(chord.notes):
 
-                note = chord.notes[0]
+            n = chord.notes[0]
 
-                chord.activeSite.replace(
-                    chord,
-                    note
-                )
+            chord.activeSite.replace(
+                chord,
+                n
+            )
 
-        except:
+    except:
 
-            pass
+        pass
 
-
-
-    print("remove grace notes")
-
-
-    # 移除裝飾音
-    for n in list(
-        part.recurse()
-        .notesAndRests
-    ):
-
-        try:
-
-            if n.duration.isGrace:
-
-                n.activeSite.remove(n)
-
-        except:
-
-            pass
-
-
-
-    print("fix duration")
-
-
-    # 修正超短 duration
-    for n in part.recurse().notesAndRests:
-
-        try:
-
-            ql = n.duration.quarterLength
-
-
-            # 小於16分音符全部修正
-            if ql < 0.25:
-
-                n.duration.quarterLength = 0.25
-
-
-
-            # 清除 tuplet
-            if n.duration.tuplets:
-
-                n.duration.tuplets = []
-
-
-
-        except:
-
-            pass
-
-
-
-print("remove extreme durations")
 
 
 # ==========================
-# 全局修正
+# Remove grace
 # ==========================
+
+print("remove grace notes")
+
+
+for n in list(
+    score.recurse()
+    .notesAndRests
+):
+
+    try:
+
+        if n.duration.isGrace:
+
+            n.activeSite.remove(n)
+
+    except:
+
+        pass
+
+
+
+# ==========================
+# Fix duration
+# ==========================
+
+print("fix duration")
+
 
 for n in score.recurse().notesAndRests:
 
     try:
+
+        # 清除所有 tuplets
+        if n.duration.tuplets:
+
+            n.duration.clearTuplet()
+
+
+
+        ql = n.duration.quarterLength
+
+
+        # 負值修正
+        if ql <= 0:
+
+            n.duration.quarterLength = 0.25
+
+
+
+        # 太短修正
+        elif ql < 0.25:
+
+            n.duration.quarterLength = 0.25
+
+
+
+    except Exception:
+
+        pass
+
+
+
+# ==========================
+# Final hard cleanup
+# ==========================
+
+print("final cleanup")
+
+
+for n in score.recurse().notesAndRests:
+
+    try:
+
+        # 再清一次 tuplet
+
+        n.duration.clearTuplet()
+
+
+        # 強制移除不可匯出的 duration
 
         if n.duration.type in [
 
@@ -157,7 +178,9 @@ for n in score.recurse().notesAndRests:
 
 
 
-        if n.duration.quarterLength <= 0:
+        # 防止 MusicXML 太短
+
+        if n.duration.quarterLength < 0.25:
 
             n.duration.quarterLength = 0.25
 
@@ -170,7 +193,7 @@ for n in score.recurse().notesAndRests:
 
 
 # ==========================
-# 重新量化
+# Quantize
 # ==========================
 
 print("quantize")
@@ -186,6 +209,7 @@ try:
         ]
     )
 
+
 except Exception as e:
 
     print(
@@ -196,7 +220,7 @@ except Exception as e:
 
 
 # ==========================
-# 輸出
+# Write
 # ==========================
 
 print("write")
