@@ -32,8 +32,6 @@ def home():
 
     return """
 
-<!DOCTYPE html>
-
 <html>
 
 <head>
@@ -41,7 +39,6 @@ def home():
 <meta charset="utf-8">
 
 <title>JianpuTool</title>
-
 
 <style>
 
@@ -68,12 +65,11 @@ margin:auto;
 
 button{
 
+padding:12px 30px;
 background:#1976d2;
 color:white;
-padding:12px 30px;
 border:0;
 border-radius:8px;
-font-size:16px;
 
 }
 
@@ -84,8 +80,8 @@ margin:20px;
 
 }
 
-
 </style>
+
 
 </head>
 
@@ -99,9 +95,7 @@ margin:20px;
 <h1>🎵 JianpuTool</h1>
 
 
-<h3>
-MusicXML → 數字簡譜 PDF
-</h3>
+<h3>MusicXML → 數字簡譜 PDF</h3>
 
 
 <form action="/convert"
@@ -126,14 +120,10 @@ required>
 </form>
 
 
-
 <hr>
 
 
-
-<h3>
-MIDI → 數字簡譜 PDF
-</h3>
+<h3>MIDI → 數字簡譜 PDF</h3>
 
 
 <form action="/midi"
@@ -163,7 +153,6 @@ MIDI 轉簡譜
 
 </body>
 
-
 </html>
 
 """
@@ -180,6 +169,12 @@ def musicxml_to_pdf(
 ):
 
 
+    xml_file = os.path.abspath(xml_file)
+
+    work_dir = os.path.abspath(work_dir)
+
+
+
     print(
         "開始 MusicXML 清理",
         flush=True
@@ -192,7 +187,8 @@ def musicxml_to_pdf(
     )
 
 
-    subprocess.run(
+
+    clean_result=subprocess.run(
 
         [
             "python",
@@ -201,9 +197,27 @@ def musicxml_to_pdf(
             clean_file
         ],
 
-        check=True
+        stdout=subprocess.PIPE,
+
+        stderr=subprocess.STDOUT,
+
+        text=True
 
     )
+
+
+
+    print(
+        clean_result.stdout,
+        flush=True
+    )
+
+
+
+    if clean_result.returncode != 0:
+
+        return None, clean_result.stdout
+
 
 
     print(
@@ -219,10 +233,12 @@ def musicxml_to_pdf(
     )
 
 
+
     print(
         "開始 jianpu_ly",
         flush=True
     )
+
 
 
     with open(
@@ -256,6 +272,7 @@ def musicxml_to_pdf(
         result.returncode,
         flush=True
     )
+
 
 
     if result.returncode != 0:
@@ -302,7 +319,7 @@ def musicxml_to_pdf(
 
 
 
-    pdf=glob.glob(
+    pdf_files=glob.glob(
 
         os.path.join(
             work_dir,
@@ -312,7 +329,7 @@ def musicxml_to_pdf(
     )
 
 
-    if not pdf:
+    if not pdf_files:
 
         return None,"PDF not found"
 
@@ -320,12 +337,13 @@ def musicxml_to_pdf(
 
     print(
         "PDF完成:",
-        pdf[0],
+        pdf_files[0],
         flush=True
     )
 
 
-    return pdf[0],None
+
+    return pdf_files[0],None
 
 
 
@@ -356,10 +374,12 @@ async def convert(
     )
 
 
+
     xml=os.path.join(
         work_dir,
         "input.musicxml"
     )
+
 
 
     with open(
@@ -377,6 +397,7 @@ async def convert(
         xml,
         work_dir
     )
+
 
 
     if error:
@@ -426,6 +447,7 @@ async def midi_convert(
     )
 
 
+
     midi=os.path.join(
         work_dir,
         "input.mid"
@@ -436,6 +458,7 @@ async def midi_convert(
         work_dir,
         "input.musicxml"
     )
+
 
 
     with open(
@@ -482,6 +505,7 @@ async def midi_convert(
         xml,
         work_dir
     )
+
 
 
     if error:
