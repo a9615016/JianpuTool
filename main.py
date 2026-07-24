@@ -10,10 +10,9 @@ import music21
 app = FastAPI()
 
 
-# LilyPond 路徑
+# LilyPond
 LILYPOND = r"C:\lilypond-2.26.0\bin\lilypond.exe"
 
-# Render Linux
 if os.name != "nt":
     LILYPOND = "lilypond"
 
@@ -36,54 +35,46 @@ def home():
 
     <body>
 
-        <h1>🎵 JianpuTool MIDI → 簡譜</h1>
+    <h1>🎵 JianpuTool MIDI → 簡譜</h1>
 
 
-        <h3>MusicXML → PDF</h3>
+    <h3>MusicXML → 簡譜 PDF</h3>
 
-        <form action="/convert" method="post" enctype="multipart/form-data">
+    <form action="/convert" method="post" enctype="multipart/form-data">
 
-            <input 
-                type="file" 
-                name="file"
-                
-            >
+        <input type="file" name="file">
 
-            <br><br>
+        <br><br>
 
-            <button type="submit">
-                產生簡譜 PDF
-            </button>
+        <button type="submit">
+            產生簡譜 PDF
+        </button>
 
-        </form>
+    </form>
 
 
-        <hr>
+    <hr>
 
 
-        <h3>MIDI → PDF</h3>
+    <h3>MIDI → 簡譜 PDF</h3>
 
-        <form action="/midi" method="post" enctype="multipart/form-data">
+    <form action="/midi" method="post" enctype="multipart/form-data">
 
-            <input 
-                type="file"
-                name="file"
-              
-            >
+        <input type="file" name="file">
 
-            <br><br>
+        <br><br>
 
-            <button type="submit">
-                MIDI 轉簡譜
-            </button>
+        <button type="submit">
+            MIDI 轉簡譜
+        </button>
 
-        </form>
+    </form>
 
 
     </body>
-
     </html>
     """
+
 
 
 @app.get("/status")
@@ -101,8 +92,9 @@ def status():
 # ==========================
 def musicxml_to_pdf(musicxml_file, work_dir):
 
-    print("開始 MusicXML -> jianpu")
-    print("輸入:", musicxml_file)
+    print("開始 MusicXML -> jianpu", flush=True)
+    print("輸入:", musicxml_file, flush=True)
+
 
 
     ly_file = os.path.join(
@@ -111,7 +103,39 @@ def musicxml_to_pdf(musicxml_file, work_dir):
     )
 
 
+    # --------------------------
+    # MusicXML 清理
+    # --------------------------
+
+    clean_file = os.path.join(
+        work_dir,
+        "clean.musicxml"
+    )
+
+
+    subprocess.run(
+        [
+            "python",
+            "clean_musicxml.py",
+            musicxml_file,
+            clean_file
+        ],
+        check=True
+    )
+
+
+
+    print(
+        "clean 完成:",
+        clean_file,
+        flush=True
+    )
+
+
+
+    # --------------------------
     # MusicXML -> LilyPond
+    # --------------------------
 
     with open(
         ly_file,
@@ -125,7 +149,7 @@ def musicxml_to_pdf(musicxml_file, work_dir):
                 "python",
                 "-m",
                 "jianpu_ly",
-                musicxml_file
+                clean_file
             ],
             stdout=out,
             stderr=subprocess.PIPE,
@@ -133,22 +157,35 @@ def musicxml_to_pdf(musicxml_file, work_dir):
         )
 
 
+
     print(
         "jianpu_ly return:",
-        result.returncode
+        result.returncode,
+        flush=True
     )
+
 
 
     if result.returncode != 0:
 
-        print(result.stderr)
+        print(
+            result.stderr,
+            flush=True
+        )
 
         return None, result.stderr
 
 
 
-    print("開始 LilyPond PDF")
 
+    # --------------------------
+    # LilyPond PDF
+    # --------------------------
+
+    print(
+        "開始 LilyPond PDF",
+        flush=True
+    )
 
 
     result = subprocess.run(
@@ -163,7 +200,11 @@ def musicxml_to_pdf(musicxml_file, work_dir):
     )
 
 
-    print(result.stdout)
+
+    print(
+        result.stdout,
+        flush=True
+    )
 
 
 
@@ -182,9 +223,11 @@ def musicxml_to_pdf(musicxml_file, work_dir):
     )
 
 
+
     print(
         "找到 PDF:",
-        pdf_files
+        pdf_files,
+        flush=True
     )
 
 
@@ -196,6 +239,9 @@ def musicxml_to_pdf(musicxml_file, work_dir):
 
 
     return pdf_files[0], None
+
+
+
 
 
 
@@ -222,10 +268,12 @@ async def convert(
     )
 
 
+
     musicxml_file = os.path.join(
         work_dir,
         "input.musicxml"
     )
+
 
 
     with open(
@@ -246,6 +294,20 @@ async def convert(
 
 
 
+    print(
+        "PDF:",
+        pdf_file,
+        flush=True
+    )
+
+    print(
+        "ERROR:",
+        error,
+        flush=True
+    )
+
+
+
     if error:
 
         return {
@@ -259,6 +321,7 @@ async def convert(
         filename="jianpu.pdf",
         media_type="application/pdf"
     )
+
 
 
 
