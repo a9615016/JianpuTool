@@ -3,7 +3,6 @@ import xml.etree.ElementTree as ET
 import music21
 
 
-
 def midi_to_musicxml(input_file, output_file=None):
 
     print("開始 MIDI -> MusicXML")
@@ -15,24 +14,31 @@ def midi_to_musicxml(input_file, output_file=None):
         output_file = base + ".musicxml"
 
 
-
-    # MIDI 匯入
+    # MIDI 讀取
     score = music21.converter.parse(input_file)
 
 
-    # 輸出 MusicXML
+    # 移除複雜資訊
+    for part in score.parts:
+
+        for element in part.recurse():
+
+            # 不要複音
+            if element.classes[0] == "Chord":
+                element = element.notes[0]
+
+
+    # 產生 MusicXML
     score.write(
         "musicxml",
         fp=output_file
     )
 
 
-    print("MusicXML產生:")
+    print("產生:")
     print(output_file)
 
 
-
-    # 清理
     clean_musicxml(output_file)
 
 
@@ -44,7 +50,7 @@ def midi_to_musicxml(input_file, output_file=None):
 
 def clean_musicxml(filename):
 
-    print("開始修正 MusicXML")
+    print("開始 clean MusicXML")
 
 
     tree = ET.parse(filename)
@@ -52,32 +58,35 @@ def clean_musicxml(filename):
     root = tree.getroot()
 
 
+    def tag_name(tag):
+        return tag.split("}")[-1]
+
+
+
+    # 刪除 jianpu_ly 不支援元素
 
     remove_tags = {
 
         "backup",
         "forward",
         "grace",
-        "octave-change",
-        "chord"
+        "notations",
+        "accidental",
+        "tie",
+        "chord",
+        "arpeggiate",
+        "technical",
+        "ornaments"
 
     }
 
 
 
-    # 找 namespace
-    def strip_tag(tag):
-
-        return tag.split("}")[-1]
-
-
-
-    # 遞迴刪除
-    def clean_element(parent):
+    def clean_node(parent):
 
         for child in list(parent):
 
-            tag = strip_tag(child.tag)
+            tag = tag_name(child.tag)
 
 
             if tag in remove_tags:
@@ -86,25 +95,53 @@ def clean_musicxml(filename):
 
             else:
 
-                clean_element(child)
+                clean_node(child)
 
 
 
-    clean_element(root)
+    clean_node(root)
 
 
 
-    # 全部 voice 改 1
+    # voice 全部改 1
 
     for elem in root.iter():
 
-        if strip_tag(elem.tag) == "voice":
+        if tag_name(elem.tag) == "voice":
 
             elem.text = "1"
 
 
 
-    # 移除空白
+    # octave 修正
+
+    for elem in root.iter():
+
+        if tag_name(elem.tag) == "octave":
+
+            try:
+
+                octave = int(elem.text)
+
+
+                if octave < 3:
+
+                    elem.text = "4"
+
+
+                elif octave > 6:
+
+                    elem.text = "5"
+
+
+            except:
+
+                elem.text = "4"
+
+
+
+    # 移除多餘空白
+
     for elem in root.iter():
 
         if elem.text:
@@ -120,8 +157,8 @@ def clean_musicxml(filename):
     )
 
 
+    print("clean完成")
 
-    print("MusicXML修正完成")
 
 
 
@@ -142,7 +179,4 @@ if __name__ == "__main__":
 
 
 
-    midi = sys.argv[1]
-
-
-    midi_to_musicxml(midi)
+    midi_to_musicxml(sys.argv[1])
