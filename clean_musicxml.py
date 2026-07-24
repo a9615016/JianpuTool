@@ -1,107 +1,56 @@
-import sys
 import xml.etree.ElementTree as ET
+import sys
 
 
 def clean_musicxml(input_file, output_file):
 
-    print("開始 clean MusicXML")
-
     tree = ET.parse(input_file)
     root = tree.getroot()
 
+    ns = {
+        "m": "http://www.musicxml.org/ns/musicxml",
+        "": "http://www.musicxml.org/ns/musicxml"
+    }
 
-    # 修正 note pitch
+    # 移除非法 octave
+    for note in root.iter():
 
-    for note in root.findall(".//note"):
+        tag = note.tag.split("}")[-1]
 
-        pitch = note.find("pitch")
+        if tag == "octave":
+            try:
+                value = int(note.text)
 
-        if pitch is None:
-            continue
+                if value < 0 or value > 8:
+                    note.text = "4"
+
+            except:
+                note.text = "4"
 
 
-        step = pitch.find("step")
-        octave = pitch.find("octave")
+    # 修正 step
+    for step in root.iter():
 
+        tag = step.tag.split("}")[-1]
 
-        if step is not None:
+        if tag == "step":
 
             if step.text not in [
-                "A",
-                "B",
-                "C",
-                "D",
-                "E",
-                "F",
-                "G"
+                "A","B","C","D","E","F","G"
             ]:
-
                 step.text = "C"
 
 
+    # 移除多餘 voice
+    for note in root.iter():
 
-        if octave is not None:
+        tag = note.tag.split("}")[-1]
 
-            try:
-                value=int(octave.text)
+        if tag == "voice":
 
-            except:
-                value=4
-
-
-            if value < 2:
-                value=4
-
-            if value > 7:
-                value=4
-
-
-            octave.text=str(value)
-
-
-
-        # 移除異常 pitch alter
-
-        alter = pitch.find("alter")
-
-        if alter is not None:
-
-            try:
-                a=float(alter.text)
-
-                if a not in [-2,-1,0,1,2]:
-                    pitch.remove(alter)
-
-            except:
-
-                pitch.remove(alter)
-
-
-
-    # 修正 voice
-
-    for voice in root.findall(".//voice"):
-
-        if voice.text is None:
-
-            voice.text="1"
-
-
-
-    # 修正 duration
-
-    for d in root.findall(".//duration"):
-
-        try:
-
-            if int(d.text)<=0:
-
-                d.text="1"
-
-        except:
-
-            d.text="1"
-
+            if note.text:
+                if note.text not in ["1","2"]:
+                    note.text="1"
 
 
     tree.write(
@@ -111,14 +60,18 @@ def clean_musicxml(input_file, output_file):
     )
 
 
-    print("clean完成")
+if __name__ == "__main__":
 
-
-
-if __name__=="__main__":
+    if len(sys.argv)<3:
+        print(
+            "python clean_musicxml.py input.musicxml output.musicxml"
+        )
+        exit()
 
 
     clean_musicxml(
         sys.argv[1],
         sys.argv[2]
     )
+
+    print("clean完成")
