@@ -135,7 +135,23 @@ def generate_pdf(workdir, musicxml):
             clean_file
         ],
 
-        check=True
+        capture_output=True,
+
+        text=True
+    )
+    print("========== CLEAN STDOUT ==========")
+    print(result.stdout)
+
+
+    print("========== CLEAN STDERR ==========")
+    print(result.stderr)
+
+
+    if result.returncode != 0:
+
+    raise Exception(
+        "clean_musicxml failed\n"
+        + result.stderr
     )
 
 
@@ -389,9 +405,25 @@ async def midi_convert(
             midi_file
         ],
 
-        check=True
-    )
+         capture_output=True,
 
+         text=True
+    )
+    
+    print("========== MIDI CONVERTER STDOUT ==========")
+    print(result.stdout)
+
+
+    print("========== MIDI CONVERTER STDERR ==========")
+    print(result.stderr)
+
+
+    if result.returncode != 0:
+
+    raise Exception(
+        "converter failed\n"
+        + result.stderr
+    )
 
 
     musicxml = os.path.splitext(
