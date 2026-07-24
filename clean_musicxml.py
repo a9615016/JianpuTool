@@ -1,108 +1,93 @@
 import sys
 from music21 import converter
 from music21 import meter
-from music21 import note
 from music21 import stream
+from music21 import note
 
 
 def clean_musicxml(input_file, output_file):
 
-    print("開始清理 MusicXML")
-
-    print("輸入:", input_file)
-
+    print("開始 MusicXML 清理")
 
     score = converter.parse(input_file)
 
 
     # ==========================
-    # 強制 4/4
+    # 每個 part
     # ==========================
 
     for part in score.parts:
 
-        for measure in part.getElementsByClass("Measure"):
 
-            ts = measure.timeSignature
-
-            if ts is None:
-
-                measure.insert(
-                    0,
-                    meter.TimeSignature("4/4")
-                )
+        # 移除 voice
+        part.flattenUnnecessaryVoices()
 
 
-
-    # ==========================
-    # 移除異常音符
-    # ==========================
-
-    for part in score.parts:
-
-        for measure in part.getElementsByClass("Measure"):
+        measures = part.getElementsByClass(
+            stream.Measure
+        )
 
 
-            remove_list = []
+        for m in measures:
 
 
-            for element in measure.notesAndRests:
+            # 強制 4/4
 
-
-                # 移除負 duration
-
-                if element.duration.quarterLength < 0:
-
-                    remove_list.append(element)
-
-
-
-            for item in remove_list:
-
-                measure.remove(item)
-
-
-
-    # ==========================
-    # 修正 voice
-    # ==========================
-
-    for part in score.parts:
-
-        for measure in part.getElementsByClass("Measure"):
-
-
-            for element in measure:
-
-                if isinstance(element, note.Note):
-
-                    element.voice = None
-
-
-
-    # ==========================
-    # 移除空 voice
-    # ==========================
-
-    for part in score.parts:
-
-        for measure in part.getElementsByClass("Measure"):
-
-            voices = measure.getElementsByClass(
-                stream.Voice
+            m.timeSignature = meter.TimeSignature(
+                "4/4"
             )
 
-            for v in voices:
 
-                if len(v.notesAndRests)==0:
+            # 移除 offset 異常元素
 
-                    measure.remove(v)
+            remove=[]
+
+
+            for e in m.notesAndRests:
+
+
+                if e.offset < 0:
+
+                    remove.append(e)
+
+
+                if e.duration.quarterLength <=0:
+
+                    remove.append(e)
+
+
+
+            for e in remove:
+
+                m.remove(e)
+
+
+
+        # ======================
+        # 重新補小節
+        # ======================
+
+        part.makeMeasures(
+            inPlace=True
+        )
 
 
 
     # ==========================
-    # 輸出
+    # 再一次修正
     # ==========================
+
+
+    for part in score.parts:
+
+        for m in part.getElementsByClass(
+            stream.Measure
+        ):
+
+            m.leftBarline = None
+            m.rightBarline = None
+
+
 
     score.write(
         "musicxml",
@@ -111,26 +96,23 @@ def clean_musicxml(input_file, output_file):
 
 
     print(
-        "清理完成:",
+        "clean完成",
         output_file
     )
 
 
 
-if __name__ == "__main__":
+
+if __name__=="__main__":
 
 
-    if len(sys.argv) < 3:
-
-        print(
-            "使用方式:"
-        )
+    if len(sys.argv)<3:
 
         print(
             "python clean_musicxml.py input.musicxml output.musicxml"
         )
 
-        sys.exit()
+        exit()
 
 
 
