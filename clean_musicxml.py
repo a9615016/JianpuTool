@@ -3,6 +3,7 @@ from music21 import converter
 from music21 import meter
 from music21 import stream
 from music21 import note
+from music21 import chord
 
 
 def clean_musicxml(input_file, output_file):
@@ -13,81 +14,144 @@ def clean_musicxml(input_file, output_file):
 
 
     # ==========================
-    # 每個 part
+    # 處理每個聲部
     # ==========================
 
     for part in score.parts:
 
 
-        # 移除 voice
-        part.flattenUnnecessaryVoices()
+        # 移除多餘 voice
+
+        try:
+            part.flattenUnnecessaryVoices()
+        except:
+            pass
 
 
-        measures = part.getElementsByClass(
+
+        # 強制 4/4
+
+        for measure in part.getElementsByClass(
             stream.Measure
-        )
+        ):
 
 
-        for m in measures:
-
-
-            # 強制 4/4
-
-            m.timeSignature = meter.TimeSignature(
+            measure.timeSignature = meter.TimeSignature(
                 "4/4"
             )
 
 
-            # 移除 offset 異常元素
-
             remove=[]
 
 
-            for e in m.notesAndRests:
+            # ======================
+            # 移除異常 offset
+            # ======================
+
+            for element in measure.notesAndRests:
 
 
-                if e.offset < 0:
+                if element.offset < 0:
 
-                    remove.append(e)
-
-
-                if e.duration.quarterLength <=0:
-
-                    remove.append(e)
+                    remove.append(element)
 
 
+                if element.duration.quarterLength <= 0:
 
-            for e in remove:
-
-                m.remove(e)
+                    remove.append(element)
 
 
 
-        # ======================
-        # 重新補小節
-        # ======================
+            for element in remove:
 
-        part.makeMeasures(
-            inPlace=True
-        )
+                measure.remove(element)
 
 
 
     # ==========================
-    # 再一次修正
+    # chord 單音化
+    # 避免 jianpu_ly octave 錯誤
     # ==========================
 
 
     for part in score.parts:
 
-        for m in part.getElementsByClass(
+
+        for measure in part.getElementsByClass(
             stream.Measure
         ):
 
-            m.leftBarline = None
-            m.rightBarline = None
+
+            replace=[]
 
 
+            for element in measure.notes:
+
+
+                if isinstance(
+                    element,
+                    chord.Chord
+                ):
+
+
+                    # 保留最高音
+
+                    n = element.sortAscending()[0]
+
+                    replace.append(
+                        (
+                            element,
+                            n
+                        )
+                    )
+
+
+
+            for old,new in replace:
+
+                measure.replace(
+                    old,
+                    new
+                )
+
+
+
+    # ==========================
+    # 重新建立小節
+    # ==========================
+
+    for part in score.parts:
+
+        try:
+
+            part.makeMeasures(
+                inPlace=True
+            )
+
+        except:
+
+            pass
+
+
+
+    # ==========================
+    # 清除 barline
+    # ==========================
+
+    for part in score.parts:
+
+        for measure in part.getElementsByClass(
+            stream.Measure
+        ):
+
+            measure.leftBarline = None
+            measure.rightBarline = None
+
+
+
+    # ==========================
+    # 輸出
+    # ==========================
 
     score.write(
         "musicxml",
@@ -96,23 +160,25 @@ def clean_musicxml(input_file, output_file):
 
 
     print(
-        "clean完成",
-        output_file
+        "clean完成"
     )
 
 
 
+if __name__ == "__main__":
 
-if __name__=="__main__":
 
+    if len(sys.argv) < 3:
 
-    if len(sys.argv)<3:
+        print(
+            "使用方式:"
+        )
 
         print(
             "python clean_musicxml.py input.musicxml output.musicxml"
         )
 
-        exit()
+        sys.exit()
 
 
 
