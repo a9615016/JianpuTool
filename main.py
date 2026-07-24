@@ -18,6 +18,7 @@ os.makedirs(
 )
 
 
+
 # ==========================
 # 首頁
 # ==========================
@@ -80,7 +81,7 @@ def home():
 
 
 # ==========================
-# 狀態
+# Status
 # ==========================
 
 @app.get("/status")
@@ -93,6 +94,7 @@ def status():
             "/midi"
         ]
     }
+
 
 
 
@@ -115,8 +117,9 @@ def generate_pdf(workdir, musicxml):
     )
 
 
+
     # ----------------------
-    # clean
+    # clean MusicXML
     # ----------------------
 
     print(
@@ -133,6 +136,13 @@ def generate_pdf(workdir, musicxml):
         ],
 
         check=True
+    )
+
+
+
+    print(
+        "clean完成",
+        clean_file
     )
 
 
@@ -182,13 +192,16 @@ def generate_pdf(workdir, musicxml):
 
     if result.returncode != 0:
 
-        print(
-            result.stderr
-        )
-
         raise Exception(
             result.stderr
         )
+
+
+
+    print(
+        "產生:",
+        ly_file
+    )
 
 
 
@@ -205,12 +218,11 @@ def generate_pdf(workdir, musicxml):
         [
             "lilypond",
             "-o",
-            os.path.join(
-                workdir,
-                "jianpu"
-            ),
-            ly_file
+            "jianpu",
+            "jianpu.ly"
         ],
+
+        cwd=workdir,
 
         capture_output=True,
 
@@ -234,13 +246,22 @@ def generate_pdf(workdir, musicxml):
         )
 
 
+
     pdf = os.path.join(
         workdir,
         "jianpu.pdf"
     )
 
 
+    print(
+        "PDF完成:",
+        pdf
+    )
+
+
     return pdf
+
+
 
 
 
@@ -272,6 +293,7 @@ async def convert(
     )
 
 
+
     input_file = os.path.join(
         workdir,
         "input.musicxml"
@@ -289,6 +311,7 @@ async def convert(
         )
 
 
+
     pdf = generate_pdf(
         workdir,
         input_file
@@ -300,6 +323,9 @@ async def convert(
         media_type="application/pdf",
         filename="jianpu.pdf"
     )
+
+
+
 
 
 
@@ -331,10 +357,12 @@ async def midi_convert(
     )
 
 
+
     midi_file = os.path.join(
         workdir,
         "input.mid"
     )
+
 
 
     with open(
@@ -346,6 +374,7 @@ async def midi_convert(
             file.file,
             f
         )
+
 
 
     print(
@@ -364,6 +393,7 @@ async def midi_convert(
     )
 
 
+
     musicxml = os.path.splitext(
         midi_file
     )[0] + ".musicxml"
@@ -374,6 +404,7 @@ async def midi_convert(
         workdir,
         musicxml
     )
+
 
 
     return FileResponse(
