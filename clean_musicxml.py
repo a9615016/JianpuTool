@@ -1,9 +1,11 @@
+print("CLEAN VERSION 20260724 V12")
+
 import sys
 import os
 import music21
 
 
-print("CLEAN VERSION 20260724 V12")
+
 
 
 if len(sys.argv) < 3:
