@@ -2,67 +2,67 @@ import sys
 from music21 import converter, stream, note, chord, duration
 
 
-print("CLEAN VERSION 20260724 V9")
+print("CLEAN VERSION 20260724 V10")
 
 
 def clean_musicxml(input_file, output_file):
 
     print("開始 clean MusicXML")
 
-
     score = converter.parse(input_file)
 
+    new_score = stream.Score()
 
-    part = score.parts[0]
+    for part in score.parts:
 
-
-    new_part = stream.Part()
-
-
-    # 保留拍號
-    for ts in part.recurse().getElementsByClass(
-        "TimeSignature"
-    ):
-        new_part.insert(0, ts)
+        new_part = stream.Part()
 
 
-
-    for n in part.flatten().notes:
-
-
-        if isinstance(n, chord.Chord):
-
-            n = note.Note(
-                n.pitches[0]
-            )
+        for element in part.flatten().notesAndRests:
 
 
-        if isinstance(n, note.Note):
+            # 處理和弦
+            if isinstance(element, chord.Chord):
 
-
-            # =====================
-            # 修正超短音符
-            # =====================
-
-            if n.duration.quarterLength < 0.25:
-
-                n.duration = duration.Duration(
-                    0.25
+                n = note.Note(
+                    element.pitches[0]
                 )
 
+                n.offset = element.offset
 
-            new_part.append(
+
+            else:
+
+                n = element
+
+
+
+            # 只保留音符
+            if isinstance(n, note.Note):
+
+
+                # 修正超短音符
+                if n.duration.quarterLength < 0.25:
+
+                    n.duration = duration.Duration(0.25)
+
+
+                # 強制限制 type
+                n.duration.type = "16th"
+
+
+
+            new_part.insert(
+                n.offset,
                 n
             )
 
 
+        new_score.insert(
+            0,
+            new_part
+        )
 
-    new_score = stream.Score()
-
-    new_score.insert(
-        0,
-        new_part
-    )
 
 
     new_score.write(
@@ -79,7 +79,6 @@ def clean_musicxml(input_file, output_file):
 
 
 if __name__ == "__main__":
-
 
     clean_musicxml(
         sys.argv[1],
