@@ -44,7 +44,7 @@ def home():
         <br><br>
 
         <button type="submit">
-        開始轉換
+            開始轉換
         </button>
 
     </form>
@@ -64,6 +64,7 @@ def status():
             "/convert"
         ]
     }
+
 
 
 
@@ -95,7 +96,6 @@ async def convert(
     )
 
 
-
     with open(
         input_file,
         "wb"
@@ -108,20 +108,14 @@ async def convert(
 
 
 
-    print(
-        "開始 MusicXML -> jianpu"
-    )
-
-    print(
-        "輸入:",
-        input_file
-    )
+    print("開始 MusicXML -> jianpu")
+    print("輸入:", input_file)
 
 
 
-    # ==========================
-    # clean
-    # ==========================
+    # =========================
+    # clean MusicXML
+    # =========================
 
     clean_file = os.path.join(
         workdir,
@@ -129,9 +123,7 @@ async def convert(
     )
 
 
-    print(
-        "開始 clean MusicXML"
-    )
+    print("開始 clean MusicXML")
 
 
     result = subprocess.run(
@@ -152,21 +144,18 @@ async def convert(
     if result.returncode != 0:
 
         return {
-            "error":
-            result.stderr
+            "error":result.stderr
         }
 
 
 
-    print(
-        clean_file
-    )
+    print(clean_file)
 
 
 
-    # ==========================
-    # rebuild
-    # ==========================
+    # =========================
+    # rebuild MusicXML
+    # =========================
 
     rebuild_file = os.path.join(
         workdir,
@@ -174,9 +163,7 @@ async def convert(
     )
 
 
-    print(
-        "開始 rebuild MusicXML"
-    )
+    print("開始 rebuild MusicXML")
 
 
     result = subprocess.run(
@@ -191,29 +178,31 @@ async def convert(
     )
 
 
-    print(
-        result.stdout
-    )
+    print(result.stdout)
 
 
     if result.returncode != 0:
 
+        print(result.stderr)
+
         return {
-            "error":
-            result.stderr
+            "error":result.stderr
         }
 
 
 
-    print(
-        rebuild_file
-    )
+    print(rebuild_file)
 
 
 
-    # ==========================
+    # 後面使用 rebuild
+    clean_file = rebuild_file
+
+
+
+    # =========================
     # jianpu_ly
-    # ==========================
+    # =========================
 
     ly_file = os.path.join(
         workdir,
@@ -221,9 +210,8 @@ async def convert(
     )
 
 
-    print(
-        "開始 jianpu_ly"
-    )
+    print("開始 jianpu_ly")
+
 
 
     with open(
@@ -238,7 +226,7 @@ async def convert(
                 "python",
                 "-m",
                 "jianpu_ly",
-                rebuild_file
+                clean_file
             ],
             stdout=f,
             stderr=subprocess.PIPE,
@@ -255,24 +243,19 @@ async def convert(
 
     if result.returncode != 0:
 
-        print(
-            result.stderr
-        )
+        print(result.stderr)
 
         return {
-            "error":
-            result.stderr
+            "error":result.stderr
         }
 
 
 
-    # ==========================
+    # =========================
     # LilyPond
-    # ==========================
+    # =========================
 
-    print(
-        "開始 LilyPond"
-    )
+    print("開始 LilyPond")
 
 
     result = subprocess.run(
@@ -293,9 +276,10 @@ async def convert(
 
     if result.returncode != 0:
 
+        print(result.stderr)
+
         return {
-            "error":
-            result.stderr
+            "error":result.stderr
         }
 
 
@@ -306,13 +290,19 @@ async def convert(
     )
 
 
+
     if not os.path.exists(pdf_file):
 
         return {
-            "error":
-            "PDF沒有產生"
+            "error":"PDF沒有產生"
         }
 
+
+
+    print(
+        "完成:",
+        pdf_file
+    )
 
 
     return FileResponse(
