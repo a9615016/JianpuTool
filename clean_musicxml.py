@@ -1,140 +1,116 @@
+import xml.etree.ElementTree as ET
 import sys
-from music21 import converter
-from music21 import stream
-from music21 import meter
-from music21 import chord
+import os
 
 
 def clean_musicxml(input_file, output_file):
 
-    print("開始 MusicXML 清理")
+    tree = ET.parse(input_file)
+    root = tree.getroot()
 
 
-    score = converter.parse(input_file)
+    # namespace
+    ns = {
+        "m": "http://www.musicxml.org/dtds/partwise.dtd"
+    }
 
 
+    # 移除 grace note
+    for elem in root.findall(".//{*}grace"):
+        parent = None
+        for p in root.iter():
+            if elem in list(p):
+                parent = p
+                break
+        if parent is not None:
+            parent.remove(elem)
 
-    for part in score.parts:
+
+    # 移除 tie
+    for elem in root.findall(".//{*}tie"):
+        parent = None
+        for p in root.iter():
+            if elem in list(p):
+                parent = p
+                break
+        if parent is not None:
+            parent.remove(elem)
 
 
-        # 移除 voice
+    # 修正 duration
+    for duration in root.findall(".//{*}duration"):
 
         try:
-            part.flattenUnnecessaryVoices()
+            value = int(duration.text)
+
+            if value <= 0:
+                duration.text="1"
+
         except:
-            pass
+            duration.text="1"
 
 
 
-        # 重新建立 4/4 小節
+    # 移除不支援的 ornament
+    remove_tags=[
+        "ornaments",
+        "technical",
+        "articulations"
+    ]
+
+
+    for tag in remove_tags:
+
+        for elem in root.findall(".//{*}"+tag):
+
+            parent=None
+
+            for p in root.iter():
+
+                if elem in list(p):
+                    parent=p
+                    break
+
+            if parent:
+                parent.remove(elem)
+
+
+
+    # 修正 divisions
+
+    for div in root.findall(".//{*}divisions"):
 
         try:
 
-            part.makeMeasures(
-                meterStream=meter.TimeSignature("4/4"),
-                inPlace=True
-            )
+            v=int(div.text)
 
-        except Exception:
+            if v>16:
+                div.text="16"
 
-            pass
-
-
-
-        for measure in part.getElementsByClass(
-            stream.Measure
-        ):
-
-
-            measure.timeSignature = meter.TimeSignature(
-                "4/4"
-            )
-
-
-            # =====================
-            # 移除 chord
-            # =====================
-
-            replace=[]
-
-
-            for element in measure.notes:
-
-
-                if isinstance(
-                    element,
-                    chord.Chord
-                ):
-
-                    n = element.sortAscending()[0]
-
-                    replace.append(
-                        (
-                            element,
-                            n
-                        )
-                    )
-
-
-            for old,new in replace:
-
-                measure.replace(
-                    old,
-                    new
-                )
+        except:
+            div.text="16"
 
 
 
-            # =====================
-            # 移除異常 duration
-            # =====================
-
-            remove=[]
-
-
-            for e in measure.notesAndRests:
-
-
-                if e.duration.quarterLength <=0:
-
-                    remove.append(e)
-
-
-                if e.offset <0:
-
-                    remove.append(e)
-
-
-
-            for e in remove:
-
-                measure.remove(e)
-
-
-
-    score.write(
-        "musicxml",
-        fp=output_file
+    tree.write(
+        output_file,
+        encoding="utf-8",
+        xml_declaration=True
     )
 
 
-    print(
-        "clean完成"
-    )
-
+    print("clean完成")
 
 
 if __name__=="__main__":
 
-
     if len(sys.argv)<3:
 
         print(
-            "python clean_musicxml.py input.musicxml output.musicxml"
+        "python clean_musicxml.py input.musicxml output.musicxml"
         )
 
         exit()
-
 
 
     clean_musicxml(
