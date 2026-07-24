@@ -1,5 +1,6 @@
 import xml.etree.ElementTree as ET
 import sys
+import os
 
 
 def clean_musicxml(input_file, output_file):
@@ -9,159 +10,93 @@ def clean_musicxml(input_file, output_file):
     tree = ET.parse(input_file)
     root = tree.getroot()
 
+    ns = ""
 
-    # -----------------------
-    # 1. 移除 backup / forward
-    # -----------------------
+    # 移除 namespace
+    for elem in root.iter():
+        if "}" in elem.tag:
+            elem.tag = elem.tag.split("}",1)[1]
 
-    for parent in root.iter():
 
-        for child in list(parent):
+    # 修正所有 note
+    for note in root.iter("note"):
 
-            tag = child.tag.split("}")[-1]
+        # 移除不支援 grace
+        for grace in note.findall("grace"):
+            note.remove(grace)
 
-            if tag in ["backup", "forward"]:
 
-                parent.remove(child)
+        pitch = note.find("pitch")
 
+        if pitch is not None:
 
+            step = pitch.find("step")
+            octave = pitch.find("octave")
+            alter = pitch.find("alter")
 
-    # -----------------------
-    # 2. 移除 pickup / 修正拍號
-    # -----------------------
 
-    for measure in root.findall(".//{*}measure"):
+            # 修正空 step
+            if step is not None:
+                if step.text not in [
+                    "A","B","C","D","E","F","G"
+                ]:
+                    step.text = "C"
 
-        if "implicit" in measure.attrib:
 
-            del measure.attrib["implicit"]
+            # 修正 octave
+            if octave is not None:
 
+                try:
+                    value=int(octave.text)
 
-        for time in measure.findall(".//{*}time"):
+                    # jianpu_ly 建議範圍
+                    if value < 0:
+                        octave.text="4"
 
-            beats = time.find("{*}beats")
-            beat_type = time.find("{*}beat-type")
+                    if value > 9:
+                        octave.text="4"
 
 
-            if beats is not None:
-                beats.text = "4"
+                except:
+                    octave.text="4"
 
 
-            if beat_type is not None:
-                beat_type.text = "4"
+            # 移除 alter 避免半音錯誤
+            if alter is not None:
+                try:
+                    a=int(alter.text)
+                    if a != 0:
+                        note.remove(alter)
+                except:
+                    note.remove(alter)
 
 
+    # 移除 backup 避免 -2 -6 position 錯誤
+    for measure in root.iter("measure"):
 
-    # -----------------------
-    # 3. divisions 固定
-    # -----------------------
+        for backup in measure.findall("backup"):
+            measure.remove(backup)
 
-    for div in root.findall(".//{*}divisions"):
 
-        div.text = "16"
+        for forward in measure.findall("forward"):
+            measure.remove(forward)
 
 
 
-    # -----------------------
-    # 4. duration 修正
-    # -----------------------
+    # 修正 time signature
 
-    for duration in root.findall(".//{*}duration"):
+    for time in root.iter("time"):
 
-        try:
+        beats=time.find("beats")
+        beat_type=time.find("beat-type")
 
-            value = int(duration.text)
+        if beats is not None:
+            beats.text="4"
 
+        if beat_type is not None:
+            beat_type.text="4"
 
-            if value <= 0:
-                duration.text = "1"
 
-
-            elif value > 16:
-                duration.text = "16"
-
-
-        except:
-
-            duration.text = "1"
-
-
-
-    # -----------------------
-    # 5. octave 修正
-    # -----------------------
-
-    for octave in root.findall(".//{*}octave"):
-
-        try:
-
-            value = int(octave.text)
-
-
-            if value < 1:
-                octave.text = "1"
-
-
-            elif value > 8:
-                octave.text = "8"
-
-
-        except:
-
-            octave.text = "4"
-
-
-
-    # -----------------------
-    # 6. 移除重複 chord 音符
-    # -----------------------
-
-    last_note = None
-    remove_list = []
-
-
-    for note in root.findall(".//{*}note"):
-
-        pitch = note.find("{*}pitch")
-
-        if pitch is None:
-            continue
-
-
-        step = pitch.findtext("{*}step")
-        octave = pitch.findtext("{*}octave")
-
-
-        current = (
-            step,
-            octave
-        )
-
-
-        if current == last_note:
-
-            remove_list.append(note)
-
-        else:
-
-            last_note = current
-
-
-
-    for note in remove_list:
-
-        for parent in root.iter():
-
-            if note in list(parent):
-
-                parent.remove(note)
-                break
-
-
-
-    # -----------------------
-    # 7. 輸出 UTF-8
-    # -----------------------
 
     tree.write(
         output_file,
@@ -175,15 +110,12 @@ def clean_musicxml(input_file, output_file):
 
 
 
-if __name__ == "__main__":
+if __name__=="__main__":
 
-    if len(sys.argv) < 3:
-
+    if len(sys.argv)<3:
         print(
-            "使用方式:\n"
-            "python clean_musicxml.py input.musicxml output.musicxml"
+        "python clean_musicxml.py input.musicxml output.musicxml"
         )
-
         sys.exit()
 
 
