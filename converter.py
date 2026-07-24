@@ -4,37 +4,118 @@ import os
 
 def midi_to_musicxml(input_file, output_file):
 
-    print("MIDI -> MusicXML")
+    print("開始 MIDI -> MusicXML")
 
+
+    # ==========================
+    # 讀 MIDI
+    # ==========================
 
     score = music21.converter.parse(input_file)
 
 
+    print("parts:", len(score.parts))
+
+
+
     # ==========================
-    # 只取第一聲部
+    # 取第一聲部
     # ==========================
 
-    if len(score.parts) > 1:
+    if len(score.parts) > 0:
+
         melody = score.parts[0]
+
     else:
+
         melody = score
 
 
-    # ==========================
-    # 移除 pickup
-    # ==========================
-
-    for m in melody.recurse().getElementsByClass(
-        "Measure"
-    ):
-
-        if m.number == 0:
-            m.number = 1
-
-
 
     # ==========================
-    # 強制 4/4
+    # 移除 chord
+    # ==========================
+
+    new_stream = music21.stream.Part()
+
+
+    for element in melody.flatten():
+
+        if isinstance(
+            element,
+            music21.note.Note
+        ):
+
+            n = music21.note.Note(
+                element.pitch
+            )
+
+            n.duration = element.duration
+
+            new_stream.append(n)
+
+
+
+        elif isinstance(
+            element,
+            music21.chord.Chord
+        ):
+
+            # 只取最高音
+            n = music21.note.Note(
+                element.pitches[-1]
+            )
+
+            n.duration = element.duration
+
+            new_stream.append(n)
+
+
+
+        elif isinstance(
+            element,
+            music21.note.Rest
+        ):
+
+            r = music21.note.Rest()
+
+            r.duration = element.duration
+
+            new_stream.append(r)
+
+
+
+    melody = new_stream
+
+
+
+    # ==========================
+    # 限制音域
+    # ==========================
+
+    for n in melody.notes:
+
+        if n.pitch.octave < 3:
+
+            n.pitch.octave = 3
+
+
+        if n.pitch.octave > 6:
+
+            n.pitch.octave = 6
+
+
+
+    # ==========================
+    # 清除所有 metadata
+    # ==========================
+
+    melody.metadata = None
+
+
+
+    # ==========================
+    # 固定拍號
     # ==========================
 
     melody.insert(
@@ -45,65 +126,25 @@ def midi_to_musicxml(input_file, output_file):
 
 
     # ==========================
-    # chord -> 單音
+    # 固定調性
     # ==========================
 
-    for chord in list(
-        melody.recurse().getElementsByClass(
-            music21.chord.Chord
-        )
-    ):
-
-        note = music21.note.Note(
-            chord.pitches[0]
-        )
-
-        note.duration = chord.duration
-
-        chord.replaceWith(note)
+    melody.insert(
+        0,
+        music21.key.Key("C")
+    )
 
 
 
     # ==========================
-    # octave 正規化
-    # ==========================
-
-    for note in melody.recurse().notes:
-
-        if note.isChord:
-            continue
-
-
-        pitch = note.pitch
-
-
-        if pitch.octave < 3:
-
-            pitch.octave = 3
-
-
-        if pitch.octave > 6:
-
-            pitch.octave = 6
-
-
-        # 重新建立 pitch
-        note.pitch = music21.pitch.Pitch(
-            pitch.nameWithOctave
-        )
-
-
-
-    # ==========================
-    # 移除多餘 voice
+    # 移除不必要 voice
     # ==========================
 
     for v in melody.recurse().getElementsByClass(
         music21.stream.Voice
     ):
 
-        if len(v.notes)==0:
-            v.activeSite.remove(v)
+        v.activeSite.remove(v)
 
 
 
