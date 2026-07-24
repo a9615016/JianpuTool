@@ -9,6 +9,7 @@ def rebuild(input_file, output_file):
 
     print("開始重建 MusicXML")
 
+
     score = music21.converter.parse(
         input_file
     )
@@ -23,24 +24,23 @@ def rebuild(input_file, output_file):
                 ql = element.duration.quarterLength
 
 
-                # 修正超長 duration
+                # 修正非法長度
+                if ql <= 0:
+                    ql = 1
+
+
+                # jianpu_ly 不支援超長音符
                 if ql > 12:
-
-                    element.duration.quarterLength = 12
-
-
-                # 修正不合法 duration
-                if ql == 0:
-
-                    element.duration.quarterLength = 1
+                    ql = 12
 
 
+                try:
 
-                # 拆除 complex duration
-                element.duration.clear()
+                    element.duration.quarterLength = ql
 
+                except Exception:
 
-                element.duration.quarterLength = ql
+                    pass
 
 
 
@@ -61,6 +61,20 @@ def rebuild(input_file, output_file):
 
 
 if __name__ == "__main__":
+
+
+    if len(sys.argv) < 3:
+
+        print(
+            "使用方式:"
+        )
+
+        print(
+            "python rebuild_musicxml.py input.musicxml output.musicxml"
+        )
+
+        sys.exit(1)
+
 
 
     rebuild(
