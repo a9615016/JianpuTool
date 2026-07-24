@@ -101,6 +101,10 @@ def status():
 # ==========================
 def musicxml_to_pdf(musicxml_file, work_dir):
 
+    print("開始 MusicXML -> jianpu")
+    print("輸入:", musicxml_file)
+
+
     ly_file = os.path.join(
         work_dir,
         "input.ly"
@@ -129,12 +133,23 @@ def musicxml_to_pdf(musicxml_file, work_dir):
         )
 
 
+    print(
+        "jianpu_ly return:",
+        result.returncode
+    )
+
+
     if result.returncode != 0:
+
+        print(result.stderr)
+
         return None, result.stderr
 
 
 
-    # LilyPond -> PDF
+    print("開始 LilyPond PDF")
+
+
 
     result = subprocess.run(
         [
@@ -148,8 +163,14 @@ def musicxml_to_pdf(musicxml_file, work_dir):
     )
 
 
+    print(result.stdout)
+
+
+
     if result.returncode != 0:
+
         return None, result.stdout
+
 
 
 
@@ -161,14 +182,20 @@ def musicxml_to_pdf(musicxml_file, work_dir):
     )
 
 
+    print(
+        "找到 PDF:",
+        pdf_files
+    )
+
+
+
     if not pdf_files:
+
         return None, "PDF not found"
 
 
 
     return pdf_files[0], None
-
-
 
 
 
