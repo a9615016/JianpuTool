@@ -1,122 +1,74 @@
 import music21
-import os
+import sys
 
 
 def midi_to_musicxml(input_file, output_file):
 
-    print("開始 MIDI -> MusicXML")
+    print("MIDI -> MusicXML")
 
-
-    # ==========================
-    # 讀 MIDI
-    # ==========================
 
     score = music21.converter.parse(input_file)
 
 
-    print("parts:", len(score.parts))
 
-
-
-    # ==========================
-    # 取第一聲部
-    # ==========================
-
+    # 只取第一旋律
     if len(score.parts) > 0:
-
         melody = score.parts[0]
-
     else:
-
         melody = score
 
 
 
-    # ==========================
-    # 移除 chord
-    # ==========================
+    # ----------------------
+    # Quantize 音符
+    # ----------------------
 
-    new_stream = music21.stream.Part()
-
-
-    for element in melody.flatten():
-
-        if isinstance(
-            element,
-            music21.note.Note
-        ):
-
-            n = music21.note.Note(
-                element.pitch
-            )
-
-            n.duration = element.duration
-
-            new_stream.append(n)
+    melody.quantize(
+        quarterLengthDivisors=[
+            4,
+            3,
+            2,
+            1
+        ],
+        processOffsets=True,
+        processDurations=True
+    )
 
 
 
-        elif isinstance(
-            element,
-            music21.chord.Chord
-        ):
+    # ----------------------
+    # 修正 duration
+    # ----------------------
 
-            # 只取最高音
-            n = music21.note.Note(
-                element.pitches[-1]
-            )
+    for n in melody.recurse().notes:
 
-            n.duration = element.duration
+        if n.duration.quarterLength <= 0:
 
-            new_stream.append(n)
+            n.duration.quarterLength = 1
 
 
+        # 限制太長/太短
+        if n.duration.quarterLength > 8:
 
-        elif isinstance(
-            element,
-            music21.note.Rest
-        ):
-
-            r = music21.note.Rest()
-
-            r.duration = element.duration
-
-            new_stream.append(r)
+            n.duration.quarterLength = 8
 
 
 
-    melody = new_stream
-
-
-
-    # ==========================
-    # 限制音域
-    # ==========================
-
-    for n in melody.notes:
+        # octave限制
 
         if n.pitch.octave < 3:
-
             n.pitch.octave = 3
 
 
         if n.pitch.octave > 6:
-
             n.pitch.octave = 6
 
 
 
-    # ==========================
-    # 清除所有 metadata
-    # ==========================
 
-    melody.metadata = None
-
-
-
-    # ==========================
-    # 固定拍號
-    # ==========================
+    # ----------------------
+    # 加 4/4
+    # ----------------------
 
     melody.insert(
         0,
@@ -124,33 +76,6 @@ def midi_to_musicxml(input_file, output_file):
     )
 
 
-
-    # ==========================
-    # 固定調性
-    # ==========================
-
-    melody.insert(
-        0,
-        music21.key.Key("C")
-    )
-
-
-
-    # ==========================
-    # 移除不必要 voice
-    # ==========================
-
-    for v in melody.recurse().getElementsByClass(
-        music21.stream.Voice
-    ):
-
-        v.activeSite.remove(v)
-
-
-
-    # ==========================
-    # 輸出 MusicXML
-    # ==========================
 
     melody.write(
         "musicxml",
@@ -165,10 +90,9 @@ def midi_to_musicxml(input_file, output_file):
 
 
 
-if __name__ == "__main__":
-
+if __name__=="__main__":
 
     midi_to_musicxml(
-        "input.mid",
-        "output.musicxml"
+        sys.argv[1],
+        sys.argv[2]
     )
