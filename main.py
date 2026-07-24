@@ -16,11 +16,10 @@ app = FastAPI()
 # LilyPond
 # ==========================
 
-LILYPOND = "lilypond"
-
-
 if os.name == "nt":
     LILYPOND = r"C:\lilypond-2.26.0\bin\lilypond.exe"
+else:
+    LILYPOND = "lilypond"
 
 
 
@@ -35,21 +34,22 @@ def home():
 
 <!DOCTYPE html>
 
-<html lang="zh-TW">
+<html>
 
 <head>
 
-<meta charset="UTF-8">
+<meta charset="utf-8">
 
 <title>JianpuTool</title>
+
 
 <style>
 
 body{
 
 font-family:Arial;
+background:#f2f2f2;
 text-align:center;
-background:#f5f5f5;
 padding:40px;
 
 }
@@ -68,18 +68,22 @@ margin:auto;
 
 button{
 
-padding:12px 25px;
+background:#1976d2;
+color:white;
+padding:12px 30px;
+border:0;
+border-radius:8px;
 font-size:16px;
-cursor:pointer;
 
 }
 
 
 input{
 
-margin:15px;
+margin:20px;
 
 }
+
 
 </style>
 
@@ -94,7 +98,10 @@ margin:15px;
 
 <h1>🎵 JianpuTool</h1>
 
-<h3>MusicXML → 數字簡譜 PDF</h3>
+
+<h3>
+MusicXML → 數字簡譜 PDF
+</h3>
 
 
 <form action="/convert"
@@ -123,7 +130,10 @@ required>
 <hr>
 
 
-<h3>MIDI → 數字簡譜 PDF</h3>
+
+<h3>
+MIDI → 數字簡譜 PDF
+</h3>
 
 
 <form action="/midi"
@@ -153,6 +163,7 @@ MIDI 轉簡譜
 
 </body>
 
+
 </html>
 
 """
@@ -164,7 +175,7 @@ MIDI 轉簡譜
 # ==========================
 
 def musicxml_to_pdf(
-    musicxml_file,
+    xml_file,
     work_dir
 ):
 
@@ -175,7 +186,7 @@ def musicxml_to_pdf(
     )
 
 
-    clean_file = os.path.join(
+    clean_file=os.path.join(
         work_dir,
         "clean.musicxml"
     )
@@ -186,7 +197,7 @@ def musicxml_to_pdf(
         [
             "python",
             "clean_musicxml.py",
-            musicxml_file,
+            xml_file,
             clean_file
         ],
 
@@ -202,18 +213,16 @@ def musicxml_to_pdf(
 
 
 
-    ly_file = os.path.join(
+    ly_file=os.path.join(
         work_dir,
         "input.ly"
     )
-
 
 
     print(
         "開始 jianpu_ly",
         flush=True
     )
-
 
 
     with open(
@@ -223,7 +232,7 @@ def musicxml_to_pdf(
     ) as f:
 
 
-        result = subprocess.run(
+        result=subprocess.run(
 
             [
                 "python",
@@ -233,7 +242,9 @@ def musicxml_to_pdf(
             ],
 
             stdout=f,
+
             stderr=subprocess.PIPE,
+
             text=True
 
         )
@@ -247,11 +258,9 @@ def musicxml_to_pdf(
     )
 
 
-
     if result.returncode != 0:
 
-        return None, result.stderr
-
+        return None,result.stderr
 
 
 
@@ -262,7 +271,7 @@ def musicxml_to_pdf(
 
 
 
-    result2 = subprocess.run(
+    result2=subprocess.run(
 
         [
             LILYPOND,
@@ -293,7 +302,7 @@ def musicxml_to_pdf(
 
 
 
-    pdf_files = glob.glob(
+    pdf=glob.glob(
 
         os.path.join(
             work_dir,
@@ -303,13 +312,20 @@ def musicxml_to_pdf(
     )
 
 
-    if not pdf_files:
+    if not pdf:
 
         return None,"PDF not found"
 
 
 
-    return pdf_files[0],None
+    print(
+        "PDF完成:",
+        pdf[0],
+        flush=True
+    )
+
+
+    return pdf[0],None
 
 
 
@@ -346,7 +362,6 @@ async def convert(
     )
 
 
-
     with open(
         xml,
         "wb"
@@ -358,11 +373,10 @@ async def convert(
 
 
 
-    pdf,error = musicxml_to_pdf(
+    pdf,error=musicxml_to_pdf(
         xml,
         work_dir
     )
-
 
 
     if error:
@@ -412,7 +426,6 @@ async def midi_convert(
     )
 
 
-
     midi=os.path.join(
         work_dir,
         "input.mid"
@@ -423,7 +436,6 @@ async def midi_convert(
         work_dir,
         "input.musicxml"
     )
-
 
 
     with open(
@@ -439,8 +451,7 @@ async def midi_convert(
 
     try:
 
-
-        score = music21.converter.parse(
+        score=music21.converter.parse(
             midi
         )
 
@@ -467,12 +478,10 @@ async def midi_convert(
 
 
 
-
-    pdf,error = musicxml_to_pdf(
+    pdf,error=musicxml_to_pdf(
         xml,
         work_dir
     )
-
 
 
     if error:
