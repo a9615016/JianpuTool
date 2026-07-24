@@ -5,69 +5,50 @@ import sys
 def clean_musicxml(input_file, output_file):
 
     tree = ET.parse(input_file)
+
     root = tree.getroot()
 
-    ns = "{http://www.musicxml.org/ns/musicxml}"
+
+    namespace = {
+        "m":"http://www.musicxml.org/ns/musicxml"
+    }
 
 
-    # ==========================
-    # 移除所有 chord 音符
-    # 保留第一個音
-    # ==========================
+    # 移除 voice 2 以上
 
-    for measure in root.iter(ns + "measure"):
+    for note in root.findall(".//note"):
 
-        notes = list(measure)
+        voice = note.find("voice")
 
-        first_note = True
+        if voice is not None:
 
+            if voice.text != "1":
 
-        for item in notes:
+                parent = None
 
-            if item.tag == ns + "note":
+                for p in root.iter():
 
-                chord = item.find(ns + "chord")
+                    if note in list(p):
 
-
-                if chord is not None:
-
-                    # 刪除和弦後續音
-                    measure.remove(item)
+                        parent = p
+                        break
 
 
+                if parent is not None:
 
-    # ==========================
-    # 移除 backup
-    # ==========================
-
-    for parent in root.iter():
-
-        for child in list(parent):
-
-            if child.tag == ns + "backup":
-
-                parent.remove(child)
+                    parent.remove(note)
 
 
 
-    # ==========================
-    # 移除 voice 2以上
-    # ==========================
+    # 移除 chord 標記
 
-    for parent in root.iter():
+    for note in root.findall(".//note"):
 
-        for note in list(parent):
+        chord = note.find("chord")
 
-            if note.tag == ns + "note":
+        if chord is not None:
 
-                voice = note.find(ns + "voice")
-
-
-                if voice is not None:
-
-                    if voice.text != "1":
-
-                        parent.remove(note)
+            note.remove(chord)
 
 
 
@@ -79,16 +60,17 @@ def clean_musicxml(input_file, output_file):
 
 
 
-if __name__ == "__main__":
+if __name__=="__main__":
 
 
-    if len(sys.argv) < 3:
+    if len(sys.argv)<3:
 
         print(
             "python clean_musicxml.py input.musicxml output.musicxml"
         )
 
         exit()
+
 
 
     clean_musicxml(
