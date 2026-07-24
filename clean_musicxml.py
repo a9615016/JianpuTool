@@ -1,5 +1,5 @@
-import xml.etree.ElementTree as ET
 import sys
+import xml.etree.ElementTree as ET
 
 
 def clean_musicxml(input_file, output_file):
@@ -11,120 +11,85 @@ def clean_musicxml(input_file, output_file):
     root = tree.getroot()
 
 
-    # =========================
-    # 移除不支援元素
-    # =========================
-
-    remove_tags = [
-        "grace",
-        "ornaments",
-        "technical",
-        "articulations",
-        "fermata",
-        "tie"
-    ]
+    # MusicXML namespace
+    ns = {
+        "m": "http://www.musicxml.org/ns/musicxml"
+    }
 
 
-    for tag in remove_tags:
-
-        for elem in root.findall(".//{*}" + tag):
-
-            parent = None
-
-            for p in root.iter():
-
-                if elem in list(p):
-                    parent = p
-                    break
-
-            if parent is not None:
-                parent.remove(elem)
-
-
-
-    # =========================
-    # 強制拍號 4/4
-    # 解決 jianpu_ly KeyError 16
-    # =========================
-
-    for time in root.findall(".//{*}time"):
-
-        beats = time.find("{*}beats")
-        beat_type = time.find("{*}beat-type")
-
-
-        if beats is not None:
-            beats.text = "4"
-
-
-        if beat_type is not None:
-            beat_type.text = "4"
-
-
-
-    # =========================
-    # divisions 修正
-    # =========================
-
-    for div in root.findall(".//{*}divisions"):
-
+    # 修正 duration 異常
+    for duration in root.iter("duration"):
         try:
-
-            value = int(div.text)
-
-            if value != 16:
-                div.text = "16"
-
-        except:
-
-            div.text = "16"
-
-
-
-    # =========================
-    # duration 修正
-    # =========================
-
-    for duration in root.findall(".//{*}duration"):
-
-        try:
-
             value = int(duration.text)
 
             if value <= 0:
                 duration.text = "1"
 
-
         except:
-
             duration.text = "1"
 
 
 
-    # =========================
-    # 移除八度標記問題
-    # =========================
-
-    for octave in root.findall(".//{*}octave"):
-
+    # 移除 grace
+    for grace in root.iter("grace"):
         parent = None
 
-        for p in root.iter():
+    for note in root.iter("note"):
 
-            if octave in list(p):
+        # 移除不完整 octave
+        pitch = note.find("pitch")
 
-                parent = p
-                break
+        if pitch is not None:
+
+            octave = pitch.find("octave")
+
+            if octave is not None:
+
+                try:
+                    o = int(octave.text)
+
+                    # jianpu_ly 支援範圍
+                    if o < 1:
+                        octave.text = "1"
+
+                    if o > 8:
+                        octave.text = "8"
+
+                except:
+                    octave.text = "4"
 
 
-        if parent is not None:
-            parent.remove(octave)
+
+    # 修正 time signature
+    for beats in root.iter("beats"):
+
+        if beats.text not in [
+            "2",
+            "3",
+            "4",
+            "6"
+        ]:
+            beats.text = "4"
+
+
+    for beat_type in root.iter("beat-type"):
+
+        if beat_type.text not in [
+            "2",
+            "4",
+            "8"
+        ]:
+            beat_type.text = "4"
 
 
 
-    # =========================
-    # 輸出
-    # =========================
+    # 移除空 voice
+    for voice in root.iter("voice"):
+
+        if voice.text is None:
+            voice.text = "1"
+
+
 
     tree.write(
         output_file,
@@ -140,12 +105,11 @@ def clean_musicxml(input_file, output_file):
 
 if __name__ == "__main__":
 
-
     if len(sys.argv) < 3:
 
         print(
-            "使用方式:"
-            "\npython clean_musicxml.py input.musicxml output.musicxml"
+            "使用方式:\n"
+            "python clean_musicxml.py input.musicxml output.musicxml"
         )
 
         exit()
