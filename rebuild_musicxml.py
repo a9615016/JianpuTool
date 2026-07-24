@@ -7,76 +7,97 @@ def rebuild(input_file, output_file):
     print("開始重建 MusicXML")
 
 
-    score = music21.converter.parse(
-        input_file
-    )
+    score = music21.converter.parse(input_file)
 
 
-    # 只取第一條旋律
+    # 只取第一聲部
 
-    if len(score.parts):
-
+    if len(score.parts) > 0:
         part = score.parts[0]
-
     else:
-
         part = score
 
 
 
-    new_part = music21.stream.Part()
+    # 移除不規則 spanner
+    for sp in list(part.spannerBundle):
+        sp.activeSite = None
 
 
 
-    for n in part.flatten().notesAndRests:
-
-
-        if isinstance(
-            n,
-            music21.note.Note
-        ):
-
-            note = music21.note.Note(
-                n.pitch
-            )
-
-            note.duration = n.duration
-
-            new_part.append(note)
+    allowed = [
+        0.25,
+        0.5,
+        1,
+        1.5,
+        2,
+        3,
+        4,
+        6,
+        8
+    ]
 
 
 
-        elif isinstance(
-            n,
-            music21.note.Rest
-        ):
-
-            rest = music21.note.Rest()
-
-            rest.duration = n.duration
-
-            new_part.append(rest)
+    for item in part.recurse().notesAndRests:
 
 
-
-    # 固定調性
-
-    new_part.insert(
-        0,
-        music21.key.Key("C")
-    )
+        ql = item.duration.quarterLength
 
 
-    # 固定拍號
+        try:
 
-    new_part.insert(
+            ql = float(ql)
+
+        except:
+
+            ql = 1
+
+
+
+        if ql <= 0:
+
+            ql = 1
+
+
+
+        # 找最近合法拍值
+
+        value = min(
+            allowed,
+            key=lambda x:abs(x-ql)
+        )
+
+
+        item.duration.quarterLength = value
+
+
+
+        # 強制重新計算 duration
+
+        item.duration.type = None
+        item.duration.quarterLength = value
+
+
+
+    # 清除 metadata
+
+    part.metadata = None
+
+
+
+    # 4/4
+
+    part.insert(
         0,
         music21.meter.TimeSignature("4/4")
     )
 
 
 
-    new_part.write(
+    print("輸出 MusicXML")
+
+    part.write(
         "musicxml",
         fp=output_file
     )
