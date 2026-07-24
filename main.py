@@ -12,10 +12,7 @@ app = FastAPI()
 
 BASE_DIR = "outputs"
 
-os.makedirs(
-    BASE_DIR,
-    exist_ok=True
-)
+os.makedirs(BASE_DIR, exist_ok=True)
 
 
 
@@ -81,15 +78,15 @@ def home():
 
 
 # ==========================
-# Status
+# status
 # ==========================
 
 @app.get("/status")
 def status():
 
     return {
-        "status": "JianpuTool running",
-        "api": [
+        "status":"JianpuTool running",
+        "api":[
             "/convert",
             "/midi"
         ]
@@ -97,18 +94,15 @@ def status():
 
 
 
-
 # ==========================
-# PDF產生
+# 產生 PDF
 # ==========================
 
 def generate_pdf(workdir, musicxml):
 
 
-    clean_file = os.path.join(
-        workdir,
-        "clean.musicxml"
-    )
+    # 不再 clean
+    clean_file = musicxml
 
 
     ly_file = os.path.join(
@@ -117,59 +111,7 @@ def generate_pdf(workdir, musicxml):
     )
 
 
-
-    # ----------------------
-    # clean MusicXML
-    # ----------------------
-
-    print(
-        "開始 clean MusicXML"
-    )
-
-
-    subprocess.run(
-        [
-            "python",
-            "clean_musicxml.py",
-            musicxml,
-            clean_file
-        ],
-
-        capture_output=True,
-
-        text=True
-    )
-    print("========== CLEAN STDOUT ==========")
-    print(result.stdout)
-
-
-    print("========== CLEAN STDERR ==========")
-    print(result.stderr)
-
-
-    if result.returncode != 0:
-
-    raise Exception(
-        "clean_musicxml failed\n"
-        + result.stderr
-    )
-
-
-
-    print(
-        "clean完成",
-        clean_file
-    )
-
-
-
-    # ----------------------
-    # jianpu_ly
-    # ----------------------
-
-    print(
-        "開始 jianpu_ly"
-    )
+    print("開始 jianpu_ly")
 
 
     with open(
@@ -177,11 +119,6 @@ def generate_pdf(workdir, musicxml):
         "w",
         encoding="utf-8"
     ) as f:
-
-
-        f.write(
-            '\\version "2.24.4"\n'
-        )
 
 
         result = subprocess.run(
@@ -201,66 +138,50 @@ def generate_pdf(workdir, musicxml):
 
 
     print(
-        "jianpu_ly:",
+        "jianpu_ly return:",
         result.returncode
     )
 
 
     if result.returncode != 0:
 
+        print(result.stderr)
+
         raise Exception(
             result.stderr
         )
 
 
 
-    print(
-        "產生:",
-        ly_file
-    )
-
-
-
-    # ----------------------
-    # LilyPond
-    # ----------------------
-
-    print(
-        "開始 LilyPond"
-    )
+    print("開始 LilyPond")
 
 
     result = subprocess.run(
         [
             "lilypond",
             "-o",
-            "jianpu",
-            "jianpu.ly"
+            os.path.join(
+                workdir,
+                "jianpu"
+            ),
+            ly_file
         ],
 
-        cwd=workdir,
+        stdout=subprocess.PIPE,
 
-        capture_output=True,
+        stderr=subprocess.PIPE,
 
         text=True
     )
 
 
-    print(
-        result.stdout
-    )
-
-
     if result.returncode != 0:
 
-        print(
-            result.stderr
-        )
+        print(result.stderr)
 
         raise Exception(
             result.stderr
         )
-
 
 
     pdf = os.path.join(
@@ -269,15 +190,7 @@ def generate_pdf(workdir, musicxml):
     )
 
 
-    print(
-        "PDF完成:",
-        pdf
-    )
-
-
     return pdf
-
-
 
 
 
@@ -292,9 +205,7 @@ async def convert(
 ):
 
 
-    job = str(
-        uuid.uuid4()
-    )
+    job = str(uuid.uuid4())
 
 
     workdir = os.path.join(
@@ -307,7 +218,6 @@ async def convert(
         workdir,
         exist_ok=True
     )
-
 
 
     input_file = os.path.join(
@@ -327,7 +237,6 @@ async def convert(
         )
 
 
-
     pdf = generate_pdf(
         workdir,
         input_file
@@ -344,8 +253,6 @@ async def convert(
 
 
 
-
-
 # ==========================
 # MIDI
 # ==========================
@@ -356,9 +263,7 @@ async def midi_convert(
 ):
 
 
-    job = str(
-        uuid.uuid4()
-    )
+    job = str(uuid.uuid4())
 
 
     workdir = os.path.join(
@@ -373,12 +278,10 @@ async def midi_convert(
     )
 
 
-
     midi_file = os.path.join(
         workdir,
         "input.mid"
     )
-
 
 
     with open(
@@ -392,10 +295,7 @@ async def midi_convert(
         )
 
 
-
-    print(
-        "開始 MIDI → MusicXML"
-    )
+    print("開始 MIDI → MusicXML")
 
 
     subprocess.run(
@@ -405,24 +305,7 @@ async def midi_convert(
             midi_file
         ],
 
-         capture_output=True,
-
-         text=True
-    )
-    
-    print("========== MIDI CONVERTER STDOUT ==========")
-    print(result.stdout)
-
-
-    print("========== MIDI CONVERTER STDERR ==========")
-    print(result.stderr)
-
-
-    if result.returncode != 0:
-
-    raise Exception(
-        "converter failed\n"
-        + result.stderr
+        check=True
     )
 
 
@@ -432,11 +315,17 @@ async def midi_convert(
 
 
 
+    print(
+        "MusicXML:",
+        musicxml
+    )
+
+
+
     pdf = generate_pdf(
         workdir,
         musicxml
     )
-
 
 
     return FileResponse(
