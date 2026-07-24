@@ -9,6 +9,23 @@ NS = {
 ET.register_namespace("", NS["m"])
 
 
+
+def remove_chords(root):
+
+    """
+    移除 MusicXML chord 標記
+    """
+
+    for parent in root.iter():
+
+        for child in list(parent):
+
+            if child.tag.endswith("chord"):
+
+                parent.remove(child)
+
+
+
 def clean_musicxml(input_file, output_file):
 
     print("開始 clean MusicXML")
@@ -24,14 +41,13 @@ def clean_musicxml(input_file, output_file):
     # 移除 credit
     # ==========================
 
-    for credit in root.findall(".//m:credit", NS):
+    for parent in root.iter():
 
-        parent = root
+        for child in list(parent):
 
-        try:
-            parent.remove(credit)
-        except:
-            pass
+            if child.tag.endswith("credit"):
+
+                parent.remove(child)
 
 
 
@@ -39,53 +55,32 @@ def clean_musicxml(input_file, output_file):
     # 強制 4/4
     # ==========================
 
-    for beats in root.findall(".//m:beats", NS):
+    for beats in root.findall(
+        ".//m:beats",
+        NS
+    ):
 
         beats.text = "4"
 
 
-    for beat_type in root.findall(".//m:beat-type", NS):
+
+    for beat_type in root.findall(
+        ".//m:beat-type",
+        NS
+    ):
 
         beat_type.text = "4"
 
 
 
     # ==========================
-    # 只保留 voice 1
+    # octave 修正
     # ==========================
 
-    for voice in root.findall(".//m:voice", NS):
-
-        if voice.text != "1":
-
-            parent = None
-
-
-
-    # ==========================
-    # 移除 chord 標記
-    # ==========================
-
-    for chord in root.findall(".//m:chord", NS):
-
-        parent = None
-
-        # 找不到 parent 用重建方式處理
-        chord.clear()
-
-
-
-    # ==========================
-    # 修正 octave
-    # ==========================
-
-    for step in root.findall(".//m:step", NS):
-
-        if step.text is None:
-            continue
-
-
-    for octave in root.findall(".//m:octave", NS):
+    for octave in root.findall(
+        ".//m:octave",
+        NS
+    ):
 
         try:
 
@@ -93,36 +88,64 @@ def clean_musicxml(input_file, output_file):
 
 
             if value < 3:
+
                 octave.text = "3"
 
 
-            if value > 6:
+            elif value > 6:
+
                 octave.text = "6"
 
 
         except:
 
-            octave.text="4"
+            octave.text = "4"
 
 
 
     # ==========================
-    # 修正 duration
+    # duration 修正
     # ==========================
 
-    for duration in root.findall(".//m:duration", NS):
+    for duration in root.findall(
+        ".//m:duration",
+        NS
+    ):
 
         try:
 
-            d=int(duration.text)
+            value = int(duration.text)
 
-            if d <=0:
-                duration.text="1"
+
+            if value <= 0:
+
+                duration.text = "1"
 
 
         except:
 
-            duration.text="1"
+            duration.text = "1"
+
+
+
+    # ==========================
+    # voice 統一
+    # ==========================
+
+    for voice in root.findall(
+        ".//m:voice",
+        NS
+    ):
+
+        voice.text = "1"
+
+
+
+    # ==========================
+    # 移除 chord
+    # ==========================
+
+    remove_chords(root)
 
 
 
@@ -130,11 +153,19 @@ def clean_musicxml(input_file, output_file):
     # 移除 tie
     # ==========================
 
-    for tie in root.findall(".//m:tie", NS):
+    for parent in root.iter():
 
-        parent=None
+        for child in list(parent):
+
+            if child.tag.endswith("tie"):
+
+                parent.remove(child)
 
 
+
+    # ==========================
+    # 輸出
+    # ==========================
 
     tree.write(
         output_file,
@@ -148,7 +179,18 @@ def clean_musicxml(input_file, output_file):
 
 
 
-if __name__=="__main__":
+if __name__ == "__main__":
+
+
+    if len(sys.argv) < 3:
+
+        print(
+            "使用方式:"
+            "\npython clean_musicxml.py input.musicxml output.musicxml"
+        )
+
+        sys.exit()
+
 
 
     clean_musicxml(
