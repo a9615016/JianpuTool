@@ -181,6 +181,20 @@ def musicxml_to_pdf(
 
 
     if result.returncode !=0:
+          print(
+        "===== jianpu_ly ERROR =====",
+        flush=True
+    )
+
+    print(
+        result.stderr,
+        flush=True
+    )
+
+    print(
+        "===========================",
+        flush=True
+    )
 
         return None,result.stderr
 
