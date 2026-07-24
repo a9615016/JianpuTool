@@ -38,26 +38,45 @@ def home():
 
         <h1>🎵 JianpuTool MIDI → 簡譜</h1>
 
-        <h3>MusicXML → 簡譜 PDF</h3>
+
+        <h3>MusicXML → PDF</h3>
 
         <form action="/convert" method="post" enctype="multipart/form-data">
-            <input type="file" name="file">
+
+            <input 
+                type="file" 
+                name="file"
+                accept=".musicxml,.xml"
+            >
+
+            <br><br>
+
             <button type="submit">
                 產生簡譜 PDF
             </button>
+
         </form>
 
 
         <hr>
 
 
-        <h3>MIDI → 簡譜 PDF</h3>
+        <h3>MIDI → PDF</h3>
 
         <form action="/midi" method="post" enctype="multipart/form-data">
-            <input type="file" name="file">
+
+            <input 
+                type="file"
+                name="file"
+                accept=".mid,.midi"
+            >
+
+            <br><br>
+
             <button type="submit">
                 MIDI 轉簡譜
             </button>
+
         </form>
 
 
@@ -65,7 +84,6 @@ def home():
 
     </html>
     """
-
 
 
 @app.get("/status")
