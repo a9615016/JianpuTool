@@ -6,9 +6,11 @@ print("CLEAN VERSION 20260724 V11")
 
 
 if len(sys.argv) < 3:
+
     print(
         "usage: python clean_musicxml.py input.musicxml output.musicxml"
     )
+
     sys.exit(1)
 
 
@@ -19,69 +21,66 @@ output_file = sys.argv[2]
 print("input:", input_file)
 
 
-score = music21.converter.parse(input_file)
+score = music21.converter.parse(
+    input_file
+)
 
 
 
-# =========================
-# 1. 保留第一聲部
-# =========================
+print("remove voices")
+
 
 for part in score.parts:
 
-    if len(part.recurse().notes) > 0:
+    for v in part.recurse().getElementsByClass(
+        'Voice'
+    ):
 
-        print(
-            "part:",
-            part.id
-        )
+        try:
+            v.activeSite.remove(v)
+
+        except:
+            pass
 
 
-
-# =========================
-# 2. 移除 chord
-# =========================
 
 print("remove chords")
 
 
 for part in score.parts:
 
-    for element in list(
+    elements = list(
         part.recurse()
-    ):
+    )
+
+
+    for e in elements:
+
 
         if isinstance(
-            element,
+            e,
             music21.chord.Chord
         ):
 
             print(
-                "chord:",
-                element.pitchNames
+                "Chord:",
+                e.pitchNames
             )
 
 
-            # 只留下最高音
-            note = music21.note.Note(
-                element.pitches[-1]
-            )
-
-            note.duration = element.duration
+            # 只保留最高音
+            note = e.notes[-1]
 
 
-            element.activeSite.replace(
-                element,
+            e.activeSite.replace(
+                e,
                 note
             )
 
 
 
-# =========================
-# 3. 修正過短音
-# =========================
 
-print("fix tiny notes")
+print("fix duration")
 
 
 for n in score.recurse().notesAndRests:
@@ -91,7 +90,16 @@ for n in score.recurse().notesAndRests:
 
         if n.duration.quarterLength < 0.0625:
 
+
+            print(
+                "tiny:",
+                n,
+                n.duration.quarterLength
+            )
+
+
             n.duration.quarterLength = 0.25
+
 
 
     except:
@@ -100,33 +108,48 @@ for n in score.recurse().notesAndRests:
 
 
 
-# =========================
-# 4. 移除 Voice
-# =========================
-
-
-print("remove voices")
+print("remove duplicate notes")
 
 
 for part in score.parts:
 
-    try:
 
-        part.removeByClass(
-            music21.stream.Voice
-        )
-
-    except:
-
-        pass
+    last_pitch = None
 
 
+    for n in list(
+        part.recurse().notes
+    ):
 
-# =========================
-# 5. 輸出
-# =========================
 
-print("write")
+        if last_pitch == n.pitch:
+
+
+            print(
+                "duplicate:",
+                n.pitch
+            )
+
+
+            try:
+
+                n.activeSite.remove(
+                    n
+                )
+
+            except:
+
+                pass
+
+
+        else:
+
+            last_pitch = n.pitch
+
+
+
+
+print("write clean xml")
 
 
 score.write(
