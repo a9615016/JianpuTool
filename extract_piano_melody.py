@@ -1,65 +1,96 @@
-from music21 import converter, stream, note, chord
+import xml.etree.ElementTree as ET
+import sys
 
 
-def extract_melody(input_file, output_file):
+def clean_musicxml(src, dst):
 
-    score = converter.parse(input_file)
-
-    melody = stream.Part()
-
-    events = []
+    tree = ET.parse(src)
+    root = tree.getroot()
 
 
-    for part in score.parts:
-
-        for n in part.recurse().notes:
-
-            # 跳過休止
-            if isinstance(n, note.Rest):
-                continue
+    # namespace
+    notes = root.findall(".//note")
 
 
-            # 和弦取最高音
-            if isinstance(n, chord.Chord):
-
-                n = n.sortAscending().notes[-1]
-
-
-            events.append(n)
+    last_pitch = None
+    last_duration = None
+    remove = []
 
 
-    # 依音高排序
-    events.sort(
-        key=lambda x: x.pitch.midi,
-        reverse=True
+    for note in notes:
+
+        pitch = note.find("pitch")
+        duration = note.find("duration")
+
+
+        if pitch is None:
+            continue
+
+
+        step = pitch.findtext("step")
+        octave = pitch.findtext("octave")
+
+
+        current = (
+            step,
+            octave,
+            duration.text if duration is not None else ""
+        )
+
+
+        # 移除連續完全相同音符
+        if current == last_pitch:
+
+            remove.append(note)
+
+        else:
+            last_pitch=current
+
+
+
+    for n in remove:
+
+        for parent in root.iter():
+
+            if n in list(parent):
+
+                parent.remove(n)
+                break
+
+
+
+    # 修正 divisions
+    for d in root.findall(".//divisions"):
+
+        d.text="16"
+
+
+
+    # 修正時間
+    for beats in root.findall(".//beats"):
+
+        beats.text="4"
+
+
+    for bt in root.findall(".//beat-type"):
+
+        bt.text="4"
+
+
+
+    tree.write(
+        dst,
+        encoding="utf-8",
+        xml_declaration=True
     )
 
 
-    # 取較高音區(右手)
-    melody_notes = events[:len(events)//2]
+    print("clean完成")
 
 
-    # 依時間排序
-    melody_notes.sort(
-        key=lambda x: x.offset
+if __name__=="__main__":
+
+    clean_musicxml(
+        sys.argv[1],
+        sys.argv[2]
     )
-
-
-    for n in melody_notes:
-        melody.append(n)
-
-
-    melody.write(
-        "musicxml",
-        fp=output_file
-    )
-
-
-if __name__ == "__main__":
-
-    extract_melody(
-        "test.musicxml",
-        "twinkle_melody.musicxml"
-    )
-
-    print("完成 twinkle_melody.musicxml")
