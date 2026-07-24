@@ -10,24 +10,36 @@ def clean_musicxml(input_file, output_file):
     root = tree.getroot()
 
 
-    # 移除 namespace
+    # remove namespace
     for elem in root.iter():
         if "}" in elem.tag:
-            elem.tag = elem.tag.split("}",1)[1]
+            elem.tag = elem.tag.split("}", 1)[1]
 
 
     # =========================
-    # 音符清理
+    # divisions 強制 16
+    # =========================
+
+    for div in root.iter("divisions"):
+        div.text = "16"
+
+
+
+    # =========================
+    # note 清理
     # =========================
 
     for note in root.iter("note"):
+
 
         # 移除 grace
         for g in note.findall("grace"):
             note.remove(g)
 
 
+
         pitch = note.find("pitch")
+
 
         if pitch is not None:
 
@@ -37,33 +49,34 @@ def clean_musicxml(input_file, output_file):
 
 
             if step is not None:
+
                 if step.text not in [
                     "A","B","C","D","E","F","G"
                 ]:
                     step.text="C"
 
 
+
             if octave is not None:
 
                 try:
+
                     o=int(octave.text)
 
                     if o < 1 or o > 8:
                         octave.text="4"
 
                 except:
+
                     octave.text="4"
 
 
-            # 移除升降半音
+
+            # 移除升降記號
             if alter is not None:
 
-                try:
-                    if int(alter.text)!=0:
-                        pitch.remove(alter)
+                pitch.remove(alter)
 
-                except:
-                    pitch.remove(alter)
 
 
 
@@ -73,28 +86,14 @@ def clean_musicxml(input_file, output_file):
 
     for measure in root.iter("measure"):
 
+
         for b in measure.findall("backup"):
             measure.remove(b)
+
 
         for f in measure.findall("forward"):
             measure.remove(f)
 
-
-
-    # =========================
-    # 修正拍號 4/4
-    # =========================
-
-    for time in root.iter("time"):
-
-        beats=time.find("beats")
-        beat=time.find("beat-type")
-
-        if beats is not None:
-            beats.text="4"
-
-        if beat is not None:
-            beat.text="4"
 
 
 
@@ -104,31 +103,75 @@ def clean_musicxml(input_file, output_file):
 
     for measure in root.iter("measure"):
 
+
         if "implicit" in measure.attrib:
             del measure.attrib["implicit"]
 
 
 
+        if measure.attrib.get("number")=="0":
+
+            measure.attrib["number"]="1"
+
+
+
+        attrs=measure.find("attributes")
+
+
+        if attrs is not None:
+
+            for ms in attrs.findall("measure-style"):
+
+                attrs.remove(ms)
+
+
+
+
     # =========================
-    # 第一小節補滿 4/4
-    # divisions=16
-    # 一小節=64
+    # 強制 4/4
     # =========================
 
-    first=None
+    for time in root.iter("time"):
+
+        beats=time.find("beats")
+        beat_type=time.find("beat-type")
+
+
+        if beats is not None:
+            beats.text="4"
+
+
+        if beat_type is not None:
+            beat_type.text="4"
+
+
+
+
+    # =========================
+    # 第一小節補滿
+    # =========================
+
+    first_measure=None
+
 
     for m in root.iter("measure"):
-        first=m
+
+        first_measure=m
         break
 
 
-    if first is not None:
+
+    if first_measure is not None:
+
 
         total=0
 
-        for note in first.findall("note"):
+
+        for note in first_measure.findall("note"):
+
 
             duration=note.find("duration")
+
 
             if duration is not None:
 
@@ -142,7 +185,9 @@ def clean_musicxml(input_file, output_file):
 
         if total < 64:
 
+
             rest=ET.Element("note")
+
 
             ET.SubElement(
                 rest,
@@ -158,6 +203,7 @@ def clean_musicxml(input_file, output_file):
             duration.text=str(64-total)
 
 
+
             typ=ET.SubElement(
                 rest,
                 "type"
@@ -166,12 +212,14 @@ def clean_musicxml(input_file, output_file):
             typ.text="quarter"
 
 
-            first.append(rest)
+
+            first_measure.append(rest)
+
 
 
 
     # =========================
-    # 輸出 UTF-8
+    # 輸出
     # =========================
 
     tree.write(
@@ -186,7 +234,9 @@ def clean_musicxml(input_file, output_file):
 
 
 
+
 if __name__=="__main__":
+
 
     if len(sys.argv)<3:
 
@@ -194,7 +244,8 @@ if __name__=="__main__":
         "python clean_musicxml.py input.musicxml output.musicxml"
         )
 
-        sys.exit()
+        exit()
+
 
 
     clean_musicxml(
