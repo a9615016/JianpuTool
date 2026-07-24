@@ -73,21 +73,17 @@ async def convert(
     file: UploadFile = File(...)
 ):
 
-
     job_id = str(uuid.uuid4())
-
 
     workdir = os.path.join(
         BASE_DIR,
         job_id
     )
 
-
     os.makedirs(
         workdir,
         exist_ok=True
     )
-
 
 
     input_file = os.path.join(
@@ -107,14 +103,13 @@ async def convert(
         )
 
 
-
     print("開始 MusicXML -> jianpu")
     print("輸入:", input_file)
 
 
 
     # =========================
-    # clean MusicXML
+    # clean
     # =========================
 
     clean_file = os.path.join(
@@ -154,7 +149,7 @@ async def convert(
 
 
     # =========================
-    # rebuild MusicXML
+    # rebuild
     # =========================
 
     rebuild_file = os.path.join(
@@ -190,13 +185,12 @@ async def convert(
         }
 
 
-
     print(rebuild_file)
 
 
 
-    # 後面使用 rebuild
-    clean_file = rebuild_file
+    # 使用 rebuild
+    musicxml_file = rebuild_file
 
 
 
@@ -213,7 +207,6 @@ async def convert(
     print("開始 jianpu_ly")
 
 
-
     with open(
         ly_file,
         "w",
@@ -226,13 +219,12 @@ async def convert(
                 "python",
                 "-m",
                 "jianpu_ly",
-                clean_file
+                musicxml_file
             ],
             stdout=f,
             stderr=subprocess.PIPE,
             text=True
         )
-
 
 
     print(
@@ -273,10 +265,16 @@ async def convert(
     )
 
 
+    print(result.stdout)
 
-    if result.returncode != 0:
+
+    if result.stderr:
 
         print(result.stderr)
+
+
+
+    if result.returncode != 0:
 
         return {
             "error":result.stderr
@@ -291,7 +289,15 @@ async def convert(
 
 
 
+    # =========================
+    # PDF確認
+    # =========================
+
     if not os.path.exists(pdf_file):
+
+        print("LilyPond PDF不存在")
+        print(result.stdout)
+        print(result.stderr)
 
         return {
             "error":"PDF沒有產生"
@@ -300,9 +306,10 @@ async def convert(
 
 
     print(
-        "完成:",
+        "PDF完成:",
         pdf_file
     )
+
 
 
     return FileResponse(
