@@ -2,7 +2,7 @@ import sys
 import music21
 
 
-print("REBUILD VERSION 20260724 V4")
+print("REBUILD VERSION 20260724 V5")
 
 
 def rebuild(input_file, output_file):
@@ -15,36 +15,48 @@ def rebuild(input_file, output_file):
     )
 
 
-    for part in score.parts:
+    # 修正拍號
+    for ts in score.recurse().getElementsByClass(
+        "TimeSignature"
+    ):
 
-        for element in part.flatten():
-
-            if hasattr(element, "duration"):
-
-                ql = element.duration.quarterLength
-
-
-                # 修正非法長度
-                if ql <= 0:
-                    ql = 1
+        print(
+            "原拍號:",
+            ts.ratioString
+        )
 
 
-                # jianpu_ly 不支援超長音符
-                if ql > 12:
-                    ql = 12
+        if ts.denominator == 16:
+
+            ts.numerator *= 1
+            ts.denominator = 4
 
 
-                try:
-
-                    element.duration.quarterLength = ql
-
-                except Exception:
-
-                    pass
+            print(
+                "修正拍號:",
+                ts.ratioString
+            )
 
 
 
-    print("輸出 MusicXML")
+    # 修正音符長度
+    for element in score.recurse():
+
+        if hasattr(element, "duration"):
+
+            ql = element.duration.quarterLength
+
+
+            if ql <= 0:
+                ql = 1
+
+
+            if ql > 12:
+                ql = 12
+
+
+            element.duration.quarterLength = ql
+
 
 
     score.write(
@@ -61,21 +73,6 @@ def rebuild(input_file, output_file):
 
 
 if __name__ == "__main__":
-
-
-    if len(sys.argv) < 3:
-
-        print(
-            "使用方式:"
-        )
-
-        print(
-            "python rebuild_musicxml.py input.musicxml output.musicxml"
-        )
-
-        sys.exit(1)
-
-
 
     rebuild(
         sys.argv[1],
