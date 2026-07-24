@@ -28,7 +28,6 @@ def home():
     return """
     <!DOCTYPE html>
     <html>
-
     <head>
         <meta charset="utf-8">
         <title>JianpuTool</title>
@@ -36,20 +35,18 @@ def home():
 
     <body>
 
-    <h1>🎵 JianpuTool MIDI → 簡譜</h1>
+    <h1>🎵 JianpuTool</h1>
 
-
-    <h3>MusicXML → PDF</h3>
+    <h3>MusicXML → 簡譜 PDF</h3>
 
     <form action="/convert" method="post"
           enctype="multipart/form-data">
 
         <input type="file" name="file">
-
         <br><br>
 
-        <button type="submit">
-            產生簡譜 PDF
+        <button>
+        產生簡譜 PDF
         </button>
 
     </form>
@@ -58,24 +55,22 @@ def home():
     <hr>
 
 
-    <h3>MIDI → PDF</h3>
+    <h3>MIDI → 簡譜 PDF</h3>
 
     <form action="/midi" method="post"
           enctype="multipart/form-data">
 
         <input type="file" name="file">
-
         <br><br>
 
-        <button type="submit">
-            MIDI 轉簡譜
+        <button>
+        MIDI 轉簡譜
         </button>
 
     </form>
 
 
     </body>
-
     </html>
     """
 
@@ -85,9 +80,8 @@ def home():
 def status():
 
     return {
-        "status": "JianpuTool MVP OK"
+        "status":"JianpuTool MVP OK"
     }
-
 
 
 
@@ -96,7 +90,10 @@ def status():
 # MusicXML -> PDF
 # ==========================
 
-def musicxml_to_pdf(musicxml_file, work_dir):
+def musicxml_to_pdf(
+    musicxml_file,
+    work_dir
+):
 
     print(
         "開始 MusicXML -> jianpu",
@@ -136,8 +133,6 @@ def musicxml_to_pdf(musicxml_file, work_dir):
     )
 
 
-    # jianpu_ly
-
     with open(
         ly_file,
         "w",
@@ -172,6 +167,7 @@ def musicxml_to_pdf(musicxml_file, work_dir):
 
 
 
+
     # LilyPond
 
     result = subprocess.run(
@@ -185,11 +181,6 @@ def musicxml_to_pdf(musicxml_file, work_dir):
         text=True
     )
 
-
-    print(
-        result.stdout,
-        flush=True
-    )
 
 
     if result.returncode != 0:
@@ -215,12 +206,11 @@ def musicxml_to_pdf(musicxml_file, work_dir):
 
     if not pdf_files:
 
-        return None, "PDF not found"
+        return None,"PDF not found"
 
 
 
-    return pdf_files[0], None
-
+    return pdf_files[0],None
 
 
 
@@ -251,7 +241,7 @@ async def convert(
     )
 
 
-    musicxml_file = os.path.join(
+    musicxml_file=os.path.join(
         work_dir,
         "input.musicxml"
     )
@@ -267,7 +257,7 @@ async def convert(
         )
 
 
-    pdf_file, error = musicxml_to_pdf(
+    pdf,error = musicxml_to_pdf(
         musicxml_file,
         work_dir
     )
@@ -276,17 +266,16 @@ async def convert(
     if error:
 
         return {
-            "error": error
+            "error":error
         }
 
 
 
     return FileResponse(
-        pdf_file,
+        pdf,
         filename="jianpu.pdf",
         media_type="application/pdf"
     )
-
 
 
 
@@ -303,10 +292,10 @@ async def midi_convert(
     file: UploadFile = File(...)
 ):
 
-    job_id = str(uuid.uuid4())
+    job_id=str(uuid.uuid4())
 
 
-    work_dir = os.path.join(
+    work_dir=os.path.join(
         "outputs",
         job_id
     )
@@ -319,13 +308,13 @@ async def midi_convert(
 
 
 
-    midi_file = os.path.join(
+    midi_file=os.path.join(
         work_dir,
         "input.mid"
     )
 
 
-    musicxml_file = os.path.join(
+    musicxml_file=os.path.join(
         work_dir,
         "input.musicxml"
     )
@@ -350,7 +339,18 @@ async def midi_convert(
         )
 
 
-        # 修正 MIDI measure
+        # ======================
+        # MIDI 主旋律抽取
+        # ======================
+
+        if len(score.parts) > 0:
+
+            score = score.parts[0]
+
+
+        score = score.flatten()
+
+
 
         score.makeMeasures(
             inPlace=True
@@ -368,18 +368,17 @@ async def midi_convert(
         )
 
 
+
     except Exception as e:
 
         return {
-            "error":
-            "MIDI convert failed",
-            "detail": str(e)
+            "error":"MIDI convert failed",
+            "detail":str(e)
         }
 
 
 
-
-    pdf_file, error = musicxml_to_pdf(
+    pdf,error = musicxml_to_pdf(
         musicxml_file,
         work_dir
     )
@@ -389,13 +388,13 @@ async def midi_convert(
     if error:
 
         return {
-            "error": error
+            "error":error
         }
 
 
 
     return FileResponse(
-        pdf_file,
+        pdf,
         filename="jianpu.pdf",
         media_type="application/pdf"
     )
