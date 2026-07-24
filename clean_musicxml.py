@@ -1,96 +1,130 @@
 import xml.etree.ElementTree as ET
 import sys
-import os
 
 
 def clean_musicxml(input_file, output_file):
+
+    print("開始 clean MusicXML")
+    print("輸入:", input_file)
 
     tree = ET.parse(input_file)
     root = tree.getroot()
 
 
-    # namespace
-    ns = {
-        "m": "http://www.musicxml.org/dtds/partwise.dtd"
-    }
+    # =========================
+    # 移除不支援元素
+    # =========================
 
-
-    # 移除 grace note
-    for elem in root.findall(".//{*}grace"):
-        parent = None
-        for p in root.iter():
-            if elem in list(p):
-                parent = p
-                break
-        if parent is not None:
-            parent.remove(elem)
-
-
-    # 移除 tie
-    for elem in root.findall(".//{*}tie"):
-        parent = None
-        for p in root.iter():
-            if elem in list(p):
-                parent = p
-                break
-        if parent is not None:
-            parent.remove(elem)
-
-
-    # 修正 duration
-    for duration in root.findall(".//{*}duration"):
-
-        try:
-            value = int(duration.text)
-
-            if value <= 0:
-                duration.text="1"
-
-        except:
-            duration.text="1"
-
-
-
-    # 移除不支援的 ornament
-    remove_tags=[
+    remove_tags = [
+        "grace",
         "ornaments",
         "technical",
-        "articulations"
+        "articulations",
+        "fermata",
+        "tie"
     ]
 
 
     for tag in remove_tags:
 
-        for elem in root.findall(".//{*}"+tag):
+        for elem in root.findall(".//{*}" + tag):
 
-            parent=None
+            parent = None
 
             for p in root.iter():
 
                 if elem in list(p):
-                    parent=p
+                    parent = p
                     break
 
-            if parent:
+            if parent is not None:
                 parent.remove(elem)
 
 
 
-    # 修正 divisions
+    # =========================
+    # 強制拍號 4/4
+    # 解決 jianpu_ly KeyError 16
+    # =========================
+
+    for time in root.findall(".//{*}time"):
+
+        beats = time.find("{*}beats")
+        beat_type = time.find("{*}beat-type")
+
+
+        if beats is not None:
+            beats.text = "4"
+
+
+        if beat_type is not None:
+            beat_type.text = "4"
+
+
+
+    # =========================
+    # divisions 修正
+    # =========================
 
     for div in root.findall(".//{*}divisions"):
 
         try:
 
-            v=int(div.text)
+            value = int(div.text)
 
-            if v>16:
-                div.text="16"
+            if value != 16:
+                div.text = "16"
 
         except:
-            div.text="16"
+
+            div.text = "16"
 
 
+
+    # =========================
+    # duration 修正
+    # =========================
+
+    for duration in root.findall(".//{*}duration"):
+
+        try:
+
+            value = int(duration.text)
+
+            if value <= 0:
+                duration.text = "1"
+
+
+        except:
+
+            duration.text = "1"
+
+
+
+    # =========================
+    # 移除八度標記問題
+    # =========================
+
+    for octave in root.findall(".//{*}octave"):
+
+        parent = None
+
+        for p in root.iter():
+
+            if octave in list(p):
+
+                parent = p
+                break
+
+
+        if parent is not None:
+            parent.remove(octave)
+
+
+
+    # =========================
+    # 輸出
+    # =========================
 
     tree.write(
         output_file,
@@ -100,14 +134,18 @@ def clean_musicxml(input_file, output_file):
 
 
     print("clean完成")
+    print("輸出:", output_file)
 
 
-if __name__=="__main__":
 
-    if len(sys.argv)<3:
+if __name__ == "__main__":
+
+
+    if len(sys.argv) < 3:
 
         print(
-        "python clean_musicxml.py input.musicxml output.musicxml"
+            "使用方式:"
+            "\npython clean_musicxml.py input.musicxml output.musicxml"
         )
 
         exit()
