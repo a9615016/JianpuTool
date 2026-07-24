@@ -168,6 +168,137 @@ def clean_musicxml(input_file):
 def generate_pdf(xml_file):
 
 
+    xml_file = os.path.abspath(xml_file)
+
+
+    ly_file = xml_file.replace(
+        ".musicxml",
+        ".ly"
+    )
+
+
+    pdf_file = xml_file.replace(
+        ".musicxml",
+        ".pdf"
+    )
+
+
+    output_dir = os.path.dirname(
+        ly_file
+    )
+
+
+    print("開始 jianpu_ly")
+    print("XML:", xml_file)
+
+
+
+    result = subprocess.run(
+
+        [
+            "python",
+            "-m",
+            "jianpu_ly",
+            xml_file
+        ],
+
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="ignore"
+
+    )
+
+
+    print(
+        "jianpu_ly return:",
+        result.returncode
+    )
+
+
+    if result.returncode != 0:
+
+        raise Exception(
+            result.stderr
+        )
+
+
+
+    with open(
+        ly_file,
+        "w",
+        encoding="utf-8"
+    ) as f:
+
+        f.write(
+            result.stdout
+        )
+
+
+
+    print(
+        "LY FILE:",
+        ly_file
+    )
+
+
+    print(
+        "開始 LilyPond"
+    )
+
+
+
+    # 關鍵修正：
+    # 進入 ly 所在資料夾
+    # 只傳檔名給 lilypond
+
+    result2 = subprocess.run(
+
+        [
+            "lilypond",
+            "-o",
+            os.path.splitext(
+                os.path.basename(ly_file)
+            )[0],
+            os.path.basename(ly_file)
+        ],
+
+        cwd=output_dir,
+
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+
+        text=True,
+        encoding="utf-8",
+        errors="ignore"
+
+    )
+
+
+    print(
+        result2.stdout
+    )
+
+
+
+    if result2.returncode != 0:
+
+        raise Exception(
+            result2.stdout
+        )
+
+
+
+    print(
+        "PDF完成:",
+        pdf_file
+    )
+
+
+    return pdf_file
+
+
     ly_file = xml_file.replace(
         ".musicxml",
         ".ly"
