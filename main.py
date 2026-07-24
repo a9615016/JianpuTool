@@ -69,16 +69,17 @@ def status():
 
 
 @app.post("/convert")
-async def convert(
-    file: UploadFile = File(...)
-):
+async def convert(file: UploadFile = File(...)):
+
 
     job_id = str(uuid.uuid4())
+
 
     workdir = os.path.join(
         BASE_DIR,
         job_id
     )
+
 
     os.makedirs(
         workdir,
@@ -92,10 +93,7 @@ async def convert(
     )
 
 
-    with open(
-        input_file,
-        "wb"
-    ) as f:
+    with open(input_file,"wb") as f:
 
         shutil.copyfileobj(
             file.file,
@@ -108,9 +106,9 @@ async def convert(
 
 
 
-    # =========================
+    # ======================
     # clean
-    # =========================
+    # ======================
 
     clean_file = os.path.join(
         workdir,
@@ -139,7 +137,7 @@ async def convert(
     if result.returncode != 0:
 
         return {
-            "error":result.stderr
+            "error": result.stderr
         }
 
 
@@ -148,9 +146,9 @@ async def convert(
 
 
 
-    # =========================
+    # ======================
     # rebuild
-    # =========================
+    # ======================
 
     rebuild_file = os.path.join(
         workdir,
@@ -178,10 +176,8 @@ async def convert(
 
     if result.returncode != 0:
 
-        print(result.stderr)
-
         return {
-            "error":result.stderr
+            "error": result.stderr
         }
 
 
@@ -189,14 +185,9 @@ async def convert(
 
 
 
-    # 使用 rebuild
-    musicxml_file = rebuild_file
-
-
-
-    # =========================
+    # ======================
     # jianpu_ly
-    # =========================
+    # ======================
 
     ly_file = os.path.join(
         workdir,
@@ -219,7 +210,7 @@ async def convert(
                 "python",
                 "-m",
                 "jianpu_ly",
-                musicxml_file
+                rebuild_file
             ],
             stdout=f,
             stderr=subprocess.PIPE,
@@ -238,14 +229,14 @@ async def convert(
         print(result.stderr)
 
         return {
-            "error":result.stderr
+            "error": result.stderr
         }
 
 
 
-    # =========================
+    # ======================
     # LilyPond
-    # =========================
+    # ======================
 
     print("開始 LilyPond")
 
@@ -254,14 +245,13 @@ async def convert(
         [
             "lilypond",
             "-o",
-            os.path.join(
-                workdir,
-                "jianpu"
-            ),
-            ly_file
+            "jianpu",
+            "jianpu.ly"
         ],
+        cwd=workdir,
         capture_output=True,
-        text=True
+        text=True,
+        timeout=120
     )
 
 
@@ -277,10 +267,14 @@ async def convert(
     if result.returncode != 0:
 
         return {
-            "error":result.stderr
+            "error": result.stderr
         }
 
 
+
+    # ======================
+    # PDF
+    # ======================
 
     pdf_file = os.path.join(
         workdir,
@@ -288,21 +282,11 @@ async def convert(
     )
 
 
-
-    # =========================
-    # PDF確認
-    # =========================
-
     if not os.path.exists(pdf_file):
-
-        print("LilyPond PDF不存在")
-        print(result.stdout)
-        print(result.stderr)
 
         return {
             "error":"PDF沒有產生"
         }
-
 
 
     print(
