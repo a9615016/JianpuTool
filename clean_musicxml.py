@@ -2,7 +2,7 @@ import sys
 import music21
 
 
-print("CLEAN VERSION 20260724 V11")
+print("CLEAN VERSION 20260724 V12")
 
 
 if len(sys.argv) < 3:
@@ -24,28 +24,26 @@ score = music21.converter.parse(
 )
 
 
+# ==========================
+# 強制 4/4
+# ==========================
+
 print("force 4/4")
 
 
-# ==========================
-# 強制4/4
-# ==========================
-
 for part in score.parts:
 
-    # 移除舊拍號
-    for ts in part.recurse().getElementsByClass(
-        music21.meter.TimeSignature
-    ):
-        ts.ratioString = "4/4"
-
-
-    # 沒拍號補一個
-    if len(
+    old_ts = list(
         part.recurse().getElementsByClass(
             music21.meter.TimeSignature
         )
-    ) == 0:
+    )
+
+    for ts in old_ts:
+        ts.ratioString = "4/4"
+
+
+    if len(old_ts) == 0:
 
         part.insert(
             0,
@@ -54,18 +52,22 @@ for part in score.parts:
 
 
 
+# ==========================
+# 移除 Voice
+# ==========================
+
 print("remove voices")
 
 
-# ==========================
-# 移除voice
-# ==========================
-
 for part in score.parts:
 
-    for v in part.recurse().getElementsByClass(
-        music21.stream.Voice
-    ):
+    voices = list(
+        part.recurse().getElementsByClass(
+            music21.stream.Voice
+        )
+    )
+
+    for v in voices:
 
         try:
             v.flatten()
@@ -74,12 +76,91 @@ for part in score.parts:
 
 
 
-print("fix duration")
+# ==========================
+# 移除和弦
+# ==========================
+
+print("remove chords")
+
+
+for part in score.parts:
+
+
+    chords = list(
+        part.recurse().getElementsByClass(
+            music21.chord.Chord
+        )
+    )
+
+
+    for c in chords:
+
+        try:
+
+            # 只保留最高音
+            n = c.notes[-1]
+
+            c.activeSite.replace(
+                c,
+                n
+            )
+
+        except:
+
+            pass
+
+
+
+# ==========================
+# 移除重複音
+# ==========================
+
+print("remove duplicate notes")
+
+
+for part in score.parts:
+
+    seen = set()
+
+
+    for n in list(
+        part.recurse().notes
+    ):
+
+
+        try:
+
+            key = (
+                n.offset,
+                n.pitch.ps
+            )
+
+
+            if key in seen:
+
+                n.activeSite.remove(
+                    n
+                )
+
+
+            else:
+
+                seen.add(
+                    key
+                )
+
+        except:
+
+            pass
+
 
 
 # ==========================
 # 修正過短音符
 # ==========================
+
+print("fix duration")
+
 
 count = 0
 
@@ -92,9 +173,10 @@ for n in score.recurse().notesAndRests:
         if n.duration.quarterLength < 0.25:
 
             print(
-                "fix:",
+                "fix tiny:",
                 n.duration.quarterLength
             )
+
 
             n.duration.quarterLength = 0.25
 
@@ -102,6 +184,7 @@ for n in score.recurse().notesAndRests:
 
 
     except:
+
         pass
 
 
@@ -113,12 +196,12 @@ print(
 
 
 
-print("make measures")
-
-
 # ==========================
 # 重新建立小節
 # ==========================
+
+print("make measures")
+
 
 try:
 
@@ -126,32 +209,19 @@ try:
         inPlace=True
     )
 
+
 except Exception as e:
 
     print(
-        "makeMeasures error:",
+        "measure error:",
         e
     )
 
 
 
-print("force divisions")
-
-
 # ==========================
-# divisions統一
+# 輸出
 # ==========================
-
-for part in score.parts:
-
-    for m in part.getElementsByClass(
-        music21.stream.Measure
-    ):
-
-        m.paddingLeft = 0
-        m.paddingRight = 0
-
-
 
 print("write clean xml")
 
@@ -163,6 +233,6 @@ score.write(
 
 
 print(
-    "clean完成",
+    "clean完成:",
     output_file
 )
