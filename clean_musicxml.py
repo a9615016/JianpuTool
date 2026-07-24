@@ -10,151 +10,102 @@ def clean_musicxml(input_file, output_file):
     root = tree.getroot()
 
 
-    # -------------------------
-    # 1. 移除重複 chord 音符
-    # -------------------------
+    # -----------------------
+    # 移除 pickup / anacrusis
+    # -----------------------
 
-    last_note = None
-    remove_list = []
+    for measure in root.findall(".//measure"):
 
-    for note in root.findall(".//note"):
+        for child in list(measure):
 
-        pitch = note.find("pitch")
-        duration = note.find("duration")
+            tag = child.tag.replace(
+                "{http://www.musicxml.org/ns/musicxml}",
+                ""
+            )
 
-        if pitch is None:
-            continue
+            if tag == "attributes":
 
-        step = pitch.findtext("step")
-        alter = pitch.findtext("alter", "0")
-        octave = pitch.findtext("octave")
+                time = child.find(
+                    ".//{*}time"
+                )
 
-        dur = ""
+                if time is not None:
 
-        if duration is not None:
-            dur = duration.text
+                    beats = time.find(
+                        "{*}beats"
+                    )
 
+                    beat_type = time.find(
+                        "{*}beat-type"
+                    )
 
-        current = (
-            step,
-            alter,
-            octave,
-            dur
-        )
+                    if beats is not None:
+                        beats.text = "4"
 
-
-        if current == last_note:
-
-            remove_list.append(note)
-
-        else:
-
-            last_note = current
+                    if beat_type is not None:
+                        beat_type.text = "4"
 
 
+        # 移除 pickup 標記
+        if "implicit" in measure.attrib:
 
-    for note in remove_list:
-
-        for parent in root.iter():
-
-            if note in list(parent):
-
-                parent.remove(note)
-                break
+            del measure.attrib["implicit"]
 
 
 
-    # -------------------------
-    # 2. 修正 octave
-    # -------------------------
+    # -----------------------
+    # divisions 固定
+    # -----------------------
 
-    for octave in root.findall(".//octave"):
-
-        try:
-
-            value = int(octave.text)
-
-            if value < 1:
-                octave.text = "1"
-
-            if value > 8:
-                octave.text = "8"
-
-
-        except:
-
-            octave.text = "4"
-
-
-
-    # -------------------------
-    # 3. 修正 divisions
-    # -------------------------
-
-    for div in root.findall(".//divisions"):
+    for div in root.findall(".//{*}divisions"):
 
         div.text = "16"
 
 
 
-    # -------------------------
-    # 4. 修正拍號
-    # 避免 KeyError 24
-    # -------------------------
+    # -----------------------
+    # duration 限制
+    # -----------------------
 
-    for beats in root.findall(".//beats"):
-
-        beats.text = "4"
-
-
-    for beat_type in root.findall(".//beat-type"):
-
-        beat_type.text = "4"
-
-
-
-    # -------------------------
-    # 5. 修正 duration
-    # -------------------------
-
-    for duration in root.findall(".//duration"):
+    for d in root.findall(".//{*}duration"):
 
         try:
 
-            value = int(duration.text)
+            value=int(d.text)
 
+            if value > 16:
+                d.text="16"
 
-            # jianpu_ly 支援範圍
-            if value <= 0:
-                duration.text = "1"
-
-
-            elif value > 16:
-                duration.text = "16"
-
+            if value <=0:
+                d.text="1"
 
         except:
 
-            duration.text = "1"
+            d.text="1"
 
 
 
-    # -------------------------
-    # 6. 移除 pickup / measure-style
-    # -------------------------
+    # -----------------------
+    # octave 修正
+    # -----------------------
 
-    for measure in root.findall(".//measure"):
+    for o in root.findall(".//{*}octave"):
 
-        for attr in measure.findall("./attributes"):
+        try:
 
-            for ts in attr.findall("./time"):
+            n=int(o.text)
 
-                measure.remove(attr)
+            if n < 1:
+                o.text="1"
+
+            elif n > 8:
+                o.text="8"
+
+        except:
+
+            o.text="4"
 
 
-    # -------------------------
-    # 7. UTF-8 輸出
-    # -------------------------
 
     tree.write(
         output_file,
@@ -164,22 +115,9 @@ def clean_musicxml(input_file, output_file):
 
 
     print("clean完成")
-    print(output_file)
 
 
-
-if __name__ == "__main__":
-
-
-    if len(sys.argv) < 3:
-
-        print(
-            "使用方式:\n"
-            "python clean_musicxml.py input.musicxml output.musicxml"
-        )
-
-        sys.exit()
-
+if __name__=="__main__":
 
     clean_musicxml(
         sys.argv[1],
