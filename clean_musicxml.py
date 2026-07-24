@@ -5,63 +5,80 @@ import xml.etree.ElementTree as ET
 def clean_musicxml(input_file, output_file):
 
     print("開始 clean MusicXML")
-    print("輸入:", input_file)
 
     tree = ET.parse(input_file)
     root = tree.getroot()
 
 
-    # MusicXML namespace
-    ns = {
-        "m": "http://www.musicxml.org/ns/musicxml"
-    }
+    # 修正所有 note
+    for note in root.findall(".//note"):
 
-
-    # 修正 duration 異常
-    for duration in root.iter("duration"):
-        try:
-            value = int(duration.text)
-
-            if value <= 0:
-                duration.text = "1"
-
-        except:
-            duration.text = "1"
-
-
-
-    # 移除 grace
-    for grace in root.iter("grace"):
-        parent = None
-
-    for note in root.iter("note"):
-
-        # 移除不完整 octave
         pitch = note.find("pitch")
 
-        if pitch is not None:
-
-            octave = pitch.find("octave")
-
-            if octave is not None:
-
-                try:
-                    o = int(octave.text)
-
-                    # jianpu_ly 支援範圍
-                    if o < 1:
-                        octave.text = "1"
-
-                    if o > 8:
-                        octave.text = "8"
-
-                except:
-                    octave.text = "4"
+        if pitch is None:
+            continue
 
 
+        step = pitch.find("step")
+        octave = pitch.find("octave")
 
-    # 修正 time signature
-    for beats in root.iter("beats"):
+
+        # 修正 step
+        if step is not None:
+
+            if step.text not in [
+                "A",
+                "B",
+                "C",
+                "D",
+                "E",
+                "F",
+                "G"
+            ]:
+                step.text = "C"
+
+
+
+        # 修正 octave
+        if octave is not None:
+
+            try:
+                value = int(octave.text)
+
+            except:
+                value = 4
+
+
+            if value < 1:
+                value = 4
+
+
+            if value > 8:
+                value = 4
+
+
+            octave.text = str(value)
+
+
+
+    # 修正 duration
+    for d in root.findall(".//duration"):
+
+        try:
+
+            value = int(d.text)
+
+            if value <= 0:
+                d.text = "1"
+
+        except:
+
+            d.text = "1"
+
+
+
+    # 修正拍號
+    for beats in root.findall(".//beats"):
 
         if beats.text not in [
             "2",
@@ -69,25 +86,18 @@ def clean_musicxml(input_file, output_file):
             "4",
             "6"
         ]:
-            beats.text = "4"
+            beats.text="4"
 
 
-    for beat_type in root.iter("beat-type"):
 
-        if beat_type.text not in [
+    for beat in root.findall(".//beat-type"):
+
+        if beat.text not in [
             "2",
             "4",
             "8"
         ]:
-            beat_type.text = "4"
-
-
-
-    # 移除空 voice
-    for voice in root.iter("voice"):
-
-        if voice.text is None:
-            voice.text = "1"
+            beat.text="4"
 
 
 
@@ -99,16 +109,13 @@ def clean_musicxml(input_file, output_file):
 
 
     print("clean完成")
-    print("輸出:", output_file)
 
 
+if __name__=="__main__":
 
-if __name__ == "__main__":
-
-    if len(sys.argv) < 3:
+    if len(sys.argv)<3:
 
         print(
-            "使用方式:\n"
             "python clean_musicxml.py input.musicxml output.musicxml"
         )
 
