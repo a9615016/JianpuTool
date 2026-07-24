@@ -10,90 +10,59 @@ import music21
 app = FastAPI()
 
 
-# ==========================
-# LilyPond
-# ==========================
+# Render Linux
+LILYPOND = "lilypond"
 
-if os.name == "nt":
-    LILYPOND = r"C:\lilypond-2.26.0\bin\lilypond.exe"
-else:
-    LILYPOND = "lilypond"
-
-
-
-# ==========================
-# 首頁
-# ==========================
 
 @app.get("/")
 def home():
 
-    return HTMLResponse("""
-    <html>
-    <head>
-    <meta charset="utf-8">
-    <title>JianpuTool</title>
-    </head>
+    return HTMLResponse(
+        """
+        <h2>🎵 JianpuTool MIDI → 簡譜</h2>
 
-    <body>
+        <form action="/convert" method="post" enctype="multipart/form-data">
 
-    <h1>🎵 JianpuTool</h1>
+        <input type="file" name="file">
 
-    <p>MusicXML / MIDI → 簡譜 PDF</p>
+        <button type="submit">
+        產生簡譜 PDF
+        </button>
 
-
-    <form action="/convert"
-          method="post"
-          enctype="multipart/form-data">
-
-    <input type="file" name="file">
-
-    <button>
-    產生簡譜 PDF
-    </button>
-
-    </form>
-
-
-    <br>
-
-    <form action="/midi"
-          method="post"
-          enctype="multipart/form-data">
-
-    <input type="file" name="file">
-
-    <button>
-    MIDI 轉簡譜 PDF
-    </button>
-
-    </form>
-
-
-    </body>
-    </html>
-    """)
-
+        </form>
+        """
+    )
 
 
 @app.get("/status")
 def status():
 
     return {
-        "status":"JianpuTool MVP OK"
+        "status":"JianpuTool running",
+        "api":[
+            "/convert",
+            "/midi"
+        ]
     }
 
 
 
 # ==========================
-# MusicXML 清理
+# MusicXML → Jianpu PDF
 # ==========================
 
-def clean_musicxml(input_file):
+def musicxml_to_pdf(musicxml_file, work_dir):
 
-    output_file = input_file.replace(
-        ".musicxml",
-        "_clean.musicxml"
+
+    print("開始 MusicXML -> jianpu")
+    print("輸入:", musicxml_file)
+
+
+
+    # 先 clean
+    clean_file = os.path.join(
+        work_dir,
+        "clean.musicxml"
     )
 
 
@@ -101,48 +70,23 @@ def clean_musicxml(input_file):
         [
             "python",
             "clean_musicxml.py",
-            input_file,
-            output_file
+            musicxml_file,
+            clean_file
         ],
         stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
+        stderr=subprocess.PIPE,
         text=True
-    )
-
-
-    print(
-        result.stdout,
-        flush=True
     )
 
 
     if result.returncode != 0:
 
-        return input_file
-
-
-    print(
-        "clean完成",
-        flush=True
-    )
-
-
-    return output_file
+        return None, result.stderr
 
 
 
-# ==========================
-# MusicXML → PDF
-# ==========================
+    print("clean完成")
 
-def musicxml_to_pdf(
-    musicxml_file,
-    work_dir
-):
-
-    clean_file = clean_musicxml(
-        musicxml_file
-    )
 
 
     ly_file = os.path.join(
@@ -151,54 +95,90 @@ def musicxml_to_pdf(
     )
 
 
-    with open(
-        ly_file,
-        "w",
-        encoding="utf-8"
-    ) as out:
 
-
-        result = subprocess.run(
-            [
-                "python",
-                "-m",
-                "jianpu_ly",
-                clean_file
-            ],
-            stdout=out,
-            stderr=subprocess.PIPE,
-            text=True
-        )
+    # jianpu_ly
+    result = subprocess.run(
+        [
+            "python",
+            "-m",
+            "jianpu_ly",
+            clean_file
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True
+    )
 
 
     print(
         "jianpu_ly:",
-        result.returncode,
-        flush=True
+        result.returncode
     )
+
 
 
     if result.returncode != 0:
 
-        print(
-            "===== jianpu_ly ERROR =====",
-            flush=True
-        )
-
-        print(
-            result.stderr,
-            flush=True
-        )
-
-        print(
-            "===========================",
-            flush=True
-        )
-
-
         return None, result.stderr
 
 
+
+    ly_text = result.stdout
+
+
+
+    # ==========================
+    # 修正 jianpu_ly octave
+    # ==========================
+
+    ly_text = ly_text.replace(
+        "1,1",
+        "1"
+    )
+
+    ly_text = ly_text.replace(
+        "2,2",
+        "2"
+    )
+
+    ly_text = ly_text.replace(
+        "3,3",
+        "3"
+    )
+
+    ly_text = ly_text.replace(
+        "4,4",
+        "4"
+    )
+
+    ly_text = ly_text.replace(
+        "5,5",
+        "5"
+    )
+
+    ly_text = ly_text.replace(
+        "6,6",
+        "6"
+    )
+
+    ly_text = ly_text.replace(
+        "7,7",
+        "7"
+    )
+
+
+
+    with open(
+        ly_file,
+        "w",
+        encoding="utf-8"
+    ) as f:
+
+        f.write(ly_text)
+
+
+
+    # LilyPond PDF
 
     result = subprocess.run(
         [
@@ -218,7 +198,7 @@ def musicxml_to_pdf(
 
 
 
-    pdfs = glob.glob(
+    pdf_files = glob.glob(
         os.path.join(
             work_dir,
             "*.pdf"
@@ -226,18 +206,20 @@ def musicxml_to_pdf(
     )
 
 
-    if not pdfs:
+    if not pdf_files:
 
         return None,"PDF not found"
 
 
-    return pdfs[0],None
+
+    return pdf_files[0],None
+
 
 
 
 
 # ==========================
-# MusicXML 上傳
+# MusicXML upload
 # ==========================
 
 @app.post("/convert")
@@ -246,12 +228,12 @@ async def convert(
 ):
 
 
-    job = str(uuid.uuid4())
+    job_id = str(uuid.uuid4())
 
 
     work_dir = os.path.join(
         "outputs",
-        job
+        job_id
     )
 
 
@@ -261,10 +243,12 @@ async def convert(
     )
 
 
+
     musicxml_file = os.path.join(
         work_dir,
         "input.musicxml"
     )
+
 
 
     with open(
@@ -292,6 +276,7 @@ async def convert(
         }
 
 
+
     return FileResponse(
         pdf,
         filename="jianpu.pdf",
@@ -301,8 +286,9 @@ async def convert(
 
 
 
+
 # ==========================
-# MIDI 上傳
+# MIDI upload
 # ==========================
 
 @app.post("/midi")
@@ -311,12 +297,12 @@ async def midi_convert(
 ):
 
 
-    job=str(uuid.uuid4())
+    job_id=str(uuid.uuid4())
 
 
     work_dir=os.path.join(
         "outputs",
-        job
+        job_id
     )
 
 
@@ -366,9 +352,8 @@ async def midi_convert(
 
     except Exception as e:
 
-
         return {
-            "error":"MIDI failed",
+            "error":"MIDI convert failed",
             "detail":str(e)
         }
 
@@ -378,6 +363,7 @@ async def midi_convert(
         musicxml_file,
         work_dir
     )
+
 
 
     if error:
