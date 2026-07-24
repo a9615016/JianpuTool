@@ -1,99 +1,99 @@
-import sys
 import xml.etree.ElementTree as ET
+import sys
 
 
 def clean_musicxml(input_file, output_file):
 
     print("開始 clean MusicXML")
 
+
     tree = ET.parse(input_file)
     root = tree.getroot()
 
-    ns = "{http://www.musicxml.org/ns/musicxml}"
+
+    # namespace
+    ns = {
+        "m": "http://www.musicxml.org/ns/musicxml"
+    }
 
 
-    # 固定 4/4
+    # 移除 octave-change
+    for elem in root.iter():
 
-    for time in root.findall(".//"+ns+"time"):
+        tag = elem.tag.split("}")[-1]
 
-        beats = time.find(ns+"beats")
-        beat_type = time.find(ns+"beat-type")
+        if tag == "octave-change":
+            parent = None
 
-        if beats is not None:
-            beats.text = "4"
+    # 清除所有 octave 元素
+    for parent in root.iter():
 
-        if beat_type is not None:
-            beat_type.text = "4"
+        remove = []
 
+        for child in list(parent):
 
+            tag = child.tag.split("}")[-1]
 
-    # ======================
-    # 移除所有 chord note
-    # ======================
-
-    for measure in root.findall(".//"+ns+"measure"):
-
-        notes = list(measure.findall(ns+"note"))
-
-        first_note = True
-
-        for note in notes:
-
-            chord = note.find(ns+"chord")
-
-            if chord is not None:
-                measure.remove(note)
-                continue
+            if tag in [
+                "octave-change",
+                "accidental-text",
+                "credit"
+            ]:
+                remove.append(child)
 
 
-
-    # ======================
-    # 移除同時間重複音
-    # 保留第一個
-    # ======================
-
-    for measure in root.findall(".//"+ns+"measure"):
-
-        seen = set()
-
-        for note in list(measure.findall(ns+"note")):
-
-            pitch = note.find(ns+"pitch")
-
-            if pitch is None:
-                continue
-
-
-            step = pitch.find(ns+"step")
-            octave = pitch.find(ns+"octave")
-
-
-            if step is not None and octave is not None:
-
-                key = (
-                    step.text,
-                    octave.text
-                )
-
-
-                if key in seen:
-                    measure.remove(note)
-
-                else:
-                    seen.add(key)
+        for child in remove:
+            parent.remove(child)
 
 
 
-    # ======================
-    # 移除 grace
-    # ======================
+    # 修正 divisions
+    for elem in root.iter():
 
-    for grace in root.findall(".//"+ns+"grace"):
+        tag = elem.tag.split("}")[-1]
 
-        for note in root.findall(".//"+ns+"note"):
+        if tag == "divisions":
 
-            if grace in list(note):
-                note.remove(grace)
+            try:
+                value=int(elem.text)
+
+                if value > 16:
+                    elem.text="16"
+
+            except:
+                elem.text="16"
+
+
+
+    # 移除異常 voice
+    for note in root.iter():
+
+        tag=note.tag.split("}")[-1]
+
+        if tag=="voice":
+
+            if note.text not in ["1", "2"]:
+                note.text="1"
+
+
+
+    # 移除 backup 過大的問題
+    for elem in root.iter():
+
+        tag=elem.tag.split("}")[-1]
+
+        if tag=="backup":
+
+            duration=elem.find(".//duration")
+
+            if duration is not None:
+
+                try:
+                    if int(duration.text)>64:
+                        duration.text="0"
+
+                except:
+                    duration.text="0"
 
 
 
@@ -109,9 +109,17 @@ def clean_musicxml(input_file, output_file):
 
 
 
-if __name__ == "__main__":
+if __name__=="__main__":
 
-    clean_musicxml(
-        sys.argv[1],
-        sys.argv[2]
-    )
+    if len(sys.argv)<3:
+
+        print(
+            "python clean_musicxml.py input.musicxml output.musicxml"
+        )
+
+    else:
+
+        clean_musicxml(
+            sys.argv[1],
+            sys.argv[2]
+        )
