@@ -2,7 +2,7 @@ import sys
 import music21
 
 
-print("CLEAN VERSION 20260724 V10")
+print("CLEAN VERSION 20260724 V11")
 
 
 if len(sys.argv) < 3:
@@ -24,47 +24,132 @@ score = music21.converter.parse(
 )
 
 
-print("remove bad duration")
+print("force 4/4")
 
+
+# ==========================
+# 強制4/4
+# ==========================
 
 for part in score.parts:
 
-    for n in part.recurse().notesAndRests:
+    # 移除舊拍號
+    for ts in part.recurse().getElementsByClass(
+        music21.meter.TimeSignature
+    ):
+        ts.ratioString = "4/4"
 
 
-        # 修正超短音符
-        try:
+    # 沒拍號補一個
+    if len(
+        part.recurse().getElementsByClass(
+            music21.meter.TimeSignature
+        )
+    ) == 0:
 
-            if n.duration.quarterLength < 0.0625:
-
-                print(
-                    "fix tiny note:",
-                    n,
-                    n.duration.quarterLength
-                )
-
-                n.duration.quarterLength = 0.25
-
-        except:
-
-            pass
+        part.insert(
+            0,
+            music21.meter.TimeSignature("4/4")
+        )
 
 
 
 print("remove voices")
 
 
+# ==========================
+# 移除voice
+# ==========================
+
 for part in score.parts:
+
+    for v in part.recurse().getElementsByClass(
+        music21.stream.Voice
+    ):
+
+        try:
+            v.flatten()
+        except:
+            pass
+
+
+
+print("fix duration")
+
+
+# ==========================
+# 修正過短音符
+# ==========================
+
+count = 0
+
+
+for n in score.recurse().notesAndRests:
+
 
     try:
 
-        part.removeByClass(
-            'Voice'
-        )
+        if n.duration.quarterLength < 0.25:
+
+            print(
+                "fix:",
+                n.duration.quarterLength
+            )
+
+            n.duration.quarterLength = 0.25
+
+            count += 1
+
 
     except:
-
         pass
+
+
+
+print(
+    "fixed:",
+    count
+)
+
+
+
+print("make measures")
+
+
+# ==========================
+# 重新建立小節
+# ==========================
+
+try:
+
+    score.makeMeasures(
+        inPlace=True
+    )
+
+except Exception as e:
+
+    print(
+        "makeMeasures error:",
+        e
+    )
+
+
+
+print("force divisions")
+
+
+# ==========================
+# divisions統一
+# ==========================
+
+for part in score.parts:
+
+    for m in part.getElementsByClass(
+        music21.stream.Measure
+    ):
+
+        m.paddingLeft = 0
+        m.paddingRight = 0
 
 
 
