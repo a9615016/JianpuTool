@@ -10,7 +10,9 @@ def rebuild(input_file, output_file):
     score = music21.converter.parse(input_file)
 
 
-    # 只取第一聲部
+    # ======================
+    # 只保留第一聲部
+    # ======================
 
     if len(score.parts) > 0:
         part = score.parts[0]
@@ -19,20 +21,33 @@ def rebuild(input_file, output_file):
 
 
 
-    # 移除不規則 spanner
+    # ======================
+    # 移除 spanner
+    # ======================
+
     for sp in list(part.spannerBundle):
-        sp.activeSite = None
+
+        try:
+            sp.activeSite = None
+
+        except:
+            pass
 
 
+
+    # ======================
+    # 修正 duration
+    # ======================
 
     allowed = [
-        0.25,
-        0.5,
-        1,
+        0.25,   # 16分音符
+        0.5,    # 8分音符
+        0.75,
+        1,      # 四分音符
         1.5,
-        2,
+        2,      # 二分音符
         3,
-        4,
+        4,      # 全音符
         6,
         8
     ]
@@ -42,18 +57,19 @@ def rebuild(input_file, output_file):
     for item in part.recurse().notesAndRests:
 
 
-        ql = item.duration.quarterLength
-
-
         try:
 
-            ql = float(ql)
+            ql = float(
+                item.duration.quarterLength
+            )
 
         except:
 
             ql = 1
 
 
+
+        # 避免非法長度
 
         if ql <= 0:
 
@@ -65,28 +81,36 @@ def rebuild(input_file, output_file):
 
         value = min(
             allowed,
-            key=lambda x:abs(x-ql)
+            key=lambda x: abs(x - ql)
         )
 
 
+
         item.duration.quarterLength = value
 
 
 
-        # 強制重新計算 duration
+    # ======================
+    # octave限制
+    # ======================
 
-        item.duration.type = None
-        item.duration.quarterLength = value
-
-
-
-    # 清除 metadata
-
-    part.metadata = None
+    for note in part.recurse().notes:
 
 
+        if note.pitch.octave < 3:
 
-    # 4/4
+            note.pitch.octave = 3
+
+
+        if note.pitch.octave > 6:
+
+            note.pitch.octave = 6
+
+
+
+    # ======================
+    # 強制 4/4
+    # ======================
 
     part.insert(
         0,
@@ -95,7 +119,12 @@ def rebuild(input_file, output_file):
 
 
 
+    # ======================
+    # 輸出
+    # ======================
+
     print("輸出 MusicXML")
+
 
     part.write(
         "musicxml",
@@ -110,7 +139,18 @@ def rebuild(input_file, output_file):
 
 
 
-if __name__=="__main__":
+if __name__ == "__main__":
+
+
+    if len(sys.argv) < 3:
+
+        print(
+            "使用方式:"
+            "python rebuild_musicxml.py input.musicxml output.musicxml"
+        )
+
+        sys.exit()
+
 
 
     rebuild(
