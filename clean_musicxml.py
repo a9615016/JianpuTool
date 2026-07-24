@@ -10,40 +10,17 @@ def clean_musicxml(input_file, output_file):
     tree = ET.parse(input_file)
     root = tree.getroot()
 
-
     ns = "{http://www.musicxml.org/ns/musicxml}"
 
 
-    # 1. 強制刪除 pickup 標記
-    for measure in root.findall(".//" + ns + "measure"):
-
-        if measure.attrib.get("implicit") == "yes":
-            measure.attrib.pop("implicit")
-
-
-    # 2. 第一小節移除 forward / backup
-    measures = root.findall(".//" + ns + "measure")
-
-    if len(measures) > 0:
-
-        first = measures[0]
-
-        for x in list(first):
-
-            if x.tag in [
-                ns+"forward",
-                ns+"backup"
-            ]:
-                first.remove(x)
-
-
-
-    # 3. 所有拍號固定 4/4
+    # -------------------------
+    # 1. 固定 4/4
+    # -------------------------
 
     for time in root.findall(".//"+ns+"time"):
 
-        beats = time.find(ns+"beats")
-        beat_type = time.find(ns+"beat-type")
+        beats=time.find(ns+"beats")
+        beat_type=time.find(ns+"beat-type")
 
         if beats is not None:
             beats.text="4"
@@ -53,7 +30,90 @@ def clean_musicxml(input_file, output_file):
 
 
 
-    # 4. 修正 XML encoding
+    # -------------------------
+    # 2. 移除 chord
+    # 保留第一個音
+    # -------------------------
+
+    for measure in root.findall(".//"+ns+"measure"):
+
+        notes = measure.findall(ns+"note")
+
+        chord_found=False
+
+        for note in notes:
+
+            chord = note.find(ns+"chord")
+
+            if chord is not None:
+
+                # 刪掉後續和弦音
+                if chord_found:
+                    measure.remove(note)
+
+                else:
+                    note.remove(chord)
+                    chord_found=True
+
+            else:
+                chord_found=False
+
+
+
+    # -------------------------
+    # 3. 移除 grace note
+    # -------------------------
+
+    for grace in root.findall(".//"+ns+"grace"):
+
+        parent=None
+
+        for p in root.iter():
+
+            if grace in list(p):
+                parent=p
+                break
+
+
+        if parent is not None:
+
+            note=parent
+
+            if note.tag==ns+"note":
+
+                for x in note.findall(ns+"grace"):
+                    note.remove(x)
+
+
+
+    # -------------------------
+    # 4. 移除八度記號問題來源
+    # -------------------------
+
+    for note in root.findall(".//"+ns+"note"):
+
+        pitch=note.find(ns+"pitch")
+
+        if pitch is not None:
+
+            octave=pitch.find(ns+"octave")
+
+            if octave is not None:
+
+                try:
+                    value=int(octave.text)
+
+                    # 限制正常音域
+                    if value < 1:
+                        octave.text="1"
+
+                    if value > 7:
+                        octave.text="7"
+
+                except:
+                    octave.text="4"
+
+
 
     tree.write(
         output_file,
