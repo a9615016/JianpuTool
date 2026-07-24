@@ -21,10 +21,11 @@ LILYPOND = "lilypond"
 def home():
 
     return """
+    <!DOCTYPE html>
     <html>
     <head>
-    <meta charset="utf-8">
-    <title>JianpuTool</title>
+        <meta charset="utf-8">
+        <title>JianpuTool</title>
     </head>
 
     <body>
@@ -34,36 +35,30 @@ def home():
     <h3>MusicXML → 簡譜 PDF</h3>
 
     <form action="/convert"
-    method="post"
-    enctype="multipart/form-data">
+          method="post"
+          enctype="multipart/form-data">
 
-    <input type="file" name="file">
-
-    <button>
-    產生 PDF
-    </button>
+        <input type="file" name="file">
+        <button type="submit">
+            產生簡譜 PDF
+        </button>
 
     </form>
-
-
-    <hr>
 
 
     <h3>MIDI → 簡譜 PDF</h3>
 
-
     <form action="/midi"
-    method="post"
-    enctype="multipart/form-data">
+          method="post"
+          enctype="multipart/form-data">
 
-    <input type="file" name="file">
+        <input type="file" name="file">
 
-    <button>
-    MIDI轉簡譜
-    </button>
+        <button type="submit">
+            MIDI轉簡譜
+        </button>
 
     </form>
-
 
     </body>
     </html>
@@ -91,28 +86,11 @@ def musicxml_to_pdf(
         work_dir
 ):
 
-    clean_file=os.path.join(
-        work_dir,
-        "clean.musicxml"
-    )
-
-
-    subprocess.run(
-        [
-            "python",
-            "clean_musicxml.py",
-            musicxml_file,
-            clean_file
-        ],
-        check=True
-    )
-
 
     ly_file=os.path.join(
         work_dir,
         "input.ly"
     )
-
 
 
     with open(
@@ -128,7 +106,7 @@ def musicxml_to_pdf(
                 "python",
                 "-m",
                 "jianpu_ly",
-                clean_file
+                musicxml_file
             ],
 
             stdout=out,
@@ -146,7 +124,6 @@ def musicxml_to_pdf(
 
 
 
-
     result=subprocess.run(
 
         [
@@ -161,7 +138,6 @@ def musicxml_to_pdf(
         stderr=subprocess.STDOUT,
 
         text=True
-
     )
 
 
@@ -172,23 +148,20 @@ def musicxml_to_pdf(
 
 
 
-    pdfs=glob.glob(
-
+    pdf=glob.glob(
         os.path.join(
             work_dir,
             "*.pdf"
         )
-
     )
 
 
-    if not pdfs:
+    if not pdf:
 
         return None,"PDF not found"
 
 
-
-    return pdfs[0],None
+    return pdf[0],None
 
 
 
@@ -203,6 +176,7 @@ def musicxml_to_pdf(
 async def convert(
         file:UploadFile=File(...)
 ):
+
 
     job=str(uuid.uuid4())
 
@@ -219,12 +193,10 @@ async def convert(
     )
 
 
-
     musicxml_file=os.path.join(
         work_dir,
         "input.musicxml"
     )
-
 
 
     with open(
@@ -237,12 +209,10 @@ async def convert(
         )
 
 
-
     pdf,error=musicxml_to_pdf(
         musicxml_file,
         work_dir
     )
-
 
 
     if error:
@@ -250,7 +220,6 @@ async def convert(
         return {
             "error":error
         }
-
 
 
     return FileResponse(
@@ -266,13 +235,14 @@ async def convert(
 
 
 # ==========================
-# MIDI 上傳
+# MIDI → MusicXML → PDF
 # ==========================
 
 @app.post("/midi")
 async def midi_convert(
         file:UploadFile=File(...)
 ):
+
 
     job=str(uuid.uuid4())
 
@@ -316,13 +286,13 @@ async def midi_convert(
 
     try:
 
+        from music21 import stream,note
+
+
+
         score=music21.converter.parse(
             midi_file
         )
-
-
-        from music21 import stream
-
 
 
         new_score=stream.Score()
@@ -330,8 +300,6 @@ async def midi_convert(
         new_part=stream.Part()
 
 
-
-        # 第一軌
 
         if len(score.parts)>0:
 
@@ -343,11 +311,10 @@ async def midi_convert(
 
 
 
+        # 收集全部音符
+
         notes=[]
 
-
-
-        # 取得音符
 
         for n in part.flatten().notes:
 
@@ -364,7 +331,7 @@ async def midi_convert(
 
 
 
-        # 排序
+        # 時間排序
 
         notes.sort(
             key=lambda x:x.offset
@@ -372,9 +339,8 @@ async def midi_convert(
 
 
 
-        # 刪除同時間音符
-
         used=set()
+
 
 
         for n in notes:
@@ -389,14 +355,27 @@ async def midi_convert(
             if t not in used:
 
 
-                new_part.append(n)
+                # 重新建立乾淨 Note
+
+                clean=note.Note(
+                    n.pitch
+                )
+
+
+                clean.duration=n.duration
+
+
+                new_part.append(
+                    clean
+                )
+
 
                 used.add(t)
 
 
 
         print(
-            "單旋律音符數:",
+            "最後輸出音符:",
             len(new_part.notes),
             flush=True
         )
@@ -429,12 +408,10 @@ async def midi_convert(
 
 
 
-
     pdf,error=musicxml_to_pdf(
         musicxml_file,
         work_dir
     )
-
 
 
     if error:
