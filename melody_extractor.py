@@ -1,93 +1,121 @@
-from music21 import converter, stream, note, chord
+import music21
 import sys
-
-MIN_MIDI = 48          # C3
-MAX_MIDI = 96          # C7
-MIN_DURATION = 0.25
+import os
 
 
-def extract_melody(input_file, output_file):
+def extract_melody(input_midi, output_midi):
 
-    print("Loading:", input_file)
+    print("開始抽取主旋律")
+    print("輸入:", input_midi)
 
-    score = converter.parse(input_file)
 
-    # 找音符最多的 Part
-    if score.parts:
-        part = max(score.parts, key=lambda p: len(list(p.recurse().notes)))
-    else:
-        part = score
+    score = music21.converter.parse(
+        input_midi
+    )
 
-    melody = stream.Part()
 
-    events = {}
+    melody_notes = []
 
-    for n in part.recurse().notes:
 
-        if isinstance(n, chord.Chord):
-            p = max(n.pitches, key=lambda x: x.midi)
-            new = note.Note(p)
-            new.duration = n.duration
-        else:
-            new = note.Note(n.pitch)
-            new.duration = n.duration
+    # 收集所有音符
+    for part in score.parts:
 
-        midi = new.pitch.midi
+        for element in part.flatten().notes:
 
-        if midi < MIN_MIDI:
-            continue
+            if isinstance(
+                element,
+                music21.note.Note
+            ):
 
-        if midi > MAX_MIDI:
-            continue
+                melody_notes.append(
+                    element
+                )
 
-        if new.quarterLength < MIN_DURATION:
-            continue
 
-        offset = round(float(n.offset), 4)
+            elif isinstance(
+                element,
+                music21.chord.Chord
+            ):
 
-        score_value = (
-            new.quarterLength * 100
-            + midi
+                # 和弦取最高音
+                highest = element.sortAscending()[-1]
+
+                melody_notes.append(
+                    music21.note.Note(
+                        highest.pitch,
+                        quarterLength=element.duration.quarterLength
+                    )
+                )
+
+
+
+    if len(melody_notes) == 0:
+
+        raise Exception(
+            "找不到音符"
         )
 
-        if offset not in events:
-            events[offset] = (score_value, new)
-        else:
-            if score_value > events[offset][0]:
-                events[offset] = (score_value, new)
 
-    last_pitch = None
-    last_note = None
+    print(
+        "原始音符數:",
+        len(melody_notes)
+    )
 
-    for offset in sorted(events.keys()):
 
-        n = events[offset][1]
+    # 依時間排序
+    melody_notes.sort(
+        key=lambda n:n.offset
+    )
 
-        if last_note and last_pitch == n.pitch.midi:
 
-            last_note.duration.quarterLength += n.quarterLength
+    # 建立新樂譜
+    new_score = music21.stream.Score()
 
-        else:
+    part = music21.stream.Part()
 
-            melody.insert(offset, n)
 
-            last_note = n
-            last_pitch = n.pitch.midi
+    for n in melody_notes:
 
-    out = stream.Score()
-    out.insert(0, melody)
+        part.append(n)
 
-    out.write("midi", fp=output_file)
 
-    print("Saved:", output_file)
+
+    new_score.append(part)
+
+
+
+    new_score.write(
+        "midi",
+        fp=output_midi
+    )
+
+
+    print(
+        "完成:",
+        output_midi
+    )
+
+
+    return output_midi
+
+
 
 
 if __name__ == "__main__":
 
-    if len(sys.argv) != 3:
-        print("Usage:")
-        print("python melody_extractor.py input.mid output.mid")
+
+    if len(sys.argv)<3:
+
+        print(
+            "使用方式:"
+        )
+
+        print(
+            "python melody_extractor.py input.mid output.mid"
+        )
+
         sys.exit(1)
+
 
     extract_melody(
         sys.argv[1],
