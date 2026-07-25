@@ -12,6 +12,7 @@ def extract_vocal(mp3, output):
 
     workdir = os.path.dirname(output)
 
+
     separated = os.path.join(
         workdir,
         "separated"
@@ -19,21 +20,32 @@ def extract_vocal(mp3, output):
 
 
     cmd = [
+
         "demucs",
+
         "-n",
         "htdemucs",
+
         "--two-stems=vocals",
+
         "-o",
         separated,
+
         mp3
+
     ]
 
 
     result = subprocess.run(
+
         cmd,
+
         stdout=subprocess.PIPE,
+
         stderr=subprocess.STDOUT,
+
         text=True
+
     )
 
 
@@ -41,6 +53,7 @@ def extract_vocal(mp3, output):
 
 
     if result.returncode != 0:
+
         raise Exception(
             result.stdout
         )
@@ -52,14 +65,20 @@ def extract_vocal(mp3, output):
 
 
     vocals = os.path.join(
+
         separated,
+
         "htdemucs",
+
         name,
+
         "vocals.wav"
+
     )
 
 
     if not os.path.exists(vocals):
+
         raise Exception(
             "Demucs 沒產生 vocals.wav\n"
             + vocals
@@ -75,12 +94,4 @@ def extract_vocal(mp3, output):
     print(
         "完成:",
         output
-    )
-
-
-if __name__ == "__main__":
-
-    extract_vocal(
-        sys.argv[1],
-        sys.argv[2]
     )
