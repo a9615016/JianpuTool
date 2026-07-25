@@ -1,28 +1,17 @@
-from fastapi import FastAPI, UploadFile, File
-from fastapi.responses import HTMLResponse, JSONResponse
 import os
-import shutil
 import uuid
+import shutil
+
+from fastapi import FastAPI, UploadFile, File
+from fastapi.responses import HTMLResponse
+
+from demucs_extract import extract_vocal
 
 
-app = FastAPI(
-    title="JianpuTool",
-    version="1.0"
-)
+app = FastAPI()
 
 
-# =========================
-# 設定資料夾
-# =========================
-
-BASE_DIR = os.path.dirname(
-    os.path.abspath(__file__)
-)
-
-OUTPUT_DIR = os.path.join(
-    BASE_DIR,
-    "outputs"
-)
+OUTPUT_DIR = "outputs"
 
 os.makedirs(
     OUTPUT_DIR,
@@ -30,136 +19,112 @@ os.makedirs(
 )
 
 
+@app.get("/")
+def home():
 
-# =========================
-# 首頁
-# =========================
+    return HTMLResponse(
+"""
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>JianpuTool</title>
+</head>
 
-@app.api_route(
-    "/",
-    methods=["GET", "HEAD"],
-    response_class=HTMLResponse
-)
-async def index():
+<body>
 
-    html_path = os.path.join(
-        BASE_DIR,
-        "index.html"
+<h2>JianpuTool</h2>
+
+<h3>MP3 → Demucs → vocals.wav</h3>
+
+<form action="/demucs"
+      method="post"
+      enctype="multipart/form-data">
+
+<input type="file"
+       name="file"
+       accept=".mp3">
+
+<br><br>
+
+<button type="submit">
+開始分離
+</button>
+
+</form>
+
+</body>
+</html>
+"""
     )
 
-    if not os.path.exists(html_path):
-
-        return """
-        <h1>JianpuTool Running</h1>
-        <p>index.html missing</p>
-        """
 
 
-    with open(
-        html_path,
-        "r",
-        encoding="utf-8"
-    ) as f:
-
-        return f.read()
-
-
-
-# =========================
-# 健康檢查
-# =========================
-
-@app.get("/health")
-async def health():
-
-    return {
-        "status": "ok"
-    }
-
-
-
-# =========================
-# 上傳 MP3
-# =========================
-
-@app.post("/upload")
-async def upload(
+@app.post("/demucs")
+async def demucs(
     file: UploadFile = File(...)
 ):
 
-    file_id = str(
-        uuid.uuid4()
+    job_id = str(uuid.uuid4())
+
+
+    work_dir = os.path.join(
+        OUTPUT_DIR,
+        job_id
     )
 
 
-    filename = (
-        file_id
-        +
-        "_"
-        +
+    os.makedirs(
+        work_dir,
+        exist_ok=True
+    )
+
+
+    mp3_path = os.path.join(
+        work_dir,
         file.filename
     )
 
 
-    input_path = os.path.join(
-        OUTPUT_DIR,
-        filename
-    )
-
-
-    print("===================")
-    print("收到上傳:")
-    print(file.filename)
-    print("===================")
-
-
-    # 儲存檔案
-
     with open(
-        input_path,
+        mp3_path,
         "wb"
-    ) as buffer:
+    ) as f:
 
         shutil.copyfileobj(
             file.file,
-            buffer
+            f
         )
 
 
-    print("保存完成:")
-    print(input_path)
-
-
-
-    return JSONResponse(
-
-        {
-            "status": "upload success",
-
-            "original_name":
-                file.filename,
-
-            "saved_file":
-                filename,
-
-            "path":
-                input_path
-        }
-
+    print(
+        "MP3:",
+        mp3_path
     )
 
 
+    vocals_path = os.path.join(
+        work_dir,
+        "vocals.wav"
+    )
 
-# =========================
-# 啟動測試
-# =========================
 
-@app.get("/test")
-async def test():
+    # MP3 → vocals.wav
+    extract_vocal(
+        mp3_path,
+        vocals_path
+    )
+
 
     return {
 
-        "message":
-        "JianpuTool API running"
+        "status":
+        "Demucs success",
+
+        "mp3":
+        mp3_path,
+
+        "vocals":
+        vocals_path
 
     }
