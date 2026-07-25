@@ -288,35 +288,44 @@ def musicxml_to_pdf(
 
 
 
-    result2=subprocess.run(
+   # 檢查 input.ly
+if not os.path.exists(ly_file):
+    return None, "input.ly not found"
 
-        [
-            LILYPOND,
-            "input.ly"
-        ],
+print("input.ly size:", os.path.getsize(ly_file), flush=True)
 
-        cwd=work_dir,
+with open(ly_file, "r", encoding="utf-8", errors="ignore") as f:
+    print("========== input.ly ==========")
+    for i, line in enumerate(f):
+        print(f"{i+1:03d}: {line.rstrip()}")
+        if i >= 49:
+            break
+    print("==============================")
 
-        stdout=subprocess.PIPE,
+result2 = subprocess.run(
+    [
+        LILYPOND,
+        "input.ly"
+    ],
+    cwd=work_dir,
+    stdout=subprocess.PIPE,
+    stderr=subprocess.STDOUT,
+    text=True
+)
 
-        stderr=subprocess.STDOUT,
+print("LilyPond return:", result2.returncode, flush=True)
+print(result2.stdout, flush=True)
 
-        text=True
+if result2.returncode != 0:
 
-    )
+    error_log = os.path.join(work_dir, "lilypond_error.log")
 
+    with open(error_log, "w", encoding="utf-8") as f:
+        f.write(result2.stdout)
 
-    print(
-        result2.stdout,
-        flush=True
-    )
+    print("Error log saved:", error_log, flush=True)
 
-
-
-    if result2.returncode != 0:
-
-        return None,result2.stdout
-
+    return None, result2.stdout
 
 
     pdf_files=glob.glob(
