@@ -4,72 +4,132 @@ import sys
 
 def extract_melody(input_midi, output_midi):
 
-    print("讀取 MIDI")
-
-    score = music21.converter.parse(input_midi)
-
-
-    best_part = None
-    best_score = 0
+    print("開始 Melody Extractor")
+    print("輸入:", input_midi)
 
 
-    print("分析音軌")
+    score = music21.converter.parse(
+        input_midi
+    )
+
+
+    candidates = []
+
+
+    print("分析 MIDI 軌道")
 
 
     for part in score.parts:
 
         notes = []
 
+
         for n in part.flatten().notes:
 
-            if isinstance(n, music21.note.Note):
+
+            # 單音
+            if isinstance(
+                n,
+                music21.note.Note
+            ):
+
                 notes.append(n)
 
-            elif isinstance(n, music21.chord.Chord):
-                notes.append(
-                    n.highestTime
+
+
+            # 和弦取最高音
+            elif isinstance(
+                n,
+                music21.chord.Chord
+            ):
+
+                highest = max(
+                    n.pitches,
+                    key=lambda p:p.midi
                 )
 
 
-        if len(notes) == 0:
+                notes.append(
+                    music21.note.Note(
+                        highest,
+                        quarterLength=n.duration.quarterLength
+                    )
+                )
+
+
+
+        if len(notes) < 5:
             continue
 
+
+
+        # 計算旋律特徵
 
         avg_pitch = sum(
             n.pitch.midi
             for n in notes
-            if hasattr(n, "pitch")
         ) / len(notes)
 
 
-        score_value = len(notes) * avg_pitch
+        note_count = len(notes)
 
 
-        print(
-            part.partName,
-            "notes:",
-            len(notes),
-            "pitch:",
-            avg_pitch
+
+        # 旋律通常：
+        # 音符較多
+        # 音域較高
+
+        score_value = (
+            note_count * 0.7
+            +
+            avg_pitch * 3
         )
 
 
-        if score_value > best_score:
+        print(
+            "Track:",
+            part.partName,
+            "notes:",
+            note_count,
+            "avg:",
+            round(avg_pitch,2),
+            "score:",
+            round(score_value,2)
+        )
 
-            best_score = score_value
-            best_part = part
+
+        candidates.append(
+            (
+                score_value,
+                part
+            )
+        )
 
 
 
-    if best_part is None:
+    if not candidates:
+
         raise Exception(
             "找不到旋律"
         )
 
 
-    print(
-        "選擇旋律軌"
+
+    # 選最佳軌
+
+    candidates.sort(
+        key=lambda x:x[0],
+        reverse=True
     )
+
+
+    melody_part = candidates[0][1]
+
+
+    print(
+        "選擇最佳旋律軌"
+    )
+
 
 
     new_score = music21.stream.Score()
@@ -78,14 +138,21 @@ def extract_melody(input_midi, output_midi):
 
 
 
-    for n in best_part.flatten().notes:
+    for n in melody_part.flatten().notes:
+
 
         if isinstance(
             n,
             music21.note.Note
         ):
 
-            new_part.append(n)
+
+            # 移除低音伴奏
+            if n.pitch.midi >= 48:
+
+                new_part.append(
+                    n
+                )
 
 
 
@@ -94,16 +161,35 @@ def extract_melody(input_midi, output_midi):
             music21.chord.Chord
         ):
 
-            new_part.append(
-                music21.note.Note(
-                    n.pitches[-1],
-                    quarterLength=n.duration.quarterLength
-                )
+
+            highest = max(
+                n.pitches,
+                key=lambda p:p.midi
             )
 
 
+            if highest.midi >= 48:
 
-    new_score.append(new_part)
+                new_part.append(
+                    music21.note.Note(
+                        highest,
+                        quarterLength=n.duration.quarterLength
+                    )
+                )
+
+
+
+    if len(new_part.notes) == 0:
+
+        raise Exception(
+            "旋律為空"
+        )
+
+
+
+    new_score.append(
+        new_part
+    )
 
 
     new_score.write(
@@ -118,8 +204,27 @@ def extract_melody(input_midi, output_midi):
     )
 
 
+    return output_midi
+
+
+
 
 if __name__ == "__main__":
+
+
+    if len(sys.argv) < 3:
+
+        print(
+            "用法:"
+        )
+
+        print(
+            "python melody_extractor.py input.mid output.mid"
+        )
+
+        sys.exit(1)
+
+
 
     extract_melody(
         sys.argv[1],
