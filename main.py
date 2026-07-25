@@ -307,7 +307,7 @@ async def midi_convert(
     run_command(
         [
             "python",
-            "melody_extractor.py",
+            "melody_extractor_v2.py",
             midi,
             melody_mid
         ]
