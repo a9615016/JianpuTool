@@ -2,17 +2,9 @@ fastapi
 uvicorn
 python-multipart
 
-music21
-lxml
-
 demucs
-basic-pitch
+torch
+torchaudio
 
-numpy
-scipy
-librosa
 soundfile
-
-pydub
-
-jianpu-ly
+numpy
