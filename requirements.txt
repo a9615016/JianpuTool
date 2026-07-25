@@ -1,13 +1,13 @@
-fastapi
-uvicorn
-python-multipart
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+python-multipart==0.0.9
 
-basic-pitch
-music21
+basic-pitch==0.4.0
+music21==9.1.0
 
-jianpu-ly
+jianpu-ly==1.872
 
-lxml
-numpy
+lxml==5.3.0
+numpy==1.26.4
 
-reportlab
+reportlab==4.2.2
