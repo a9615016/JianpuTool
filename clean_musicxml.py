@@ -3,48 +3,21 @@ import music21
 
 
 def clean_musicxml(input_file, output_file):
-    print("CLEAN VERSION 20260725")
+
+    print("CLEAN VERSION 20260725 MINIMAL")
     print("input:", input_file)
 
     score = music21.converter.parse(input_file)
-
-    # ==========================
-    # Remove Voices (保留音符)
-    # ==========================
-    print("remove voices")
-
-    for part in score.parts:
-        for measure in part.getElementsByClass(music21.stream.Measure):
-
-            voices = list(measure.getElementsByClass(music21.stream.Voice))
-
-            if not voices:
-                continue
-
-            new_notes = []
-
-            for voice in voices:
-                for element in voice.notesAndRests:
-                    new_notes.append(element)
-
-            measure.removeByClass(music21.stream.Voice)
-
-            offset = 0
-
-            for n in new_notes:
-                n.offset = offset
-                measure.insert(offset, n)
-                offset += n.quarterLength
 
     # ==========================
     # Remove Chords
     # ==========================
     print("remove chords")
 
-    for chord in list(score.recurse().getElementsByClass(music21.chord.Chord)):
-        note = chord.notes[-1]
-        note.duration = chord.duration
-        chord.activeSite.replace(chord, note)
+    for c in list(score.recurse().getElementsByClass(music21.chord.Chord)):
+        n = c.notes[-1]
+        n.duration = c.duration
+        c.activeSite.replace(c, n)
 
     # ==========================
     # Remove Grace Notes
@@ -73,18 +46,7 @@ def clean_musicxml(input_file, output_file):
         if n.duration.tuplets:
             ql = float(n.duration.quarterLength)
             n.duration.clear()
-
-            if ql <= 0:
-                ql = 0.25
-
             n.duration.quarterLength = ql
-
-    # ==========================
-    # Cleanup
-    # ==========================
-    print("final cleanup")
-
-    score.makeMeasures(inPlace=True)
 
     # ==========================
     # Write
