@@ -21,6 +21,39 @@ def hz_to_midi(hz):
 
 
 
+def add_note(notes, midi_note, start_time):
+
+    if midi_note is None:
+        return
+
+    # 過濾太低太高雜訊
+    if midi_note < 36 or midi_note > 96:
+        return
+
+
+    # 合併相同音
+
+    if len(notes) > 0:
+
+        last = notes[-1]
+
+        if last["pitch"] == midi_note:
+
+            last["duration"] += 0.5
+
+            return
+
+
+    notes.append(
+        {
+            "pitch": midi_note,
+            "duration": 0.5,
+            "start": start_time
+        }
+    )
+
+
+
 def voice_to_midi(
     input_wav,
     output_midi
@@ -30,7 +63,6 @@ def voice_to_midi(
     print("輸入:", input_wav)
 
 
-    # 讀取 WAV
 
     y, sr = librosa.load(
         input_wav,
@@ -41,7 +73,6 @@ def voice_to_midi(
     print("分析音高")
 
 
-    # 人聲音高偵測
 
     f0, voiced_flag, voiced_prob = librosa.pyin(
         y,
@@ -54,24 +85,18 @@ def voice_to_midi(
 
     notes = []
 
-
     hop_time = 512 / sr
 
 
     current_note = None
-    start_time = 0
-    duration = 0
+    start = 0
 
 
 
     for i, freq in enumerate(f0):
 
-
         time = i * hop_time
 
-
-
-        # 過濾 NaN
 
         if freq is not None and not np.isnan(freq):
 
@@ -84,94 +109,45 @@ def voice_to_midi(
 
 
 
-            # 音高變化
-
             if midi != current_note:
 
 
-                # 儲存上一個音
+                if current_note is not None:
 
-                if current_note is not None and duration >= 0.12:
-
-
-                    n = music21.note.Note(
-                        current_note
+                    add_note(
+                        notes,
+                        current_note,
+                        start
                     )
-
-                    n.offset = start_time
-
-                    n.quarterLength = max(
-                        duration * 2,
-                        0.25
-                    )
-
-                    notes.append(n)
-
 
 
                 current_note = midi
-
-                start_time = time
-
-                duration = hop_time
-
-
-
-            else:
-
-                duration += hop_time
+                start = time
 
 
 
         else:
 
 
-            # 無聲
-
             if current_note is not None:
 
-
-                if duration >= 0.12:
-
-
-                    n = music21.note.Note(
-                        current_note
-                    )
-
-                    n.offset = start_time
-
-                    n.quarterLength = max(
-                        duration * 2,
-                        0.25
-                    )
-
-                    notes.append(n)
-
-
+                add_note(
+                    notes,
+                    current_note,
+                    start
+                )
 
                 current_note = None
 
-                duration = 0
 
 
+    if current_note is not None:
 
-    # 最後音符
-
-    if current_note is not None and duration >= 0.12:
-
-
-        n = music21.note.Note(
-            current_note
+        add_note(
+            notes,
+            current_note,
+            start
         )
-
-        n.offset = start_time
-
-        n.quarterLength = max(
-            duration * 2,
-            0.25
-        )
-
-        notes.append(n)
 
 
 
@@ -184,23 +160,9 @@ def voice_to_midi(
 
     if len(notes) == 0:
 
-        print(
-            "沒有偵測到人聲"
-        )
+        print("沒有偵測到旋律")
 
         return
-
-
-
-    print("旋律:")
-
-
-    for n in notes[:30]:
-
-        print(
-            n.pitch.nameWithOctave,
-            n.quarterLength
-        )
 
 
 
@@ -210,7 +172,19 @@ def voice_to_midi(
 
 
 
-    for n in notes:
+    for item in notes:
+
+
+        n = music21.note.Note(
+            item["pitch"]
+        )
+
+
+        # 固定八分音符
+        # 方便 jianpu_ly 處理
+
+        n.quarterLength = 0.5
+
 
         part.append(n)
 
@@ -226,6 +200,7 @@ def voice_to_midi(
         "midi",
         fp=output_midi
     )
+
 
 
     print(
