@@ -1,8 +1,6 @@
 import os
 import uuid
-import glob
 import subprocess
-import shutil
 
 from fastapi import FastAPI, UploadFile, File
 from fastapi.responses import FileResponse, HTMLResponse
@@ -12,18 +10,14 @@ app = FastAPI()
 
 
 BASE_DIR = "/app"
-OUTPUT_DIR = os.path.join(BASE_DIR, "outputs")
-
-os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
-def run_command(cmd, cwd=None):
+def run_command(cmd):
 
     print("執行:", " ".join(cmd))
 
     result = subprocess.run(
         cmd,
-        cwd=cwd,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True
@@ -34,212 +28,120 @@ def run_command(cmd, cwd=None):
     if result.returncode != 0:
         raise Exception(result.stdout)
 
-    return result.stdout
-
-
 
 @app.get("/")
 def home():
 
-    return HTMLResponse(
-        """
-        <html>
-        <body>
-
-        <h2>JianpuTool MP3 → 簡譜</h2>
-
-        <form action="/convert"
-              method="post"
-              enctype="multipart/form-data">
-
-        <input type="file"
-               name="file"
-               accept=".mp3,.wav">
-
-        <button type="submit">
-        轉換
-        </button>
-
-        </form>
-
-        </body>
-        </html>
-        """
-    )
-
+    with open("index.html", encoding="utf-8") as f:
+        return HTMLResponse(f.read())
 
 
 @app.post("/convert")
-async def convert(
-    file: UploadFile = File(...)
-):
+async def convert(file: UploadFile = File(...)):
 
-    job_id = str(uuid.uuid4())
 
-    work_dir = os.path.join(
-        OUTPUT_DIR,
-        job_id
+    job = str(uuid.uuid4())
+
+    work = os.path.join(
+        "outputs",
+        job
     )
 
-    os.makedirs(work_dir)
+    os.makedirs(work, exist_ok=True)
 
 
-    # -------------------------
-    # 儲存 MP3
-    # -------------------------
+    # 1. 儲存 MP3
 
-    input_audio = os.path.join(
-        work_dir,
+    mp3 = os.path.join(
+        work,
         file.filename
     )
 
-
-    with open(input_audio, "wb") as f:
-        shutil.copyfileobj(
-            file.file,
-            f
-        )
+    with open(mp3,"wb") as f:
+        f.write(await file.read())
 
 
-    print("輸入:", input_audio)
+    print("MP3:", mp3)
 
 
 
-    # -------------------------
-    # 1. Demucs
-    # -------------------------
+    # 2. Demucs 分離 vocals
 
-    print("開始 Demucs")
-
-
-    run_command(
-        [
-            "python",
-            "-m",
-            "demucs",
-            "-n",
-            "htdemucs",
-            input_audio
-        ]
+    vocals = os.path.join(
+        work,
+        "vocals.wav"
     )
 
 
-    vocals_list = glob.glob(
-        "separated/**/vocals.wav",
-        recursive=True
-    )
-
-
-    if not vocals_list:
-
-        raise Exception(
-            "Demucs 沒有產生 vocals.wav"
-        )
-
-
-    vocals = vocals_list[0]
-
-
-    print(
-        "找到 vocals:",
+    run_command([
+        "python",
+        "demucs_extract.py",
+        mp3,
         vocals
-    )
+    ])
 
 
 
-    # -------------------------
-    # 2. BasicPitch
-    # -------------------------
+    # 3. BasicPitch 產生 MIDI
 
-    melody_mid = os.path.join(
-        work_dir,
+    midi = os.path.join(
+        work,
         "melody.mid"
     )
 
 
-    print(
-        "開始 BasicPitch"
-    )
-
-
-    run_command(
-        [
-            "python",
-            "melody_from_audio.py",
-            vocals,
-            melody_mid
-        ]
-    )
+    run_command([
+        "python",
+        "basicpitch_extract.py",
+        vocals,
+        midi
+    ])
 
 
 
-    # -------------------------
-    # 3. MIDI → MusicXML
-    # -------------------------
+    # 4. MIDI → MusicXML
 
     musicxml = os.path.join(
-        work_dir,
-        "melody.musicxml"
+        work,
+        "score.musicxml"
     )
 
 
-    print(
-        "開始 MIDI → MusicXML"
-    )
-
-
-    run_command(
-        [
-            "python",
-            "midi_to_musicxml.py",
-            melody_mid,
-            musicxml
-        ]
-    )
+    run_command([
+        "python",
+        "midi_to_musicxml.py",
+        midi,
+        musicxml
+    ])
 
 
 
-    # -------------------------
-    # 4. 清理 MusicXML
-    # -------------------------
+    # 5. MusicXML 清理
 
     clean_xml = os.path.join(
-        work_dir,
+        work,
         "clean.musicxml"
     )
 
 
-    run_command(
-        [
-            "python",
-            "clean_musicxml.py",
-            musicxml,
-            clean_xml
-        ]
-    )
+    run_command([
+        "python",
+        "clean_musicxml.py",
+        musicxml,
+        clean_xml
+    ])
 
 
 
-    # -------------------------
-    # 5. jianpu_ly
-    # -------------------------
+    # 6. Jianpu
 
-    ly_file = os.path.join(
-        work_dir,
+    ly = os.path.join(
+        work,
         "jianpu.ly"
     )
 
 
-    print(
-        "開始 jianpu_ly"
-    )
-
-
-    with open(
-        ly_file,
-        "w",
-        encoding="utf-8"
-    ) as f:
+    with open(ly,"w",encoding="utf-8") as f:
 
         subprocess.run(
             [
@@ -249,58 +151,30 @@ async def convert(
                 clean_xml
             ],
             stdout=f,
-            stderr=subprocess.STDOUT,
-            text=True
+            stderr=subprocess.STDOUT
         )
 
 
 
-    # -------------------------
-    # 6. LilyPond PDF
-    # -------------------------
+    # 7. LilyPond PDF
 
-    print(
-        "開始 LilyPond"
-    )
-
-
-    run_command(
-        [
-            "lilypond",
-            "-o",
-            os.path.join(
-                work_dir,
-                "jianpu"
-            ),
-            ly_file
-        ]
-    )
+    run_command([
+        "lilypond",
+        "-o",
+        os.path.join(work,"jianpu"),
+        ly
+    ])
 
 
-    pdf_file = os.path.join(
-        work_dir,
+
+    pdf = os.path.join(
+        work,
         "jianpu.pdf"
     )
 
 
-    if not os.path.exists(pdf_file):
-
-        raise Exception(
-            "PDF產生失敗"
-        )
-
-
     return FileResponse(
-        pdf_file,
+        pdf,
         media_type="application/pdf",
         filename="jianpu.pdf"
     )
-
-
-
-@app.get("/health")
-def health():
-
-    return {
-        "status":"JianpuTool running"
-    }
