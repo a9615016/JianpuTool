@@ -1,116 +1,99 @@
 import sys
-import xml.etree.ElementTree as ET
+import music21
 
 
-REMOVE_TAGS = {
-    "credit",
-    "defaults",
-    "direction",
-    "print",
-    "bookmark",
-    "link",
-    "sound",
-    "listening",
-    "grouping",
-}
+def clean_musicxml(input_file, output_file):
+    print("CLEAN VERSION 20260725")
+    print("input:", input_file)
 
+    score = music21.converter.parse(input_file)
 
-def strip_namespace(tag):
-    if "}" in tag:
-        return tag.split("}", 1)[1]
-    return tag
+    # ==========================
+    # Remove Voices (保留音符)
+    # ==========================
+    print("remove voices")
 
+    for part in score.parts:
+        for measure in part.getElementsByClass(music21.stream.Measure):
 
-def remove_grace(parent):
-    remove = []
+            voices = list(measure.getElementsByClass(music21.stream.Voice))
 
-    for note in parent.findall(".//note"):
-        has_grace = False
+            if not voices:
+                continue
 
-        for child in note:
-            if strip_namespace(child.tag) == "grace":
-                has_grace = True
-                break
+            new_notes = []
 
-        if has_grace:
-            remove.append(note)
+            for voice in voices:
+                for element in voice.notesAndRests:
+                    new_notes.append(element)
 
-    for note in remove:
-        p = find_parent(parent, note)
-        if p is not None:
-            p.remove(note)
+            measure.removeByClass(music21.stream.Voice)
 
+            offset = 0
 
-def remove_notations(root):
+            for n in new_notes:
+                n.offset = offset
+                measure.insert(offset, n)
+                offset += n.quarterLength
 
-    for note in root.findall(".//note"):
+    # ==========================
+    # Remove Chords
+    # ==========================
+    print("remove chords")
 
-        remove = []
+    for chord in list(score.recurse().getElementsByClass(music21.chord.Chord)):
+        note = chord.notes[-1]
+        note.duration = chord.duration
+        chord.activeSite.replace(chord, note)
 
-        for child in note:
+    # ==========================
+    # Remove Grace Notes
+    # ==========================
+    print("remove grace notes")
 
-            name = strip_namespace(child.tag)
+    for n in list(score.recurse().notes):
+        if n.duration.isGrace:
+            n.activeSite.remove(n)
 
-            if name == "notations":
-                remove.append(child)
+    # ==========================
+    # Fix Duration
+    # ==========================
+    print("fix duration")
 
-            elif name == "lyric":
-                remove.append(child)
+    for n in score.recurse().notesAndRests:
+        if n.duration.quarterLength <= 0:
+            n.duration.quarterLength = 0.25
 
-        for x in remove:
-            note.remove(x)
+    # ==========================
+    # Remove Tuplets
+    # ==========================
+    print("remove tuplets")
 
+    for n in score.recurse().notesAndRests:
+        if n.duration.tuplets:
+            ql = float(n.duration.quarterLength)
+            n.duration.clear()
 
-def remove_simple_tags(root):
+            if ql <= 0:
+                ql = 0.25
 
-    for parent in root.iter():
+            n.duration.quarterLength = ql
 
-        remove = []
+    # ==========================
+    # Cleanup
+    # ==========================
+    print("final cleanup")
 
-        for child in list(parent):
+    score.makeMeasures(inPlace=True)
 
-            name = strip_namespace(child.tag)
+    # ==========================
+    # Write
+    # ==========================
+    print("write")
 
-            if name in REMOVE_TAGS:
-                remove.append(child)
+    score.write("musicxml", fp=output_file)
 
-        for x in remove:
-            parent.remove(x)
-
-
-def find_parent(root, target):
-
-    for parent in root.iter():
-
-        for child in list(parent):
-
-            if child is target:
-                return parent
-
-    return None
-
-
-def clean(input_file, output_file):
-
-    print("XML CLEANER")
-
-    tree = ET.parse(input_file)
-
-    root = tree.getroot()
-
-    remove_simple_tags(root)
-
-    remove_notations(root)
-
-    remove_grace(root)
-
-    tree.write(
-        output_file,
-        encoding="utf-8",
-        xml_declaration=True
-    )
-
-    print("Saved:", output_file)
+    print("done:", output_file)
 
 
 if __name__ == "__main__":
@@ -125,12 +108,6 @@ if __name__ == "__main__":
     if len(sys.argv) >= 3:
         output_file = sys.argv[2]
     else:
-        output_file = input_file.replace(
-            ".musicxml",
-            "_clean.musicxml"
-        )
+        output_file = input_file.replace(".musicxml", "_clean.musicxml")
 
-    clean(
-        input_file,
-        output_file
-    )
+    clean_musicxml(input_file, output_file)
