@@ -45,7 +45,7 @@ def extract_melody(input_midi, output_midi):
 
                 highest = max(
                     n.pitches,
-                    key=lambda p:p.midi
+                    key=lambda p: p.midi
                 )
 
 
@@ -63,8 +63,6 @@ def extract_melody(input_midi, output_midi):
 
 
 
-        # 計算旋律特徵
-
         avg_pitch = sum(
             n.pitch.midi
             for n in notes
@@ -73,11 +71,6 @@ def extract_melody(input_midi, output_midi):
 
         note_count = len(notes)
 
-
-
-        # 旋律通常：
-        # 音符較多
-        # 音域較高
 
         score_value = (
             note_count * 0.7
@@ -110,12 +103,10 @@ def extract_melody(input_midi, output_midi):
     if not candidates:
 
         raise Exception(
-            "找不到旋律"
+            "找不到旋律軌"
         )
 
 
-
-    # 選最佳軌
 
     candidates.sort(
         key=lambda x:x[0],
@@ -129,7 +120,6 @@ def extract_melody(input_midi, output_midi):
     print(
         "選擇最佳旋律軌"
     )
-
 
 
     new_score = music21.stream.Score()
@@ -179,14 +169,6 @@ def extract_melody(input_midi, output_midi):
 
 
 
-    if len(new_part.notes) == 0:
-
-        raise Exception(
-            "旋律為空"
-        )
-
-
-
     new_score.append(
         new_part
     )
@@ -208,22 +190,15 @@ def extract_melody(input_midi, output_midi):
 
 
 
-
 if __name__ == "__main__":
 
-
     if len(sys.argv) < 3:
-
-        print(
-            "用法:"
-        )
 
         print(
             "python melody_extractor.py input.mid output.mid"
         )
 
         sys.exit(1)
-
 
 
     extract_melody(
