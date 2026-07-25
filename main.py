@@ -300,7 +300,7 @@ async def midi_convert(
 
     melody_mid = os.path.join(
         work,
-        "melody.mid"
+        "melody_clean.mid"
     )
 
 
