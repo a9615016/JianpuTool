@@ -1,87 +1,109 @@
 import music21
 import sys
-import os
 
 
 def extract_melody(input_midi, output_midi):
 
-    print("開始抽取主旋律")
-    print("輸入:", input_midi)
+    print("讀取 MIDI")
+
+    score = music21.converter.parse(input_midi)
 
 
-    score = music21.converter.parse(
-        input_midi
-    )
+    best_part = None
+    best_score = 0
 
 
-    melody_notes = []
+    print("分析音軌")
 
 
-    # 收集所有音符
     for part in score.parts:
 
-        for element in part.flatten().notes:
+        notes = []
 
-            if isinstance(
-                element,
-                music21.note.Note
-            ):
+        for n in part.flatten().notes:
 
-                melody_notes.append(
-                    element
+            if isinstance(n, music21.note.Note):
+                notes.append(n)
+
+            elif isinstance(n, music21.chord.Chord):
+                notes.append(
+                    n.highestTime
                 )
 
 
-            elif isinstance(
-                element,
-                music21.chord.Chord
-            ):
-
-                # 和弦取最高音
-                highest = element.sortAscending()[-1]
-
-                melody_notes.append(
-                    music21.note.Note(
-                        highest.pitch,
-                        quarterLength=element.duration.quarterLength
-                    )
-                )
+        if len(notes) == 0:
+            continue
 
 
+        avg_pitch = sum(
+            n.pitch.midi
+            for n in notes
+            if hasattr(n, "pitch")
+        ) / len(notes)
 
-    if len(melody_notes) == 0:
 
+        score_value = len(notes) * avg_pitch
+
+
+        print(
+            part.partName,
+            "notes:",
+            len(notes),
+            "pitch:",
+            avg_pitch
+        )
+
+
+        if score_value > best_score:
+
+            best_score = score_value
+            best_part = part
+
+
+
+    if best_part is None:
         raise Exception(
-            "找不到音符"
+            "找不到旋律"
         )
 
 
     print(
-        "原始音符數:",
-        len(melody_notes)
+        "選擇旋律軌"
     )
 
 
-    # 依時間排序
-    melody_notes.sort(
-        key=lambda n:n.offset
-    )
-
-
-    # 建立新樂譜
     new_score = music21.stream.Score()
 
-    part = music21.stream.Part()
-
-
-    for n in melody_notes:
-
-        part.append(n)
+    new_part = music21.stream.Part()
 
 
 
-    new_score.append(part)
+    for n in best_part.flatten().notes:
 
+        if isinstance(
+            n,
+            music21.note.Note
+        ):
+
+            new_part.append(n)
+
+
+
+        elif isinstance(
+            n,
+            music21.chord.Chord
+        ):
+
+            new_part.append(
+                music21.note.Note(
+                    n.pitches[-1],
+                    quarterLength=n.duration.quarterLength
+                )
+            )
+
+
+
+    new_score.append(new_part)
 
 
     new_score.write(
@@ -96,26 +118,8 @@ def extract_melody(input_midi, output_midi):
     )
 
 
-    return output_midi
-
-
-
 
 if __name__ == "__main__":
-
-
-    if len(sys.argv)<3:
-
-        print(
-            "使用方式:"
-        )
-
-        print(
-            "python melody_extractor.py input.mid output.mid"
-        )
-
-        sys.exit(1)
-
 
     extract_melody(
         sys.argv[1],
