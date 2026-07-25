@@ -1,6 +1,8 @@
 import sys
+
 from basic_pitch.inference import predict
 from basic_pitch import ICASSP_2022_MODEL_PATH
+from basic_pitch import note_events_to_midi
 
 
 if len(sys.argv) < 3:
@@ -25,12 +27,20 @@ try:
         model_or_model_path=ICASSP_2022_MODEL_PATH
     )
 
-    midi = result[2]
+
+    note_events = result[0]
+
+
+    midi = note_events_to_midi(note_events)
+
 
     midi.write(output_file)
 
+
+    print("================")
     print("MIDI完成")
     print(output_file)
+    print("================")
 
 
 except Exception as e:
