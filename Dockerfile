@@ -14,7 +14,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 
-# 安裝 LilyPond 2.26.0
+# LilyPond
 RUN wget https://gitlab.com/lilypond/lilypond/-/releases/v2.26.0/downloads/lilypond-2.26.0-linux-x86_64.tar.gz \
     && tar -xzf lilypond-2.26.0-linux-x86_64.tar.gz \
     && mv lilypond-2.26.0 /opt/lilypond \
@@ -22,6 +22,7 @@ RUN wget https://gitlab.com/lilypond/lilypond/-/releases/v2.26.0/downloads/lilyp
     && rm lilypond-2.26.0-linux-x86_64.tar.gz
 
 
+# Python packages
 RUN pip install --no-cache-dir -r requirements.txt
 
 
