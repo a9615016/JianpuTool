@@ -1,244 +1,253 @@
 import os
 import uuid
-import glob
 import subprocess
-
-import music21
-
 from fastapi import FastAPI, UploadFile, File
 from fastapi.responses import FileResponse, HTMLResponse
 
 
-app = FastAPI()
+app = FastAPI(title="JianpuTool")
 
 
-# ==========================
-# LilyPond
-# ==========================
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+OUTPUT_DIR = os.path.join(BASE_DIR, "outputs")
 
-if os.name == "nt":
-    LILYPOND = r"C:\lilypond-2.26.0\bin\lilypond.exe"
-else:
-    LILYPOND = "lilypond"
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
-
-# ==========================
-# 首頁
-# ==========================
-
-@app.get("/", response_class=HTMLResponse)
+@app.get("/")
 def home():
+    return HTMLResponse("""
+    <html>
+    <head>
+        <title>JianpuTool</title>
+    </head>
 
-    return """
+    <body>
 
-<html>
+    <h1>JianpuTool 簡譜轉換器</h1>
 
-<head>
+    <h3>MusicXML → 簡譜 PDF</h3>
 
-<meta charset="utf-8">
+    <form action="/convert" 
+          method="post" 
+          enctype="multipart/form-data">
 
-<title>JianpuTool</title>
+        <input type="file" name="file">
+        <button type="submit">
+        Convert
+        </button>
 
-<style>
+    </form>
 
-body{
 
-font-family:Arial;
-background:#f2f2f2;
-text-align:center;
-padding:40px;
+    <h3>MIDI → 簡譜 PDF</h3>
 
-}
+    <form action="/midi" 
+          method="post" 
+          enctype="multipart/form-data">
 
+        <input type="file" name="file">
 
-.box{
+        <button type="submit">
+        Convert MIDI
+        </button>
 
-background:white;
-padding:30px;
-border-radius:15px;
-max-width:500px;
-margin:auto;
+    </form>
 
-}
 
+    </body>
+    </html>
+    """)
 
-button{
 
-padding:12px 30px;
-background:#1976d2;
-color:white;
-border:0;
-border-radius:8px;
 
-}
+def run_command(cmd):
 
+    result = subprocess.run(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True
+    )
 
-input{
+    print(result.stdout)
 
-margin:20px;
+    if result.returncode != 0:
+        raise Exception(result.stdout)
 
-}
+    return result.stdout
 
-</style>
 
 
-</head>
+@app.post("/convert")
+async def convert(file: UploadFile = File(...)):
 
+    job = str(uuid.uuid4())
 
-<body>
+    work = os.path.join(
+        OUTPUT_DIR,
+        job
+    )
 
+    os.makedirs(work)
 
-<div class="box">
 
-
-<h1>🎵 JianpuTool</h1>
-
-
-<h3>MusicXML → 數字簡譜 PDF</h3>
-
-
-<form action="/convert"
-method="post"
-enctype="multipart/form-data">
-
-
-<input type="file"
-name="file"
-accept=".musicxml,.xml"
-required>
-
-
-<br>
-
-
-<button>
-產生簡譜 PDF
-</button>
-
-
-</form>
-
-
-<hr>
-
-
-<h3>MIDI → 數字簡譜 PDF</h3>
-
-
-<form action="/midi"
-method="post"
-enctype="multipart/form-data">
-
-
-<input type="file"
-name="file"
-accept=".mid,.midi"
-required>
-
-
-<br>
-
-
-<button>
-MIDI 轉簡譜
-</button>
-
-
-</form>
-
-
-</div>
-
-
-</body>
-
-</html>
-
-"""
-
-
-
-# ==========================
-# MusicXML → PDF
-# ==========================
-
-def musicxml_to_pdf(
-    xml_file,
-    work_dir
-):
-
-
-    xml_file = os.path.abspath(xml_file)
-
-    work_dir = os.path.abspath(work_dir)
-
-
-
-    print(
-        "開始 MusicXML 清理",
-        flush=True
+    input_xml = os.path.join(
+        work,
+        file.filename
     )
 
 
-    clean_file=os.path.join(
-        work_dir,
+    with open(input_xml,"wb") as f:
+        f.write(await file.read())
+
+
+
+    clean_xml = os.path.join(
+        work,
         "clean.musicxml"
     )
 
 
+    print("開始 MusicXML 清理")
 
-    clean_result=subprocess.run(
 
-        [
-            "python",
-            "clean_musicxml.py",
-            xml_file,
-            clean_file
-        ],
+    run_command([
+        "python",
+        "clean_musicxml.py",
+        input_xml,
+        clean_xml
+    ])
 
-        stdout=subprocess.PIPE,
 
-        stderr=subprocess.STDOUT,
 
-        text=True
+    ly_file = os.path.join(
+        work,
+        "jianpu.ly"
+    )
 
+
+    print("開始 jianpu_ly")
+
+
+    with open(ly_file,"w",
+              encoding="utf-8") as f:
+
+        subprocess.run(
+            [
+                "python",
+                "-m",
+                "jianpu_ly",
+                clean_xml
+            ],
+            stdout=f,
+            stderr=subprocess.STDOUT
+        )
+
+
+
+    print("開始 LilyPond")
+
+
+    run_command([
+        "lilypond",
+        "-o",
+        work,
+        ly_file
+    ])
+
+
+
+    pdf = os.path.join(
+        work,
+        "jianpu.pdf"
+    )
+
+
+    if not os.path.exists(pdf):
+
+        raise Exception(
+            "PDF產生失敗"
+        )
+
+
+    return FileResponse(
+        pdf,
+        media_type="application/pdf",
+        filename="jianpu.pdf"
     )
 
 
 
-    print(
-        clean_result.stdout,
-        flush=True
+
+@app.post("/midi")
+async def midi_convert(file: UploadFile = File(...)):
+
+
+    job = str(uuid.uuid4())
+
+    work = os.path.join(
+        OUTPUT_DIR,
+        job
+    )
+
+    os.makedirs(work)
+
+
+    midi = os.path.join(
+        work,
+        file.filename
     )
 
 
-
-    if clean_result.returncode != 0:
-
-        return None, clean_result.stdout
+    with open(midi,"wb") as f:
+        f.write(await file.read())
 
 
 
-    print(
-        "清理完成",
-        flush=True
+    musicxml = os.path.join(
+        work,
+        "input.musicxml"
     )
 
 
+    print("MIDI → MusicXML")
 
-    ly_file=os.path.join(
-        work_dir,
-        "input.ly"
+
+    run_command([
+        "python",
+        "midi_to_musicxml.py",
+        midi,
+        musicxml
+    ])
+
+
+
+    clean_xml = os.path.join(
+        work,
+        "clean.musicxml"
     )
 
 
+    print("清理 MusicXML")
 
-    print(
-        "開始 jianpu_ly",
-        flush=True
+
+    run_command([
+        "python",
+        "clean_musicxml.py",
+        musicxml,
+        clean_xml
+    ])
+
+
+
+    ly_file = os.path.join(
+        work,
+        "jianpu.ly"
     )
 
+
+    print("產生簡譜")
 
 
     with open(
@@ -248,289 +257,38 @@ def musicxml_to_pdf(
     ) as f:
 
 
-        result=subprocess.run(
-
+        subprocess.run(
             [
                 "python",
                 "-m",
                 "jianpu_ly",
-                clean_file
+                clean_xml
             ],
-
-            stdout=f,
-
-            stderr=subprocess.PIPE,
-
-            text=True
-
+            stdout=f
         )
 
 
 
-    print(
-        "jianpu_ly return:",
-        result.returncode,
-        flush=True
+    print("輸出 PDF")
+
+
+    run_command([
+        "lilypond",
+        "-o",
+        work,
+        ly_file
+    ])
+
+
+
+    pdf=os.path.join(
+        work,
+        "jianpu.pdf"
     )
-
-
-
-    if result.returncode != 0:
-
-        return None,result.stderr
-
-
-
-    print(
-        "開始 LilyPond",
-        flush=True
-    )
-
-
-
-   # 檢查 input.ly
-if not os.path.exists(ly_file):
-    return None, "input.ly not found"
-
-print("input.ly size:", os.path.getsize(ly_file), flush=True)
-
-with open(ly_file, "r", encoding="utf-8", errors="ignore") as f:
-    print("========== input.ly ==========")
-    for i, line in enumerate(f):
-        print(f"{i+1:03d}: {line.rstrip()}")
-        if i >= 49:
-            break
-    print("==============================")
-
-result2 = subprocess.run(
-    [
-        LILYPOND,
-        "input.ly"
-    ],
-    cwd=work_dir,
-    stdout=subprocess.PIPE,
-    stderr=subprocess.STDOUT,
-    text=True
-)
-
-print("LilyPond return:", result2.returncode, flush=True)
-print(result2.stdout, flush=True)
-
-if result2.returncode != 0:
-
-    error_log = os.path.join(work_dir, "lilypond_error.log")
-
-    with open(error_log, "w", encoding="utf-8") as f:
-        f.write(result2.stdout)
-
-    print("Error log saved:", error_log, flush=True)
-
-    return None, result2.stdout
-
-
-    pdf_files=glob.glob(
-
-        os.path.join(
-            work_dir,
-            "*.pdf"
-        )
-
-    )
-
-
-    if not pdf_files:
-
-        return None,"PDF not found"
-
-
-
-    print(
-        "PDF完成:",
-        pdf_files[0],
-        flush=True
-    )
-
-
-
-    return pdf_files[0],None
-
-
-
-
-
-# ==========================
-# MusicXML 上傳
-# ==========================
-
-@app.post("/convert")
-async def convert(
-    file:UploadFile=File(...)
-):
-
-
-    job=str(uuid.uuid4())
-
-
-    work_dir=os.path.join(
-        "outputs",
-        job
-    )
-
-
-    os.makedirs(
-        work_dir,
-        exist_ok=True
-    )
-
-
-
-    xml=os.path.join(
-        work_dir,
-        "input.musicxml"
-    )
-
-
-
-    with open(
-        xml,
-        "wb"
-    ) as f:
-
-        f.write(
-            await file.read()
-        )
-
-
-
-    pdf,error=musicxml_to_pdf(
-        xml,
-        work_dir
-    )
-
-
-
-    if error:
-
-        return {
-            "error":error
-        }
-
 
 
     return FileResponse(
-
         pdf,
-
-        filename="jianpu.pdf",
-
-        media_type="application/pdf"
-
-    )
-
-
-
-
-
-# ==========================
-# MIDI 上傳
-# ==========================
-
-@app.post("/midi")
-async def midi_convert(
-    file:UploadFile=File(...)
-):
-
-
-    job=str(uuid.uuid4())
-
-
-    work_dir=os.path.join(
-        "outputs",
-        job
-    )
-
-
-    os.makedirs(
-        work_dir,
-        exist_ok=True
-    )
-
-
-
-    midi=os.path.join(
-        work_dir,
-        "input.mid"
-    )
-
-
-    xml=os.path.join(
-        work_dir,
-        "input.musicxml"
-    )
-
-
-
-    with open(
-        midi,
-        "wb"
-    ) as f:
-
-        f.write(
-            await file.read()
-        )
-
-
-
-    try:
-
-        score=music21.converter.parse(
-            midi
-        )
-
-
-        if len(score.parts)>0:
-
-            score=score.parts[0]
-
-
-        score=score.flatten()
-
-
-        score.write(
-            "musicxml",
-            fp=xml
-        )
-
-
-    except Exception as e:
-
-        return {
-            "error":str(e)
-        }
-
-
-
-    pdf,error=musicxml_to_pdf(
-        xml,
-        work_dir
-    )
-
-
-
-    if error:
-
-        return {
-            "error":error
-        }
-
-
-
-    return FileResponse(
-
-        pdf,
-
-        filename="jianpu.pdf",
-
-        media_type="application/pdf"
-
+        media_type="application/pdf",
+        filename="jianpu.pdf"
     )
