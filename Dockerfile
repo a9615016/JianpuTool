@@ -1,25 +1,31 @@
 FROM python:3.10-slim
 
-
 WORKDIR /app
-
 
 COPY . /app
 
 
-# 安裝系統套件
 RUN apt-get update && apt-get install -y \
-    lilypond \
-    musescore \
+    wget \
+    xz-utils \
+    ca-certificates \
     ffmpeg \
+    musescore \
     && rm -rf /var/lib/apt/lists/*
 
 
-# 安裝 Python 套件
+# 安裝 LilyPond 2.26.0
+RUN wget https://gitlab.com/lilypond/lilypond/-/releases/v2.26.0/downloads/lilypond-2.26.0-linux-x86_64.tar.gz \
+    && tar -xzf lilypond-2.26.0-linux-x86_64.tar.gz \
+    && mv lilypond-2.26.0 /opt/lilypond \
+    && ln -s /opt/lilypond/bin/lilypond /usr/local/bin/lilypond \
+    && rm lilypond-2.26.0-linux-x86_64.tar.gz
+
+
 RUN pip install --no-cache-dir -r requirements.txt
 
 
 EXPOSE 10000
 
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "10000"]
+CMD ["uvicorn","main:app","--host","0.0.0.0","--port","10000"]
