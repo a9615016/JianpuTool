@@ -1,180 +1,165 @@
-import os
-import uuid
-import subprocess
-
 from fastapi import FastAPI, UploadFile, File
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
+import os
+import shutil
+import uuid
 
 
-app = FastAPI()
+app = FastAPI(
+    title="JianpuTool",
+    version="1.0"
+)
 
 
-BASE_DIR = "/app"
+# =========================
+# 設定資料夾
+# =========================
+
+BASE_DIR = os.path.dirname(
+    os.path.abspath(__file__)
+)
+
+OUTPUT_DIR = os.path.join(
+    BASE_DIR,
+    "outputs"
+)
+
+os.makedirs(
+    OUTPUT_DIR,
+    exist_ok=True
+)
 
 
-def run_command(cmd):
 
-    print("執行:", " ".join(cmd))
+# =========================
+# 首頁
+# =========================
 
-    result = subprocess.run(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True
+@app.api_route(
+    "/",
+    methods=["GET", "HEAD"],
+    response_class=HTMLResponse
+)
+async def index():
+
+    html_path = os.path.join(
+        BASE_DIR,
+        "index.html"
     )
 
-    print(result.stdout)
+    if not os.path.exists(html_path):
 
-    if result.returncode != 0:
-        raise Exception(result.stdout)
-
-
-@app.get("/")
-def home():
-
-    with open("index.html", encoding="utf-8") as f:
-        return HTMLResponse(f.read())
+        return """
+        <h1>JianpuTool Running</h1>
+        <p>index.html missing</p>
+        """
 
 
-@app.post("/convert")
-async def convert(file: UploadFile = File(...)):
+    with open(
+        html_path,
+        "r",
+        encoding="utf-8"
+    ) as f:
+
+        return f.read()
 
 
-    job = str(uuid.uuid4())
 
-    work = os.path.join(
-        "outputs",
-        job
+# =========================
+# 健康檢查
+# =========================
+
+@app.get("/health")
+async def health():
+
+    return {
+        "status": "ok"
+    }
+
+
+
+# =========================
+# 上傳 MP3
+# =========================
+
+@app.post("/upload")
+async def upload(
+    file: UploadFile = File(...)
+):
+
+    file_id = str(
+        uuid.uuid4()
     )
 
-    os.makedirs(work, exist_ok=True)
 
-
-    # 1. 儲存 MP3
-
-    mp3 = os.path.join(
-        work,
+    filename = (
+        file_id
+        +
+        "_"
+        +
         file.filename
     )
 
-    with open(mp3,"wb") as f:
-        f.write(await file.read())
 
-
-    print("MP3:", mp3)
-
-
-
-    # 2. Demucs 分離 vocals
-
-    vocals = os.path.join(
-        work,
-        "vocals.wav"
+    input_path = os.path.join(
+        OUTPUT_DIR,
+        filename
     )
 
 
-    run_command([
-        "python",
-        "demucs_extract.py",
-        mp3,
-        vocals
-    ])
+    print("===================")
+    print("收到上傳:")
+    print(file.filename)
+    print("===================")
 
 
+    # 儲存檔案
 
-    # 3. BasicPitch 產生 MIDI
+    with open(
+        input_path,
+        "wb"
+    ) as buffer:
 
-    midi = os.path.join(
-        work,
-        "melody.mid"
-    )
-
-
-    run_command([
-        "python",
-        "basicpitch_extract.py",
-        vocals,
-        midi
-    ])
-
-
-
-    # 4. MIDI → MusicXML
-
-    musicxml = os.path.join(
-        work,
-        "score.musicxml"
-    )
-
-
-    run_command([
-        "python",
-        "midi_to_musicxml.py",
-        midi,
-        musicxml
-    ])
-
-
-
-    # 5. MusicXML 清理
-
-    clean_xml = os.path.join(
-        work,
-        "clean.musicxml"
-    )
-
-
-    run_command([
-        "python",
-        "clean_musicxml.py",
-        musicxml,
-        clean_xml
-    ])
-
-
-
-    # 6. Jianpu
-
-    ly = os.path.join(
-        work,
-        "jianpu.ly"
-    )
-
-
-    with open(ly,"w",encoding="utf-8") as f:
-
-        subprocess.run(
-            [
-                "python",
-                "-m",
-                "jianpu_ly",
-                clean_xml
-            ],
-            stdout=f,
-            stderr=subprocess.STDOUT
+        shutil.copyfileobj(
+            file.file,
+            buffer
         )
 
 
-
-    # 7. LilyPond PDF
-
-    run_command([
-        "lilypond",
-        "-o",
-        os.path.join(work,"jianpu"),
-        ly
-    ])
+    print("保存完成:")
+    print(input_path)
 
 
 
-    pdf = os.path.join(
-        work,
-        "jianpu.pdf"
+    return JSONResponse(
+
+        {
+            "status": "upload success",
+
+            "original_name":
+                file.filename,
+
+            "saved_file":
+                filename,
+
+            "path":
+                input_path
+        }
+
     )
 
 
-    return FileResponse(
-        pdf,
-        media_type="application/pdf",
-        filename="jianpu.pdf"
-    )
+
+# =========================
+# 啟動測試
+# =========================
+
+@app.get("/test")
+async def test():
+
+    return {
+
+        "message":
+        "JianpuTool API running"
+
+    }
