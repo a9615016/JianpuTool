@@ -4,7 +4,7 @@ import shutil
 import subprocess
 
 from fastapi import FastAPI, UploadFile, File
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, FileResponse
 
 
 app = FastAPI()
@@ -27,31 +27,14 @@ os.makedirs(
 @app.get("/")
 async def home():
 
-    index = os.path.join(
-        BASE_DIR,
-        "index.html"
-    )
+    with open(
+        "index.html",
+        encoding="utf-8"
+    ) as f:
 
-    if os.path.exists(index):
-
-        with open(
-            index,
-            "r",
-            encoding="utf-8"
-        ) as f:
-
-            return HTMLResponse(
-                f.read()
-            )
-
-    return {
-        "status": "JianpuTool running",
-        "api": [
-            "/upload",
-            "/demucs"
-        ]
-    }
-
+        return HTMLResponse(
+            f.read()
+        )
 
 
 
@@ -59,12 +42,6 @@ async def home():
 async def upload(
     file: UploadFile = File(...)
 ):
-
-    print("===================")
-    print("收到上傳:")
-    print(file.filename)
-    print("===================")
-
 
     job_id = str(uuid.uuid4())
 
@@ -74,22 +51,26 @@ async def upload(
         job_id
     )
 
-
     os.makedirs(
         work_dir,
         exist_ok=True
     )
 
 
-    input_file = os.path.join(
+    mp3 = os.path.join(
         work_dir,
         file.filename
     )
 
 
-    # 儲存 MP3
+    print("================")
+    print("收到:")
+    print(file.filename)
+    print("================")
+
+
     with open(
-        input_file,
+        mp3,
         "wb"
     ) as f:
 
@@ -99,139 +80,151 @@ async def upload(
         )
 
 
-    print("保存完成:")
-    print(input_file)
+    print("MP3保存完成")
 
 
+    ################################################
+    # MP3 -> MIDI
+    ################################################
 
-    #################################################
-    # Demucs
-    #################################################
-
-    print("開始 Demucs")
-
-
-    try:
-
-        result = subprocess.run(
-            [
-                "python",
-                "-m",
-                "demucs",
-                input_file,
-                "-o",
-                work_dir
-            ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True
-        )
+    print("開始 BasicPitch")
 
 
-        print(result.stdout)
+    midi = os.path.join(
+        work_dir,
+        "melody.mid"
+    )
 
 
-        if result.returncode != 0:
+    result = subprocess.run(
+        [
+            "python",
+            "basicpitch_convert.py",
+            mp3,
+            midi
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True
+    )
 
-            return {
 
-                "status": "error",
-
-                "step": "demucs",
-
-                "log": result.stdout
-
-            }
+    print(result.stdout)
 
 
-    except Exception as e:
+    if result.returncode != 0:
 
         return {
-
-            "status": "error",
-
-            "message": str(e)
-
+            "error":"BasicPitch失敗",
+            "log":result.stdout
         }
 
 
 
-    print("Demucs完成")
+    ################################################
+    # MIDI -> MusicXML
+    ################################################
+
+
+    print("MIDI轉MusicXML")
+
+
+    xml = os.path.join(
+        work_dir,
+        "score.musicxml"
+    )
+
+
+    result = subprocess.run(
+        [
+            "python",
+            "midi_to_musicxml.py",
+            midi,
+            xml
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True
+    )
+
+
+    print(result.stdout)
 
 
 
-    #################################################
-    # 找 vocals.wav
-    #################################################
-
-    vocals = None
+    ################################################
+    # MusicXML -> Jianpu
+    ################################################
 
 
-    for root, dirs, files in os.walk(work_dir):
-
-        for name in files:
-
-            if name == "vocals.wav":
-
-                vocals = os.path.join(
-                    root,
-                    name
-                )
+    print("產生簡譜")
 
 
-
-    if vocals:
-
-        print("找到人聲:")
-        print(vocals)
-
-
-    else:
-
-        print("沒有找到 vocals.wav")
+    ly = os.path.join(
+        work_dir,
+        "jianpu.ly"
+    )
 
 
+    with open(
+        ly,
+        "w",
+        encoding="utf-8"
+    ) as f:
 
-    #################################################
-    # 下一步:
-    #
-    # vocals.wav
-    #      |
-    #      v
-    # BasicPitch
-    #      |
-    #      v
-    # melody.mid
-    #      |
-    #      v
-    # MusicXML
-    #      |
-    #      v
-    # jianpu_ly
-    #      |
-    #      v
-    # PDF
-    #################################################
+        subprocess.run(
+            [
+                "python",
+                "-m",
+                "jianpu_ly",
+                xml
+            ],
+            stdout=f
+        )
 
+
+
+    ################################################
+    # LilyPond PDF
+    ################################################
+
+
+    print("LilyPond PDF")
+
+
+    subprocess.run(
+        [
+            "lilypond",
+            "-o",
+            os.path.join(work_dir,"jianpu"),
+            ly
+        ]
+    )
+
+
+    pdf = os.path.join(
+        work_dir,
+        "jianpu.pdf"
+    )
+
+
+    if os.path.exists(pdf):
+
+        return FileResponse(
+            pdf,
+            media_type="application/pdf",
+            filename="jianpu.pdf"
+        )
 
 
     return {
-
-        "status": "success",
-
-        "message": "Demucs完成",
-
-        "job_id": job_id,
-
-        "vocals": vocals
-
+        "error":"PDF產生失敗",
+        "folder":work_dir
     }
 
 
 
 
-
-# 舊前端相容
 @app.post("/demucs")
 async def demucs(
     file: UploadFile = File(...)
