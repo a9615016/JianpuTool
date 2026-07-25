@@ -1,16 +1,21 @@
-FROM python:3.10
-
-RUN apt-get update && \
-    apt-get install -y lilypond && \
-    apt-get clean
+FROM python:3.10-slim
 
 
 WORKDIR /app
 
 
-COPY . .
+COPY . /app
 
 
+# 安裝系統套件
+RUN apt-get update && apt-get install -y \
+    lilypond \
+    musescore \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+
+# 安裝 Python 套件
 RUN pip install --no-cache-dir -r requirements.txt
 
 
