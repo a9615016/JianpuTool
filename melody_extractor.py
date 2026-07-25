@@ -1,8 +1,9 @@
 from music21 import converter, stream, note, chord
 import sys
 
-
-MIN_DURATION = 0.125
+MIN_MIDI = 48          # C3
+MAX_MIDI = 96          # C7
+MIN_DURATION = 0.25
 
 
 def extract_melody(input_file, output_file):
@@ -12,52 +13,66 @@ def extract_melody(input_file, output_file):
     score = converter.parse(input_file)
 
     # 找音符最多的 Part
-    if len(score.parts) > 0:
-
-        best_part = max(
-            score.parts,
-            key=lambda p: len(list(p.recurse().notes))
-        )
-
+    if score.parts:
+        part = max(score.parts, key=lambda p: len(list(p.recurse().notes)))
     else:
-
-        best_part = score
+        part = score
 
     melody = stream.Part()
+
     events = {}
 
-    # 收集音符
-    for n in best_part.recurse().notes:
+    for n in part.recurse().notes:
 
         if isinstance(n, chord.Chord):
-
-            highest = max(n.pitches, key=lambda x: x.midi)
-
-            new_note = note.Note(highest)
-
-            new_note.duration = n.duration
-
+            p = max(n.pitches, key=lambda x: x.midi)
+            new = note.Note(p)
+            new.duration = n.duration
         else:
+            new = note.Note(n.pitch)
+            new.duration = n.duration
 
-            new_note = note.Note(n.pitch)
+        midi = new.pitch.midi
 
-            new_note.duration = n.duration
+        if midi < MIN_MIDI:
+            continue
 
-        if float(new_note.quarterLength) < MIN_DURATION:
+        if midi > MAX_MIDI:
+            continue
+
+        if new.quarterLength < MIN_DURATION:
             continue
 
         offset = round(float(n.offset), 4)
 
-        # 同一時間點保留音高最高者
-        if offset not in events:
-            events[offset] = new_note
-        else:
-            if new_note.pitch.midi > events[offset].pitch.midi:
-                events[offset] = new_note
+        score_value = (
+            new.quarterLength * 100
+            + midi
+        )
 
-    # 依時間輸出
+        if offset not in events:
+            events[offset] = (score_value, new)
+        else:
+            if score_value > events[offset][0]:
+                events[offset] = (score_value, new)
+
+    last_pitch = None
+    last_note = None
+
     for offset in sorted(events.keys()):
-        melody.insert(offset, events[offset])
+
+        n = events[offset][1]
+
+        if last_note and last_pitch == n.pitch.midi:
+
+            last_note.duration.quarterLength += n.quarterLength
+
+        else:
+
+            melody.insert(offset, n)
+
+            last_note = n
+            last_pitch = n.pitch.midi
 
     out = stream.Score()
     out.insert(0, melody)
