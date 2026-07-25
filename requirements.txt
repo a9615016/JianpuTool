@@ -4,3 +4,6 @@ python-multipart
 music21
 jianpu_ly
 demucs
+torch==2.1.2+cpu
+torchaudio==2.1.2+cpu
+--extra-index-url https://download.pytorch.org/whl/cpu
