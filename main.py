@@ -190,6 +190,21 @@ async def upload(file: UploadFile = File(...)):
 
     from validator_v212 import fix_jianpu_xml
 
+clean_input = os.path.join(
+    work_dir,
+    "clean.musicxml"
+)
+
+validated_output = os.path.join(
+    work_dir,
+    "jianpu.musicxml"
+)
+
+fix_jianpu_xml(
+    clean_input,
+    validated_output
+)
+
 
     fix_jianpu_xml(
         clean_xml,
