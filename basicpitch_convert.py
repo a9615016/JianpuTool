@@ -12,7 +12,7 @@ print("開始 BasicPitch")
 print("輸入:", input_audio)
 
 
-_, midi_data, note_events = predict(
+model_output, midi_data, note_events = predict(
     input_audio,
     ICASSP_2022_MODEL_PATH
 )
@@ -21,4 +21,4 @@ _, midi_data, note_events = predict(
 midi_data.write(output_midi)
 
 
-print("MIDI完成")
+print("MIDI完成:", output_midi)
