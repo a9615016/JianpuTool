@@ -6,42 +6,40 @@ def fix_jianpu_xml(input_file, output_file):
     tree = ET.parse(input_file)
     root = tree.getroot()
 
-    ns = {
-        "m": "http://www.musicxml.org/ns/musicxml"
+    namespace = {
+        "m": "http://www.musicxml.org"
     }
 
-    for measure in root.iter():
+    # 修正非法 measure-style
+    for elem in root.iter():
 
-        if measure.tag.endswith("measure"):
+        tag = elem.tag.split("}")[-1]
 
-            for attr in list(measure.attrib):
-                if attr == "number":
-                    continue
+        if tag == "beats":
+
+            if elem.text:
+                try:
+                    value = float(elem.text)
+
+                    # jianpu_ly 不接受奇怪拍號
+                    if value <= 0:
+                        elem.text = "4"
+
+                except:
+                    elem.text = "4"
 
 
-    # 修正 time signature
-    for time in root.iter():
+        if tag == "beat-type":
 
-        if time.tag.endswith("beats"):
-            time.text = "4"
+            if elem.text:
+                try:
+                    value = float(elem.text)
 
-        if time.tag.endswith("beat-type"):
-            time.text = "4"
+                    if value not in [1,2,4,8,16]:
+                        elem.text = "4"
 
-
-    # 移除 jianpu_ly 不接受的特殊時間
-    for measure in root.iter():
-
-        if measure.tag.endswith("measure"):
-
-            for child in list(measure):
-
-                if child.tag.endswith("attributes"):
-
-                    for x in list(child):
-
-                        if x.tag.endswith("time"):
-                            continue
+                except:
+                    elem.text="4"
 
 
     tree.write(
@@ -50,5 +48,5 @@ def fix_jianpu_xml(input_file, output_file):
         xml_declaration=True
     )
 
-    print("VALIDATOR V21.2 DONE")
+    print("validator V21.2 DONE")
     print(output_file)
