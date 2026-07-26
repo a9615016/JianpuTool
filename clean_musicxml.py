@@ -1,160 +1,208 @@
 import sys
+import os
 import xml.etree.ElementTree as ET
-import copy
+from fractions import Fraction
 
 
-print("CLEAN VERSION 20260726 V14")
-print("force split measure crossing notes")
+VERSION = "CLEAN VERSION 20260726 V15"
 
 
-input_file = sys.argv[1]
-output_file = sys.argv[2]
+def qname(tag):
+    return "{http://www.musicxml.org/ns/musicxml}" + tag
 
 
-tree = ET.parse(input_file)
-root = tree.getroot()
+def text(elem, tag):
+    x = elem.find(qname(tag))
+    if x is None:
+        return None
+    return x.text
 
 
-ns = {
-    "m":"http://www.musicxml.org/ns/musicxml"
-}
+def quantize_duration(value, old_div):
 
+    if old_div == 0:
+        return value
 
-# divisions
-divisions = None
+    # 轉成 quarter fraction
+    beats = Fraction(value, old_div)
 
-for d in root.iter():
-    if d.tag.endswith("divisions"):
-        divisions = int(d.text)
-        break
+    # 四捨五入到 1/16 音符
+    unit = Fraction(1,4)
 
+    result = round(beats / unit) * unit
 
-if divisions is None:
-    divisions = 16
-
-
-print("divisions:", divisions)
-
-
-
-# 每小節容量
-measure_length = divisions * 4
-
-print("measure length:", measure_length)
+    # 新 divisions=16
+    return int(result * 16)
 
 
 
-for part in root.iter():
+def clean(input_file, output_file):
 
-    if not part.tag.endswith("measure"):
-        continue
+    print(VERSION)
+    print("input:", input_file)
 
-
-    current = 0
-
-
-    notes = list(part)
+    tree = ET.parse(input_file)
+    root = tree.getroot()
 
 
-    for elem in notes:
+    print("remove voices")
+    for voice in root.iter(qname("voice")):
+        parent = None
+        for p in root.iter():
+            if voice in list(p):
+                parent = p
+                break
+
+        if parent is not None:
+            parent.remove(voice)
 
 
-        if not elem.tag.endswith("note"):
-            continue
-
-
-        duration_node = None
-
-        for c in elem:
-
-            if c.tag.endswith("duration"):
-                duration_node=c
+    print("remove chords")
+    for chord in root.iter(qname("chord")):
+        for p in root.iter():
+            if chord in list(p):
+                p.remove(chord)
                 break
 
 
-        if duration_node is None:
-            continue
-
-
-        dur=int(duration_node.text)
-
-
-
-        remain = measure_length-current
+    print("remove grace")
+    for grace in root.iter(qname("grace")):
+        for p in root.iter():
+            if grace in list(p):
+                p.remove(grace)
+                break
 
 
 
-        # 超過小節
-        if dur > remain:
+    print("force divisions = 16")
 
+
+    for div in root.iter(qname("divisions")):
+        div.text = "16"
+
+
+
+    print("quantize durations")
+
+
+    old_div = 1
+
+    # 找原 divisions
+    d = root.find(".//" + qname("divisions"))
+    if d is not None:
+        old_div = int(d.text)
+
+
+    for dur in root.iter(qname("duration")):
+
+        try:
+            value=int(dur.text)
+            dur.text=str(
+                quantize_duration(
+                    value,
+                    old_div
+                )
+            )
+
+        except:
+            pass
+
+
+
+    print("repair measures")
+
+
+    # 4/4 每小節64
+    measure_limit = 64
+
+
+    for measure in root.iter(qname("measure")):
+
+        total = 0
+
+        notes=[]
+
+        for note in measure.findall(qname("note")):
+
+            dur = note.find(qname("duration"))
+
+            if dur is not None:
+
+                try:
+                    d=int(dur.text)
+                    total += d
+                    notes.append((note,d))
+
+                except:
+                    pass
+
+
+        if total > measure_limit:
 
             print(
-                "split note:",
-                dur,
-                "remain:",
-                remain
+                "fix measure",
+                measure.attrib.get("number"),
+                total
             )
 
 
-            first = copy.deepcopy(elem)
-            second = copy.deepcopy(elem)
+            overflow = total - measure_limit
 
 
-            for x in first.iter():
+            for note,d in reversed(notes):
 
-                if x.tag.endswith("duration"):
-                    x.text=str(remain)
-
-
-            for x in second.iter():
-
-                if x.tag.endswith("duration"):
-                    x.text=str(dur-remain)
+                if overflow<=0:
+                    break
 
 
-
-            # tie
-            tie1=ET.SubElement(first,"tie")
-            tie1.set("type","start")
+                newd=d-overflow
 
 
-            tie2=ET.SubElement(second,"tie")
-            tie2.set("type","stop")
+                if newd>0:
+                    note.find(qname("duration")).text=str(newd)
+                    overflow=0
+
+                else:
+                    note.find(qname("duration")).text="1"
+                    overflow-=d
 
 
 
-            index=list(part).index(elem)
+    print("final cleanup")
 
 
-            part.remove(elem)
-
-            part.insert(index,first)
-
-            part.insert(index+1,second)
-
-
-            current=measure_length
+    tree.write(
+        output_file,
+        encoding="utf-8",
+        xml_declaration=True
+    )
 
 
-
-        else:
-
-            current += dur
+    print("done:")
+    print(output_file)
 
 
 
-    # 修正小節重新計算
-    if current > measure_length:
-        current=measure_length
+if __name__=="__main__":
 
 
+    if len(sys.argv)<2:
 
-tree.write(
-    output_file,
-    encoding="utf-8",
-    xml_declaration=True
-)
+        print(
+            "python clean_musicxml.py input.musicxml output.musicxml"
+        )
+        sys.exit()
 
 
-print("done:")
-print(output_file)
+    inp=sys.argv[1]
+
+
+    if len(sys.argv)>=3:
+        out=sys.argv[2]
+
+    else:
+        base=os.path.splitext(inp)[0]
+        out=base+"_clean.musicxml"
+
+
+    clean(inp,out)
