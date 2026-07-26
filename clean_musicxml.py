@@ -1,215 +1,259 @@
+# clean_musicxml.py
+# CLEAN VERSION 20260726 V14
+# force measure split version
+
 import sys
-import os
 import xml.etree.ElementTree as ET
-from fractions import Fraction
+import copy
 
 
-VERSION = "CLEAN VERSION 20260726 V13"
+TARGET_DIVISIONS = 16
+BEATS_PER_BAR = 4
+BAR_LENGTH = TARGET_DIVISIONS * BEATS_PER_BAR
 
 
-def log(x):
-    print(x)
+def tag(x):
+    return x.split("}")[-1]
 
 
-def quantize_duration(duration, divisions):
-    """
-    四捨五入到 16 分音符
-    """
-    step = divisions // 4
-
-    if step <= 0:
-        return duration
-
-    q = round(duration / step) * step
-
-    if q <= 0:
-        q = step
-
-    return q
+def make_element(name, text=None):
+    e = ET.Element(name)
+    if text:
+        e.text = str(text)
+    return e
 
 
-def clean_musicxml(input_file, output_file):
+def quantize_duration(d):
 
-    log(VERSION)
-    log("input: " + input_file)
+    values = [
+        1,2,4,8,16,32
+    ]
 
-    tree = ET.parse(input_file)
-    root = tree.getroot()
-
-
-    divisions = 16
-
-    div_node = root.find(".//divisions")
-    if div_node is not None:
-        divisions = int(div_node.text)
+    return min(
+        values,
+        key=lambda x:abs(x-d)
+    )
 
 
-    log("remove voices")
-    log("remove chords")
-    log("remove grace")
+def clean_measure(measure):
 
-    # 移除 voice
-    for voice in root.findall(".//voice"):
-        parent = None
-        for p in root.iter():
-            if voice in list(p):
-                parent = p
+    new_notes = []
+
+    current = 0
+
+
+    for note in list(measure):
+
+        if tag(note.tag) != "note":
+            continue
+
+
+        duration_node = note.find(
+            "{*}duration"
+        )
+
+
+        if duration_node is None:
+            continue
+
+
+        duration = int(duration_node.text)
+
+
+        # quantize
+        duration = quantize_duration(duration)
+
+
+        # split across bar
+        while current + duration > BAR_LENGTH:
+
+            remain = BAR_LENGTH - current
+
+
+            if remain > 0:
+
+                part = copy.deepcopy(note)
+
+                part.find(
+                    "{*}duration"
+                ).text = str(remain)
+
+                new_notes.append(part)
+
+
+
+            # new bar marker
+            current = 0
+
+
+            duration -= remain
+
+
+            if duration <= 0:
                 break
 
-        if parent is not None:
-            parent.remove(voice)
 
 
-    # 移除 chord 標記
-    for chord in root.findall(".//chord"):
-        parent = None
-        for p in root.iter():
-            if chord in list(p):
-                parent=p
-                break
+        if duration > 0:
 
-        if parent:
-            parent.remove(chord)
+            part = copy.deepcopy(note)
+
+            part.find(
+                "{*}duration"
+            ).text = str(duration)
+
+            new_notes.append(part)
+
+            current += duration
 
 
-    log("quantize duration")
 
-    # 所有 note duration 量化
-    for dur in root.findall(".//duration"):
+        # bar full
+        if current == BAR_LENGTH:
 
-        try:
-            value=int(dur.text)
+            current = 0
 
-            value=quantize_duration(
-                value,
-                divisions
+
+
+    # rebuild measure
+
+    for child in list(measure):
+        measure.remove(child)
+
+
+    for n in new_notes:
+        measure.append(n)
+
+
+
+    # fill missing duration
+
+    total = 0
+
+    for n in new_notes:
+
+        d=n.find("{*}duration")
+
+        if d is not None:
+            total += int(d.text)
+
+
+
+    if total < BAR_LENGTH:
+
+        rest = ET.Element(
+            "note"
+        )
+
+        ET.SubElement(
+            rest,
+            "rest"
+        )
+
+        ET.SubElement(
+            rest,
+            "duration"
+        ).text=str(
+            BAR_LENGTH-total
+        )
+
+        measure.append(rest)
+
+
+
+def clean_file(src,dst):
+
+    print(
+        "CLEAN VERSION 20260726 V14"
+    )
+
+    print(
+        "input:",
+        src
+    )
+
+
+    tree=ET.parse(src)
+
+    root=tree.getroot()
+
+
+    # remove voices/chords/grace
+
+    for elem in root.iter():
+
+        if tag(elem.tag)=="voice":
+
+            elem.clear()
+
+
+        if tag(elem.tag)=="chord":
+
+            elem.clear()
+
+
+        if tag(elem.tag)=="grace":
+
+            elem.clear()
+
+
+
+    # set divisions
+
+    for div in root.iter():
+
+        if tag(div.tag)=="divisions":
+
+            div.text=str(
+                TARGET_DIVISIONS
             )
 
-            dur.text=str(value)
 
-        except:
-            pass
-
-
-
-    log("repair measures")
-
-    measure_list = root.findall(".//measure")
+    print(
+        "repair measures"
+    )
 
 
-    for measure in measure_list:
+    for measure in root.iter():
 
-        notes = measure.findall(".//note")
+        if tag(measure.tag)=="measure":
 
-        total = 0
-
-        for note in notes:
-
-            dur = note.find("duration")
-
-            if dur is not None:
-                try:
-                    total += int(dur.text)
-                except:
-                    pass
+            clean_measure(
+                measure
+            )
 
 
-        target = divisions * 4
-
-
-        # 超過小節
-        if total > target:
-
-            overflow = total-target
-
-
-            for note in reversed(notes):
-
-                dur=note.find("duration")
-
-                if dur is None:
-                    continue
-
-                d=int(dur.text)
-
-
-                if d > overflow:
-
-                    dur.text=str(d-overflow)
-                    overflow=0
-                    break
-
-                else:
-
-                    dur.text=str(divisions//4)
-                    overflow-=d
-
-
-                if overflow<=0:
-                    break
-
-
-
-        # 不足補休止符
-
-        if total < target:
-
-            rest_time = target-total
-
-            rest = ET.Element("note")
-
-            ET.SubElement(rest,"rest")
-
-            ET.SubElement(
-                rest,
-                "duration"
-            ).text=str(rest_time)
-
-
-            measure.append(rest)
-
-
-
-    log("final cleanup")
+    print(
+        "final cleanup"
+    )
 
 
     tree.write(
-        output_file,
+        dst,
         encoding="utf-8",
         xml_declaration=True
     )
 
 
-    log("done:")
-    log(output_file)
+    print(
+        "done:",
+        dst
+    )
 
 
 
 if __name__=="__main__":
 
-    if len(sys.argv)<2:
+    if len(sys.argv)<3:
 
         print(
-            "python clean_musicxml.py input.musicxml output.musicxml"
+            "usage: python clean_musicxml.py input.musicxml output.musicxml"
         )
 
-        exit()
+        sys.exit(1)
 
 
-    input_file=sys.argv[1]
-
-
-    if len(sys.argv)>=3:
-        output_file=sys.argv[2]
-
-    else:
-        output_file=input_file.replace(
-            ".musicxml",
-            "_clean.musicxml"
-        )
-
-
-    clean_musicxml(
-        input_file,
-        output_file
+    clean_file(
+        sys.argv[1],
+        sys.argv[2]
     )
