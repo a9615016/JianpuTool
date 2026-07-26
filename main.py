@@ -1,7 +1,6 @@
 import os
 import uuid
 import subprocess
-import shutil
 
 from fastapi import FastAPI, UploadFile, File
 from fastapi.responses import FileResponse
@@ -14,7 +13,7 @@ app = FastAPI()
 def home():
     return {
         "status": "JianpuTool running",
-        "version": "V21.2.1"
+        "version": "V21.3"
     }
 
 
@@ -29,28 +28,23 @@ async def upload(file: UploadFile = File(...)):
     os.makedirs(work_dir, exist_ok=True)
 
 
-    print("================")
-    print("收到:")
-    print(file.filename)
-    print("================")
-
-
     # =====================
-    # MP3
+    # 保存 MP3
     # =====================
 
-    mp3_file = os.path.join(
+    input_audio = os.path.join(
         work_dir,
         file.filename
     )
 
+    with open(input_audio, "wb") as f:
+        f.write(await file.read())
 
-    with open(mp3_file,"wb") as f:
-        shutil.copyfileobj(
-            file.file,
-            f
-        )
 
+    print("================")
+    print("收到:")
+    print(file.filename)
+    print("================")
     print("MP3保存完成")
 
 
@@ -58,27 +52,21 @@ async def upload(file: UploadFile = File(...)):
     # BasicPitch
     # =====================
 
-    print("開始 BasicPitch")
-
-
-    melody_mid = os.path.join(
+    midi_file = os.path.join(
         work_dir,
         "melody.mid"
     )
 
 
-    basic_pitch = os.path.join(
-        os.path.dirname(__file__),
-        "basic_pitch_convert.py"
-    )
+    print("開始 BasicPitch")
 
 
     result = subprocess.run(
         [
             "python",
-            basic_pitch,
-            mp3_file,
-            melody_mid
+            "basic_pitch_convert.py",
+            input_audio,
+            midi_file
         ],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -89,11 +77,20 @@ async def upload(file: UploadFile = File(...)):
     print(result.stdout)
 
 
-    if not os.path.exists(melody_mid):
+    if result.returncode != 0:
         return {
-            "error":"BasicPitch failed",
-            "log":result.stdout
+            "error": "BasicPitch failed",
+            "log": result.stdout
         }
+
+
+    if not os.path.exists(midi_file):
+        return {
+            "error": "MIDI not created"
+        }
+
+
+    print("MIDI完成:", midi_file)
 
 
 
@@ -101,124 +98,116 @@ async def upload(file: UploadFile = File(...)):
     # MIDI Quantize
     # =====================
 
-    print("開始 MIDI Quantize")
-
-
-    clean_mid = os.path.join(
+    clean_midi = os.path.join(
         work_dir,
         "melody_clean.mid"
     )
 
 
-    subprocess.run(
+    print("開始 MIDI Quantize")
+
+
+    result = subprocess.run(
         [
             "python",
             "midi_quantize.py",
-            melody_mid,
-            clean_mid
-        ]
+            midi_file,
+            clean_midi
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True
     )
 
 
-
-    # =====================
-    # MIDI -> MusicXML
-    # =====================
-
-    print("MIDI轉MusicXML")
+    print(result.stdout)
 
 
-    input_xml = os.path.join(
-        work_dir,
-        "input.musicxml"
-    )
-
-
-    subprocess.run(
-        [
-            "python",
-            "midi_to_musicxml.py",
-            clean_mid,
-            input_xml
-        ]
-    )
-
-
-
-    # =====================
-    # Clean MusicXML V21.2
-    # =====================
-
-    print("清理 MusicXML")
-
-
-    clean_xml = os.path.join(
-        work_dir,
-        "score_clean.musicxml"
-    )
-
-
-    subprocess.run(
-        [
-            "python",
-            "clean_musicxml.py",
-            input_xml,
-            clean_xml
-        ]
-    )
-
-
-    if not os.path.exists(clean_xml):
+    if result.returncode != 0:
         return {
-            "error":"clean_musicxml failed"
+            "error":"quantize failed",
+            "log":result.stdout
         }
 
 
 
     # =====================
-    # Validator V21.2
+    # MIDI → MusicXML
     # =====================
 
-    print("MusicXML Validator V21.2")
-
-
-    validator_xml = os.path.join(
+    musicxml = os.path.join(
         work_dir,
-        "jianpu.musicxml"
+        "input.musicxml"
     )
 
 
-    from validator_v212 import fix_jianpu_xml
-
-clean_input = os.path.join(
-    work_dir,
-    "clean.musicxml"
-)
-
-validated_output = os.path.join(
-    work_dir,
-    "jianpu.musicxml"
-)
-
-fix_jianpu_xml(
-    clean_input,
-    validated_output
-)
+    print("MIDI轉MusicXML")
 
 
-    fix_jianpu_xml(
-        clean_xml,
-        validator_xml
+    result = subprocess.run(
+        [
+            "python",
+            "midi_to_musicxml.py",
+            clean_midi,
+            musicxml
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True
     )
+
+
+    print(result.stdout)
+
+
+    if result.returncode != 0:
+        return {
+            "error":"musicxml failed",
+            "log":result.stdout
+        }
 
 
 
     # =====================
-    # jianpu_ly
+    # Clean MusicXML
     # =====================
 
-    print("產生簡譜")
+    clean_xml = os.path.join(
+        work_dir,
+        "clean.musicxml"
+    )
 
+
+    print("清理 MusicXML")
+
+
+    result = subprocess.run(
+        [
+            "python",
+            "clean_musicxml.py",
+            musicxml,
+            clean_xml
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True
+    )
+
+
+    print(result.stdout)
+
+
+    if result.returncode != 0:
+        return {
+            "error":"clean_musicxml failed",
+            "log":result.stdout
+        }
+
+
+
+    # =====================
+    # Jianpu
+    # =====================
 
     ly_file = os.path.join(
         work_dir,
@@ -226,22 +215,29 @@ fix_jianpu_xml(
     )
 
 
-    with open(
-        ly_file,
-        "w",
-        encoding="utf-8"
-    ) as f:
+    print("產生簡譜")
 
-        subprocess.run(
+
+    with open(ly_file, "w", encoding="utf-8") as f:
+
+        result = subprocess.run(
             [
                 "python",
                 "-m",
                 "jianpu_ly",
-                validator_xml
+                clean_xml
             ],
             stdout=f,
-            stderr=subprocess.STDOUT
+            stderr=subprocess.PIPE,
+            text=True
         )
+
+
+    if result.returncode != 0:
+        return {
+            "error":"jianpu_ly failed",
+            "log":result.stderr
+        }
 
 
 
@@ -252,32 +248,37 @@ fix_jianpu_xml(
     print("產生PDF")
 
 
-    subprocess.run(
+    result = subprocess.run(
         [
             "lilypond",
             "-o",
-            os.path.join(work_dir,"jianpu"),
+            work_dir,
             ly_file
-        ]
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True
     )
 
 
-    pdf_file=os.path.join(
+    print(result.stdout)
+
+
+    pdf_file = os.path.join(
         work_dir,
         "jianpu.pdf"
     )
 
 
-    if os.path.exists(pdf_file):
-
-        return FileResponse(
-            pdf_file,
-            media_type="application/pdf",
-            filename="jianpu.pdf"
-        )
+    if not os.path.exists(pdf_file):
+        return {
+            "error":"PDF failed",
+            "log":result.stdout
+        }
 
 
-    return {
-        "status":"完成流程",
-        "folder":work_dir
-    }
+    return FileResponse(
+        pdf_file,
+        media_type="application/pdf",
+        filename="jianpu.pdf"
+    )
