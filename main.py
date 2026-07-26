@@ -45,7 +45,6 @@ async def upload(
 
     job_id = str(uuid.uuid4())
 
-
     work_dir = os.path.join(
         OUTPUT_DIR,
         job_id
@@ -110,6 +109,7 @@ async def upload(
 
 
     if result.returncode != 0:
+
         return {
             "error":"BasicPitch失敗",
             "log":result.stdout
@@ -147,6 +147,7 @@ async def upload(
 
 
     if result.returncode != 0:
+
         return {
             "error":"MusicXML產生失敗",
             "log":result.stdout
@@ -184,6 +185,7 @@ async def upload(
 
 
     if result.returncode != 0:
+
         return {
             "error":"MusicXML清理失敗",
             "log":result.stdout
@@ -197,6 +199,11 @@ async def upload(
 
     print("產生簡譜")
 
+    print(
+        "clean xml size:",
+        os.path.getsize(clean_xml)
+    )
+
 
     ly = os.path.join(
         work_dir,
@@ -204,24 +211,44 @@ async def upload(
     )
 
 
-    result = subprocess.run(
-        [
-            "python",
-            "-m",
-            "jianpu_ly",
-            clean_xml
-        ],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True
-    )
+    print("執行 jianpu_ly")
+    print("輸入檔:", clean_xml)
 
 
+    try:
+
+        result = subprocess.run(
+            [
+                "python",
+                "-m",
+                "jianpu_ly",
+                clean_xml
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            timeout=60
+        )
+
+
+    except subprocess.TimeoutExpired:
+
+        return {
+            "error":"jianpu_ly timeout",
+            "log":"超過60秒沒有完成",
+            "folder":work_dir
+        }
+
+
+
+    print("================")
     print("jianpu_ly output:")
     print(result.stdout)
+    print("================")
 
 
     if result.returncode != 0:
+
         return {
             "error":"jianpu_ly失敗",
             "log":result.stdout,
