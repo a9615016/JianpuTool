@@ -1,199 +1,132 @@
 import sys
+import os
 import music21
-from music21 import converter, stream, note, chord, meter, duration
 
 
 print("CLEAN MUSICXML V2")
 
 
-if len(sys.argv) < 3:
-    print(
-        "usage: python clean_musicxml.py input.musicxml output.musicxml"
-    )
-    sys.exit(1)
-
-
-input_file = sys.argv[1]
-output_file = sys.argv[2]
+src = sys.argv[1]
+dst = sys.argv[2]
 
 
 print("input:")
-print(input_file)
+print(src)
 
 print("output:")
-print(output_file)
+print(dst)
 
 
-
-print("讀取 MusicXML")
-
-score = converter.parse(input_file)
+score = music21.converter.parse(src)
 
 
+# ======================
+# 移除 chord
+# ======================
 
-print("移除 voices / chords")
+for part in score.parts:
 
+    for c in list(part.recurse().getElementsByClass("Chord")):
 
-# 只保留第一個 part
-if len(score.parts) > 0:
-    part = score.parts[0]
-else:
-    part = score
-
-
-
-new_part = stream.Part()
-
-
-# 強制4/4
-ts = meter.TimeSignature("4/4")
-new_part.insert(0, ts)
-
-
-
-print("開始清理")
-
-
-current_measure = stream.Measure(
-    number=1
-)
-
-current_time = 0.0
-
-BAR_LENGTH = 4.0
-
-
-
-for element in part.flatten().notesAndRests:
-
-
-    # chord取最高音
-    if isinstance(element, chord.Chord):
-
-        n = note.Note(
-            element.pitch
+        n = music21.note.Note(
+            c.pitches[0]
         )
 
-        n.duration = element.duration
+        n.duration = c.duration
 
-
-        element = n
-
-
-
-    # 修正 duration
-    ql = element.duration.quarterLength
-
-
-    if ql <= 0:
-        continue
+        c.activeSite.replace(
+            c,
+            n
+        )
 
 
 
-    # quantize
+# ======================
+# 強制單聲部
+# ======================
 
-    allowed = [
-        0.25,
-        0.5,
-        0.75,
-        1,
-        1.5,
+for part in score.parts:
+
+    part.removeByClass("Voice")
+
+
+
+# ======================
+# Quantize
+# ======================
+
+print("quantize")
+
+score.quantize(
+    quarterLengthDivisors=[
+        16,
+        8,
+        4,
         2,
-        3,
-        4
-    ]
-
-
-    closest = min(
-        allowed,
-        key=lambda x: abs(x-ql)
-    )
-
-
-    element.duration = duration.Duration(
-        closest
-    )
-
-
-
-    # 超過小節切割
-
-    if current_time + closest > BAR_LENGTH:
-
-
-        # 補休止
-
-        remain = BAR_LENGTH-current_time
-
-
-        if remain > 0:
-
-            r = note.Rest(
-                quarterLength=remain
-            )
-
-            current_measure.append(r)
-
-
-
-        new_part.append(
-            current_measure
-        )
-
-
-        current_measure = stream.Measure(
-            number=current_measure.number+1
-        )
-
-        current_time = 0
-
-
-
-    current_measure.append(
-        element
-    )
-
-
-    current_time += closest
-
-
-
-# 最後補滿
-
-if current_time < BAR_LENGTH:
-
-
-    r = note.Rest(
-        quarterLength=BAR_LENGTH-current_time
-    )
-
-    current_measure.append(r)
-
-
-
-new_part.append(
-    current_measure
+        1
+    ],
+    processOffsets=True,
+    processDurations=True
 )
 
 
 
-new_score = stream.Score()
+# ======================
+# 強制4/4
+# ======================
 
-new_score.insert(
-    0,
-    new_part
-)
+for part in score.parts:
+
+    for m in part.getElementsByClass(
+        music21.stream.Measure
+    ):
+
+        m.timeSignature = music21.meter.TimeSignature(
+            "4/4"
+        )
 
 
 
-print("寫入 MusicXML")
+# ======================
+# 重新切小節
+# ======================
 
-new_score.write(
+print("make measures")
+
+for part in score.parts:
+
+    part.makeMeasures(
+        inPlace=True
+    )
+
+
+
+# ======================
+# 修正最後超長音
+# ======================
+
+for n in score.recurse().notes:
+
+    if n.duration.quarterLength > 4:
+
+        n.duration.quarterLength = 4
+
+
+
+# ======================
+# output
+# ======================
+
+score.write(
     "musicxml",
-    fp=output_file
+    fp=dst
 )
-
 
 
 print("完成:")
-print(output_file)
+print(dst)
+
+print(
+    "SIZE:",
+    os.path.getsize(dst)
+)
