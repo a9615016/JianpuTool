@@ -154,6 +154,37 @@ result = subprocess.run(
     # =====================
     # MIDI -> MusicXML
     # =====================
+    print("開始 MIDI Quantize")
+
+    clean_mid = os.path.join(
+    work_dir,
+    "melody_clean.mid"
+     )
+
+
+    result = subprocess.run(
+    [
+        "python",
+        "midi_quantize.py",
+        midi,
+        clean_mid
+    ],
+    stdout=subprocess.PIPE,
+    stderr=subprocess.STDOUT,
+    text=True
+    )
+
+
+    print(result.stdout)
+ 
+
+    if result.returncode != 0:
+    return {
+        "error": result.stdout
+    }
+
+
+    midi = clean_mid
 
     print("MIDI轉MusicXML")
 
