@@ -1,268 +1,162 @@
 import sys
-import os
-import xml.etree.ElementTree as ET
-from fractions import Fraction
+import music21
+from music21 import stream, note, chord, meter
 
 
-print("CLEAN VERSION 20260726 V7")
+print("CLEAN VERSION 20260726 V8")
 
 
-if len(sys.argv) < 2:
-    print("usage: python clean_musicxml.py input.musicxml output.musicxml")
-    sys.exit(1)
+def clean_musicxml(input_file, output_file):
 
+    print("input:", input_file)
 
-input_file = sys.argv[1]
+    score = music21.converter.parse(input_file)
 
-if len(sys.argv) >= 3:
-    output_file = sys.argv[2]
-else:
-    output_file = input_file.replace(
-        ".musicxml",
-        "_clean.musicxml"
-    )
 
+    print("remove voices")
+    for p in score.parts:
+        for n in p.recurse():
+            if hasattr(n, "voice"):
+                n.voice = None
 
-print("input:", input_file)
 
+    print("remove chords")
+    for p in score.parts:
+        for c in list(p.recurse().getElementsByClass(chord.Chord)):
+            n = note.Note(c.root())
+            n.duration = c.duration
+            c.activeSite.replace(c, n)
 
-tree = ET.parse(input_file)
-root = tree.getroot()
 
 
-# MusicXML namespace
-ns = {
-    "m": "http://www.musicxml.org/ns/musicxml"
-}
+    print("remove grace")
+    for n in score.recurse().notes:
+        if n.duration.isGrace:
+            n.duration = music21.duration.Duration(0.25)
 
 
-# =========================
-# remove voices
-# =========================
 
-print("remove voices")
+    print("fix duration")
 
-for voice in root.findall(".//m:voice", ns):
-    parent = None
-    for p in root.iter():
-        if voice in list(p):
-            parent = p
-            break
+    # 移除太短音符
+    for n in list(score.recurse().notes):
 
-    if parent is not None:
-        parent.remove(voice)
+        if n.duration.quarterLength < 0.25:
+            n.duration.quarterLength = 0.25
 
 
 
-# =========================
-# remove chords
-# =========================
+    print("remove tuplets")
 
-print("remove chords")
+    for n in score.recurse().notes:
 
-for chord in root.findall(".//m:chord", ns):
-    parent = None
-
-    for p in root.iter():
-        if chord in list(p):
-            parent = p
-            break
-
-    if parent is not None:
-        parent.remove(chord)
-
-
-
-# =========================
-# remove grace
-# =========================
-
-print("remove grace")
-
-for grace in root.findall(".//m:grace", ns):
-    parent = None
-
-    for p in root.iter():
-        if grace in list(p):
-            parent = p
-            break
-
-    if parent is not None:
-        parent.remove(grace)
-
-
-
-# =========================
-# fix note durations
-# =========================
-
-print("fix duration")
-
-
-for note in root.findall(".//m:note", ns):
-
-    duration = note.find("m:duration", ns)
-    typ = note.find("m:type", ns)
-
-
-    if typ is not None:
-
-        value = typ.text
-
-
-        # 禁止128分音符
-        if value == "128th":
-            print("convert 128th -> 64th")
-
-            typ.text = "64th"
-
-            if duration is not None:
-                d = int(duration.text)
-                duration.text = str(max(1, d * 2))
-
-
-        # 64以上保持
-        elif value == "256th":
-            print("convert 256th -> 64th")
-
-            typ.text = "64th"
-
-            if duration is not None:
-                d = int(duration.text)
-                duration.text = str(max(1, d * 4))
-
-
-
-# =========================
-# remove tuplets
-# =========================
-
-print("remove tuplets")
-
-
-for tuplet in root.findall(".//m:tuplet", ns):
-
-    parent=None
-
-    for p in root.iter():
-        if tuplet in list(p):
-            parent=p
-            break
-
-    if parent is not None:
-        parent.remove(tuplet)
-
-
-
-# =========================
-# rebuild measure duration
-# =========================
-
-print("rebuild measures")
-
-
-divisions = 16
-
-
-for measure in root.findall(".//m:measure", ns):
-
-    notes = measure.findall(
-        ".//m:note",
-        ns
-    )
-
-
-    total = 0
-
-    for note in notes:
-
-        duration = note.find(
-            "m:duration",
-            ns
-        )
-
-        if duration is not None:
-
-            total += int(duration.text)
-
-
-
-    # 4/4 = 64 ticks
-    target = 64
-
-
-    if total > target:
-
-        print(
-            "fix measure overflow",
-            measure.attrib.get("number"),
-            total
-        )
-
-
-        overflow = total - target
-
-
-        for note in reversed(notes):
-
-            duration = note.find(
-                "m:duration",
-                ns
+        if n.duration.tuplets:
+            n.duration.quarterLength = round(
+                n.duration.quarterLength,
+                2
             )
 
-            if duration is None:
-                continue
-
-
-            d=int(duration.text)
-
-
-            if d > overflow:
-
-                duration.text=str(
-                    d-overflow
-                )
-
-                break
-
-            else:
-
-                duration.text="1"
-
-                overflow-=d
+            n.duration.tuplets = []
 
 
 
-
-# =========================
-# final cleanup
-# =========================
-
-print("final cleanup")
+    print("rebuild measures")
 
 
-for elem in root.iter():
+    for part in score.parts:
 
-    if elem.text:
-
-        elem.text=elem.text.strip()
+        part.makeMeasures(inPlace=True)
 
 
-
-# =========================
-# write
-# =========================
-
-print("write")
-
-tree.write(
-    output_file,
-    encoding="utf-8",
-    xml_declaration=True
-)
+    print("fix bars")
 
 
-print(
-    "done:",
-    output_file
-)
+    # 4/4
+    for part in score.parts:
+
+        ts = part.recurse().getElementsByClass(
+            meter.TimeSignature
+        )
+
+        if not ts:
+            part.insert(
+                0,
+                meter.TimeSignature("4/4")
+            )
+
+
+    for part in score.parts:
+
+        for m in part.getElementsByClass(stream.Measure):
+
+            total = m.duration.quarterLength
+
+
+            # 太長
+            while total > 4:
+
+                for n in reversed(list(m.notes)):
+
+                    if n.duration.quarterLength > 0.25:
+                        n.duration.quarterLength -= 0.25
+                        break
+
+                total = m.duration.quarterLength
+
+
+
+            # 太短補休止符
+
+            if total < 4:
+
+                r = note.Rest()
+                r.duration.quarterLength = 4-total
+                m.append(r)
+
+
+
+    print("final cleanup")
+
+
+    # 再次量化
+    for n in score.recurse().notes:
+
+        n.duration.quarterLength = round(
+            n.duration.quarterLength,
+            2
+        )
+
+
+    print("write")
+
+    score.write(
+        "musicxml",
+        fp=output_file
+    )
+
+
+    print("done:",output_file)
+
+
+
+if __name__=="__main__":
+
+    if len(sys.argv)<2:
+        print(
+        "python clean_musicxml.py input.musicxml output.musicxml"
+        )
+        sys.exit()
+
+
+    inp=sys.argv[1]
+
+    if len(sys.argv)>=3:
+        out=sys.argv[2]
+    else:
+        out=inp.replace(
+            ".musicxml",
+            "_clean.musicxml"
+        )
+
+
+    clean_musicxml(inp,out)
