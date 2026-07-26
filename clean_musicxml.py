@@ -1,238 +1,249 @@
-# clean_musicxml_final.py
-# FINAL VERSION
-# MusicXML -> jianpu_ly 修正版
-
 import sys
 import xml.etree.ElementTree as ET
+from copy import deepcopy
 
 
-def clean_musicxml(input_file, output_file):
-
-    print("CLEAN MUSICXML FINAL")
-
-    print("input:")
-    print(input_file)
-
-    print("output:")
-    print(output_file)
+print("CLEAN MUSICXML FINAL V2")
 
 
-    tree = ET.parse(input_file)
-    root = tree.getroot()
-
-    ns = ""
-
-    if root.tag.startswith("{"):
-        ns = root.tag.split("}")[0] + "}"
+if len(sys.argv) < 3:
+    print("usage: python clean_musicxml_final.py input.musicxml output.musicxml")
+    sys.exit(1)
 
 
-    print("讀取 MusicXML")
+input_file = sys.argv[1]
+output_file = sys.argv[2]
 
 
-    # divisions
-    divisions = root.find(
-        ".//" + ns + "divisions"
-    )
+print("input:")
+print(input_file)
 
-    if divisions is None:
-        div_value = 16
-    else:
-        div_value = int(divisions.text)
+print("output:")
+print(output_file)
 
 
-    print("divisions:", div_value)
+NS = {
+    "": "http://www.musicxml.org/ns/musicxml"
+}
 
 
-
-    # =========================
-    # 移除 backup / forward
-    # =========================
-
-    for elem in root.iter():
-
-        remove = []
-
-        for child in list(elem):
-
-            tag = child.tag.replace(ns, "")
-
-            if tag in [
-                "backup",
-                "forward"
-            ]:
-                remove.append(child)
+ET.register_namespace("", "http://www.musicxml.org/ns/musicxml")
 
 
-        for r in remove:
-            elem.remove(r)
+tree = ET.parse(input_file)
+root = tree.getroot()
 
 
-
-    print("remove backup forward")
-
+print("讀取 MusicXML")
 
 
-    # =========================
-    # 移除 chord
-    # =========================
+# -------------------------------------------------
+# 1. divisions 固定
+# -------------------------------------------------
 
-    for note in root.iter(ns + "note"):
+for div in root.iter("divisions"):
+    div.text = "16"
 
-        chord = note.find(ns + "chord")
-
-        if chord is not None:
-            note.remove(chord)
+print("set divisions = 16")
 
 
+# -------------------------------------------------
+# 2. 移除 chord
+# -------------------------------------------------
 
-    print("remove chords")
+for note in root.iter("note"):
+    for child in list(note):
+        if child.tag == "chord":
+            note.remove(child)
 
-
-
-    # =========================
-    # 只留第一個 voice
-    # =========================
-
-    for measure in root.iter(ns + "measure"):
-
-        voice_found = False
-
-        remove_notes = []
+print("remove chord")
 
 
-        for note in measure.findall(
-            ns + "note"
-        ):
+# -------------------------------------------------
+# 3. 只留 voice 1
+# -------------------------------------------------
 
-            voice = note.find(
-                ns + "voice"
-            )
+for measure in root.iter("measure"):
 
+    for note in list(measure):
+
+        if note.tag.endswith("note"):
+
+            voice = note.find("voice")
 
             if voice is not None:
+                if voice.text != "1":
+                    measure.remove(note)
 
-                if not voice_found:
 
-                    if voice.text != "1":
-                        voice.text = "1"
+print("keep voice 1")
 
-                    voice_found = True
 
+# -------------------------------------------------
+# 4. duration 量化
+# -------------------------------------------------
+
+for duration in root.iter("duration"):
+
+    try:
+        value = int(duration.text)
+
+        # 10080 PPQ轉16格
+        new_value = round(value / 630)
+
+        if new_value < 1:
+            new_value = 1
+
+        duration.text = str(new_value)
+
+    except:
+        pass
+
+
+print("quantize duration")
+
+
+# -------------------------------------------------
+# 5. 修正小節長度
+# -------------------------------------------------
+
+BAR_LENGTH = 64
+
+
+for measure in root.iter("measure"):
+
+    total = 0
+
+    notes = []
+
+    for note in list(measure):
+
+        if note.tag.endswith("note"):
+
+            dur = note.find("duration")
+
+            if dur is not None:
+
+                try:
+                    d = int(dur.text)
+
+                    total += d
+
+                    notes.append(note)
+
+                except:
+                    pass
+
+
+    # 超過小節
+    while total > BAR_LENGTH:
+
+        excess = total - BAR_LENGTH
+
+
+        if notes:
+
+            last = notes[-1]
+
+            dur = last.find("duration")
+
+
+            if dur is not None:
+
+                old = int(dur.text)
+
+                new = old - excess
+
+
+                if new > 0:
+
+                    dur.text = str(new)
+
+                    print(
+                        "trim note",
+                        excess
+                    )
 
                 else:
 
-                    remove_notes.append(note)
+                    dur.text = "1"
+
+
+        break
 
 
 
-        for n in remove_notes:
-            measure.remove(n)
+    # 不足補 rest
+
+    if total < BAR_LENGTH:
+
+        rest = ET.Element("note")
 
 
-
-    print("keep voice 1")
-
+        ET.SubElement(rest,"rest")
 
 
-    # =========================
-    # 修正 duration
-    # =========================
-
-    for note in root.iter(ns+"note"):
-
-        duration = note.find(
-            ns+"duration"
+        ET.SubElement(
+            rest,
+            "duration"
+        ).text = str(
+            BAR_LENGTH-total
         )
 
-        if duration is not None:
 
-            value = int(duration.text)
+        ET.SubElement(
+            rest,
+            "voice"
+        ).text="1"
 
 
-            # 防止過長音符
-
-            if value > div_value*4:
-
-                duration.text = str(
-                    div_value*4
-                )
+        measure.append(rest)
 
 
 
-    print("fix duration")
+print("fix measure length")
+
+
+# -------------------------------------------------
+# 6. 移除多餘 tag
+# -------------------------------------------------
+
+remove_tags = [
+    "backup",
+    "forward",
+    "print",
+    "sound"
+]
+
+
+for tag in remove_tags:
+
+    for elem in root.iter(tag):
+
+        parent = None
+
+        for p in root.iter():
+
+            if elem in list(p):
+                parent=p
+                break
+
+
+        if parent is not None:
+
+            parent.remove(elem)
 
 
 
-    # =========================
-    # 移除複雜標記
-    # =========================
-
-    remove_tags = [
-        "notations",
-        "articulations",
-        "ornaments",
-        "technical",
-        "tie",
-        "lyric"
-    ]
+print("remove extra tags")
 
 
-    for tag in remove_tags:
-
-        for elem in root.iter(
-            ns+tag
-        ):
-
-            parent = None
-
-            for p in root.iter():
-
-                if elem in list(p):
-
-                    parent=p
-                    break
+tree.write(
+    output_file,
+    encoding="utf-8",
+    xml_declaration=True
+)
 
 
-            if parent is not None:
-
-                parent.remove(elem)
-
-
-
-    print("remove extra tags")
-
-
-
-    # =========================
-    # 寫入
-    # =========================
-
-
-    tree.write(
-        output_file,
-        encoding="utf-8",
-        xml_declaration=True
-    )
-
-
-    print("完成:")
-    print(output_file)
-
-
-
-if __name__ == "__main__":
-
-
-    if len(sys.argv)<3:
-
-        print(
-            "python clean_musicxml_final.py input.musicxml output.musicxml"
-        )
-
-        sys.exit()
-
-
-    clean_musicxml(
-        sys.argv[1],
-        sys.argv[2]
-    )
+print("完成:")
+print(output_file)
