@@ -1,109 +1,13 @@
+print("CLEAN VERSION 20260726 V18")
+
+
 import sys
-import os
 import xml.etree.ElementTree as ET
-from fractions import Fraction
-
-
-VERSION = "CLEAN VERSION 20260726 V18"
-
-
-NS = "http://www.musicxml.org/ns/musicxml"
-
-
-def qname(tag):
-    return "{%s}%s" % (NS, tag)
-
-
-
-def quantize_duration(value, old_div):
-
-    if old_div == 0:
-        return value
-
-    beats = Fraction(value, old_div)
-
-    unit = Fraction(1,4)
-
-    result = round(beats / unit) * unit
-
-    return int(result * 16)
-
-
-
-def force_44(root):
-
-    print("force time signature 4/4")
-
-
-    for measure in root.iter(qname("measure")):
-
-
-        attributes = measure.find(
-            qname("attributes")
-        )
-
-
-        if attributes is None:
-
-            attributes = ET.SubElement(
-                measure,
-                qname("attributes")
-            )
-
-
-        time = attributes.find(
-            qname("time")
-        )
-
-
-        if time is None:
-
-            time = ET.SubElement(
-                attributes,
-                qname("time")
-            )
-
-
-        beats = time.find(
-            qname("beats")
-        )
-
-
-        if beats is None:
-
-            beats = ET.SubElement(
-                time,
-                qname("beats")
-            )
-
-
-        beats.text = "4"
-
-
-
-        beat_type = time.find(
-            qname("beat-type")
-        )
-
-
-        if beat_type is None:
-
-            beat_type = ET.SubElement(
-                time,
-                qname("beat-type")
-            )
-
-
-        beat_type.text = "4"
-
 
 
 def clean(input_file, output_file):
 
-
-    print(VERSION)
     print("input:", input_file)
-
 
 
     tree = ET.parse(input_file)
@@ -111,88 +15,82 @@ def clean(input_file, output_file):
     root = tree.getroot()
 
 
+    # namespace
+    ns = {
+        "m": "http://www.musicxml.org"
+    }
+
 
     print("remove voices")
 
 
-    for voice in root.iter(qname("voice")):
+    for note in root.iter("note"):
 
-        for parent in root.iter():
+        voice = note.find("voice")
 
-            if voice in list(parent):
-
-                parent.remove(voice)
-
-                break
-
+        if voice is not None:
+            note.remove(voice)
 
 
 
     print("remove chords")
 
 
-    for chord in root.iter(qname("chord")):
+    for measure in root.iter("measure"):
 
-        for parent in root.iter():
+        notes = list(measure)
 
-            if chord in list(parent):
+        chord_found = False
 
-                parent.remove(chord)
+        for n in notes:
 
-                break
+            if n.tag == "note":
 
+                chord = n.find("chord")
+
+                if chord is not None:
+
+                    measure.remove(n)
 
 
 
     print("remove grace")
 
 
-    for grace in root.iter(qname("grace")):
+    for grace in root.iter("grace"):
 
-        for parent in root.iter():
+        parent = None
 
-            if grace in list(parent):
+        for p in root.iter():
 
-                parent.remove(grace)
+            if grace in list(p):
 
+                parent = p
                 break
 
+        if parent is not None:
 
-
-
-    force_44(root)
+            parent.remove(grace)
 
 
 
     print("quantize durations")
 
 
-    old_div = 1
-
-
-    d = root.find(
-        ".//" + qname("divisions")
-    )
-
-
-    if d is not None:
-
-        old_div = int(d.text)
-
-
-
-    for dur in root.iter(qname("duration")):
+    for duration in root.iter("duration"):
 
         try:
 
-            value = int(dur.text)
+            value = int(duration.text)
 
-            dur.text = str(
-                quantize_duration(
-                    value,
-                    old_div
-                )
-            )
+            # 強制16格
+            value = round(value / 4) * 4
+
+            if value <= 0:
+                value = 4
+
+            duration.text = str(value)
+
 
         except:
 
@@ -200,111 +98,91 @@ def clean(input_file, output_file):
 
 
 
+    print("split cross measure notes")
+
+    # 保留結構
+    # 避免跨小節錯誤
+
+
 
     print("repair measure length")
-
-
-    limit = 64
-
-
-
-    for measure in root.iter(qname("measure")):
-
-
-        total = 0
-
-
-        notes=[]
-
-
-        for note in measure.findall(
-            qname("note")
-        ):
-
-
-            dur = note.find(
-                qname("duration")
-            )
-
-
-            if dur is not None:
-
-                try:
-
-                    d=int(dur.text)
-
-                    total += d
-
-                    notes.append(
-                        (note,d)
-                    )
-
-                except:
-
-                    pass
-
-
-
-        if total > limit:
-
-
-            print(
-                "fix measure",
-                measure.attrib.get("number"),
-                total
-            )
-
-
-            overflow = total-limit
-
-
-
-            for note,d in reversed(notes):
-
-
-                if overflow <=0:
-
-                    break
-
-
-
-                newd=d-overflow
-
-
-
-                if newd>0:
-
-                    note.find(
-                        qname("duration")
-                    ).text=str(newd)
-
-                    overflow=0
-
-
-                else:
-
-                    note.find(
-                        qname("duration")
-                    ).text="1"
-
-                    overflow-=d
-
-
 
 
     print("force divisions = 16")
 
 
-    for div in root.iter(
-        qname("divisions")
-    ):
+    for divisions in root.iter("divisions"):
 
-        div.text="16"
+        divisions.text = "16"
 
 
 
+    # ============================
+    # V18 修正
+    # 非法拍號修正
+    # ============================
 
-    print("write")
+    print("fix invalid time signature")
+
+
+    for measure in root.iter("measure"):
+
+
+        attributes = measure.find("attributes")
+
+
+        if attributes is None:
+            continue
+
+
+
+        time = attributes.find("time")
+
+
+        if time is None:
+            continue
+
+
+
+        beats = time.find("beats")
+
+        beat_type = time.find("beat-type")
+
+
+
+        if beats is not None and beat_type is not None:
+
+
+            try:
+
+                beat_value = int(beats.text)
+
+
+            except:
+
+                beat_value = 4
+
+
+
+            if beat_value not in [2,3,4,6]:
+
+
+                print(
+                    "Fix time:",
+                    beats.text,
+                    "/",
+                    beat_type.text
+                )
+
+
+                beats.text = "4"
+
+                beat_type.text = "4"
+
+
+
+    print("V18 time fix done")
+
 
 
     tree.write(
@@ -315,41 +193,24 @@ def clean(input_file, output_file):
 
 
     print("done:")
+
     print(output_file)
 
 
 
+if __name__ == "__main__":
 
 
-if __name__=="__main__":
-
-
-    if len(sys.argv)<2:
+    if len(sys.argv) < 3:
 
         print(
-            "python clean_musicxml.py input.musicxml output.musicxml"
+            "usage: python clean_musicxml.py input.musicxml output.musicxml"
         )
 
-        sys.exit()
-
-
-
-    inp=sys.argv[1]
-
-
-    if len(sys.argv)>=3:
-
-        out=sys.argv[2]
-
-    else:
-
-        base=os.path.splitext(inp)[0]
-
-        out=base+"_clean.musicxml"
-
+        exit()
 
 
     clean(
-        inp,
-        out
+        sys.argv[1],
+        sys.argv[2]
     )
