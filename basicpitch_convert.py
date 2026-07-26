@@ -1,50 +1,26 @@
 import sys
+import os
 
 from basic_pitch.inference import predict
 from basic_pitch import ICASSP_2022_MODEL_PATH
-from basic_pitch import note_events_to_midi
+from basic_pitch.utilities import note_events_to_midi
 
 
-if len(sys.argv) < 3:
-    print("usage: python basicpitch_convert.py input.mp3 output.mid")
-    sys.exit(1)
+input_audio = sys.argv[1]
+output_midi = sys.argv[2]
 
 
-input_file = sys.argv[1]
-output_file = sys.argv[2]
+print("BasicPitch input:", input_audio)
 
 
-print("================")
-print("BasicPitch開始")
-print("輸入:", input_file)
-print("================")
+model_output, midi_data, note_events = predict(
+    input_audio,
+    ICASSP_2022_MODEL_PATH
+)
 
 
-try:
-
-    result = predict(
-        input_file,
-        model_or_model_path=ICASSP_2022_MODEL_PATH
-    )
+with open(output_midi, "wb") as f:
+    midi_data.write(f)
 
 
-    note_events = result[0]
-
-
-    midi = note_events_to_midi(note_events)
-
-
-    midi.write(output_file)
-
-
-    print("================")
-    print("MIDI完成")
-    print(output_file)
-    print("================")
-
-
-except Exception as e:
-
-    print("BasicPitch錯誤")
-    print(e)
-    sys.exit(1)
+print("MIDI完成:", output_midi)
