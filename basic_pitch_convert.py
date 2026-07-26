@@ -1,12 +1,15 @@
 import sys
 import os
 
-from basic_pitch.inference import predict_and_save
+from basic_pitch.inference import (
+    predict_and_save,
+    Model
+)
 
 
 if len(sys.argv) < 3:
     print("Usage: python basic_pitch_convert.py input.mp3 output.mid")
-    exit(1)
+    sys.exit(1)
 
 
 input_audio = sys.argv[1]
@@ -22,9 +25,14 @@ output_dir = os.path.dirname(output_midi)
 os.makedirs(output_dir, exist_ok=True)
 
 
+# 載入 BasicPitch 模型
+model = Model()
+
+
 predict_and_save(
     [input_audio],
     output_dir,
+    model,
     save_midi=True,
     sonify_midi=False,
     save_model_outputs=False,
@@ -32,11 +40,12 @@ predict_and_save(
 )
 
 
-# BasicPitch 會自己產生名字
-# 找 midi
-for f in os.listdir(output_dir):
-    if f.endswith(".mid"):
-        src = os.path.join(output_dir,f)
+# 找產生的 midi
+for file in os.listdir(output_dir):
+
+    if file.endswith(".mid"):
+
+        src = os.path.join(output_dir, file)
 
         if src != output_midi:
             os.rename(src, output_midi)
