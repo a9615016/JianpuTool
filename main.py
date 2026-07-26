@@ -1,3 +1,4 @@
+print("MAIN VERSION 20260726 QUANTIZE")
 from fastapi import FastAPI, UploadFile, File
 from fastapi.responses import HTMLResponse, FileResponse
 import os
