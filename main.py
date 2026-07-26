@@ -208,7 +208,7 @@ async def upload(file: UploadFile = File(...)):
 
     musicxml = os.path.join(
         work_dir,
-        "score.musicxml"
+        "input.musicxml"
     )
 
 
