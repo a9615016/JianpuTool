@@ -11,28 +11,28 @@ if len(sys.argv) < 3:
 
 
 input_audio = sys.argv[1]
-output_mid = sys.argv[2]
+output_dir = os.path.dirname(sys.argv[2])
+
+filename = os.path.basename(
+    sys.argv[2]
+)
 
 
-print("開始 BasicPitch")
-print("輸入:", input_audio)
-
-
-output_dir = os.path.dirname(output_mid)
+print("BasicPitch input:")
+print(input_audio)
 
 
 predict_and_save(
     [input_audio],
     output_dir,
-    True,                  # save_midi
-    True,                  # sonify_midi
-    True,                  # save_model_outputs
-    True,                  # save_notes
+    True,
+    True,
+    True,
     ICASSP_2022_MODEL_PATH
 )
 
 
-# BasicPitch輸出的檔名
+# BasicPitch 預設輸出名稱
 generated = os.path.join(
     output_dir,
     os.path.splitext(
@@ -41,13 +41,15 @@ generated = os.path.join(
 )
 
 
-if os.path.exists(generated):
+target = sys.argv[2]
 
+
+if os.path.exists(generated):
     os.rename(
         generated,
-        output_mid
+        target
     )
 
 
 print("MIDI完成:")
-print(output_mid)
+print(target)
