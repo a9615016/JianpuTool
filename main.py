@@ -90,7 +90,39 @@ async def upload(file: UploadFile = File(...)):
         work_dir,
         "melody.mid"
     )
+    print("開始 MIDI Quantize")
 
+
+clean_mid = os.path.join(
+    work_dir,
+    "melody_clean.mid"
+)
+
+
+result = subprocess.run(
+    [
+        "python",
+        "midi_quantize.py",
+        midi,
+        clean_mid
+    ],
+    stdout=subprocess.PIPE,
+    stderr=subprocess.STDOUT,
+    text=True
+    )
+
+
+    print(result.stdout)
+
+
+    if result.returncode != 0:
+    return {
+        "error": result.stdout
+    }
+
+
+    # 後面改用量化後 MIDI
+    midi = clean_mid
 
     result = subprocess.run(
         [
