@@ -2,10 +2,24 @@ import sys
 import music21
 
 
+def quantize_length(value):
+    """
+    量化到 1/4 拍
+    """
+    value = float(value)
+
+    value = round(value * 4) / 4
+
+    if value <= 0:
+        value = 0.25
+
+    return value
+
+
+
 def clean_musicxml(input_file, output_file):
 
-    print("CLEAN VERSION 20260726")
-
+    print("CLEAN VERSION 20260726 V2")
     print("input:", input_file)
 
 
@@ -43,7 +57,9 @@ def clean_musicxml(input_file, output_file):
             for voice in voices:
 
                 for e in voice.notesAndRests:
+
                     elements.append(e)
+
 
 
             measure.removeByClass(
@@ -93,7 +109,7 @@ def clean_musicxml(input_file, output_file):
 
 
     # ==========================
-    # Remove Grace
+    # Remove Grace Notes
     # ==========================
 
     print("remove grace notes")
@@ -111,7 +127,7 @@ def clean_musicxml(input_file, output_file):
 
 
     # ==========================
-    # Quantize Duration
+    # Quantize
     # ==========================
 
     print("quantize duration")
@@ -119,24 +135,9 @@ def clean_musicxml(input_file, output_file):
 
     for n in score.recurse().notesAndRests:
 
-
-        ql = float(
+        n.duration.quarterLength = quantize_length(
             n.duration.quarterLength
         )
-
-
-        # 最小1/16拍
-        ql = round(
-            ql * 4
-        ) / 4
-
-
-        if ql <= 0:
-
-            ql = 0.25
-
-
-        n.duration.quarterLength = ql
 
 
 
@@ -151,7 +152,9 @@ def clean_musicxml(input_file, output_file):
 
         if n.duration.tuplets:
 
-            ql = n.duration.quarterLength
+            ql = quantize_length(
+                n.duration.quarterLength
+            )
 
             n.duration.clear()
 
@@ -174,12 +177,19 @@ def clean_musicxml(input_file, output_file):
         ):
 
 
-            expected = measure.barDuration.quarterLength
+            expected = float(
+                measure.barDuration.quarterLength
+            )
+
+
+            elements = list(
+                measure.notesAndRests
+            )
 
 
             total = sum(
-                e.duration.quarterLength
-                for e in measure.notesAndRests
+                float(e.duration.quarterLength)
+                for e in elements
             )
 
 
@@ -188,29 +198,67 @@ def clean_musicxml(input_file, output_file):
 
 
             # 少拍補 Rest
-            if diff > 0:
+            if diff > 0.01:
+
 
                 rest = music21.note.Rest()
 
-                rest.duration.quarterLength = diff
+
+                rest.duration.quarterLength = quantize_length(
+                    diff
+                )
+
 
                 measure.append(rest)
 
 
 
-            # 超拍縮最後音符
-            elif diff < 0:
+            # 超拍修正最後元素
+            elif diff < -0.01:
 
 
-                for e in reversed(
-                    measure.notesAndRests
-                ):
+                print(
+                    "shorten measure:",
+                    measure.number,
+                    total,
+                    expected
+                )
 
-                    if e.duration.quarterLength + diff > 0:
 
-                        e.duration.quarterLength += diff
+                for e in reversed(elements):
+
+
+                    new_value = (
+                        float(e.duration.quarterLength)
+                        + diff
+                    )
+
+
+                    new_value = quantize_length(
+                        new_value
+                    )
+
+
+                    if new_value > 0:
+
+                        e.duration.quarterLength = new_value
 
                         break
+
+
+
+    # ==========================
+    # Final Duration Check
+    # ==========================
+
+    print("final duration check")
+
+
+    for n in score.recurse().notesAndRests:
+
+        n.duration.quarterLength = quantize_length(
+            n.duration.quarterLength
+        )
 
 
 
@@ -224,6 +272,7 @@ def clean_musicxml(input_file, output_file):
     score.makeMeasures(
         inPlace=True
     )
+
 
 
     # ==========================
@@ -252,7 +301,11 @@ if __name__ == "__main__":
     if len(sys.argv) < 2:
 
         print(
-            "Usage: python clean_musicxml.py input.musicxml output.musicxml"
+            "Usage:"
+        )
+
+        print(
+            "python clean_musicxml.py input.musicxml output.musicxml"
         )
 
         sys.exit(1)
