@@ -187,7 +187,7 @@ async def upload(file: UploadFile = File(...)):
 
     clean_xml = os.path.join(
         work_dir,
-        "score_clean.musicxml"
+        "Jainpu.musicxml"
     )
 
 
