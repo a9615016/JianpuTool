@@ -1,23 +1,23 @@
 import sys
-import os
 import xml.etree.ElementTree as ET
+import os
 
 
 print("CLEAN VERSION 20260726 V21")
 
-
 if len(sys.argv) < 2:
-    print("usage: python clean_musicxml.py input.musicxml [output.musicxml]")
+    print("usage: python clean_musicxml.py input.musicxml output.musicxml")
     sys.exit(1)
-
 
 input_file = sys.argv[1]
 
 if len(sys.argv) >= 3:
     output_file = sys.argv[2]
 else:
-    base = os.path.splitext(input_file)[0]
-    output_file = base + "_clean.musicxml"
+    output_file = input_file.replace(
+        ".musicxml",
+        "_clean.musicxml"
+    )
 
 
 print("input:", input_file)
@@ -27,145 +27,124 @@ tree = ET.parse(input_file)
 root = tree.getroot()
 
 
-# namespace
 ns = {
-    "m": "http://www.musicxml.org/xlink"
+    "m": "http://www.musicxml.org/ns/musicxml"
 }
 
 
+def tag(x):
+    return x.tag.split("}")[-1]
+
+
 print("remove voices")
-
-
-# 移除 voice
 for elem in root.iter():
-    for child in list(elem):
-        if child.tag.endswith("voice"):
-            elem.remove(child)
+    if tag(elem) == "voice":
+        elem.text = "1"
 
 
 print("remove chords")
-
-
-# 移除 chord
-for elem in root.iter():
-    for child in list(elem):
-        if child.tag.endswith("chord"):
-            elem.remove(child)
+for note in root.iter():
+    if tag(note) == "note":
+        for child in list(note):
+            if tag(child) == "chord":
+                note.remove(child)
 
 
 print("remove grace")
+for note in root.iter():
+    if tag(note) == "note":
+        for child in list(note):
+            if tag(child) == "grace":
+                note.remove(child)
 
 
-# 移除 grace
-for elem in root.iter():
-    for child in list(elem):
-        if child.tag.endswith("grace"):
-            elem.remove(child)
+print("force 4/4")
 
 
+# 修正所有拍號
+for measure in root.iter():
+    if tag(measure) == "attributes":
 
-# ==========================
-# V21 強制全部 4/4
-# ==========================
+        for time in measure:
+            if tag(time) == "time":
 
-print("force time signature V21")
+                beats = None
+                beat_type = None
 
+                for x in time:
+                    if tag(x) == "beats":
+                        beats = x
+                    if tag(x) == "beat-type":
+                        beat_type = x
 
-for time in root.iter():
+                if beats is not None:
+                    beats.text = "4"
 
-    if time.tag.endswith("time"):
-
-        beats = None
-        beat_type = None
-
-        for child in time:
-            if child.tag.endswith("beats"):
-                beats = child
-
-            if child.tag.endswith("beat-type"):
-                beat_type = child
-
-
-        if beats is None:
-            beats = ET.SubElement(time, "beats")
-
-        if beat_type is None:
-            beat_type = ET.SubElement(time, "beat-type")
+                if beat_type is not None:
+                    beat_type.text = "4"
 
 
-        beats.text = "4"
-        beat_type.text = "4"
+print("fix measure duration V21")
 
 
-
-# ==========================
-# V21 修 duration
-# ==========================
-
-print("fix durations V21")
-
-
+# 移除可能造成 jianpu_ly KeyError 的異常資訊
 for elem in root.iter():
 
-    if elem.tag.endswith("duration"):
+    if tag(elem) == "measure-style":
+
+        parent = None
+
+        for child in list(elem):
+            if tag(child) in [
+                "multiple-rest",
+                "measure-repeat"
+            ]:
+                elem.remove(child)
+
+
+# 修正 divisions
+for elem in root.iter():
+
+    if tag(elem) == "divisions":
 
         try:
+            value = int(elem.text)
 
-            value = float(elem.text)
-
-            # 避免超大 duration
-            if value > 64 or value <= 0:
-                print(
-                    "fix duration:",
-                    value,
-                    "-> 4"
-                )
-                elem.text = "4"
-
+            if value <= 0:
+                elem.text = "1"
 
         except:
-
-            elem.text = "4"
-
+            elem.text = "1"
 
 
-# ==========================
-# 移除非法 time
-# ==========================
 
 print("remove invalid time")
 
 
+# 最後保證不存在奇怪 time signature
 for elem in root.iter():
 
-    if elem.tag.endswith("beats"):
+    if tag(elem) == "time":
 
-        try:
-            if float(elem.text) > 12:
-                elem.text = "4"
+        beats = None
+        beat = None
 
-        except:
-            elem.text = "4"
+        for c in elem:
+            if tag(c) == "beats":
+                beats = c
+            if tag(c) == "beat-type":
+                beat = c
 
 
-    if elem.tag.endswith("beat-type"):
+        if beats is None:
+            beats = ET.SubElement(elem, "beats")
 
-        try:
+        if beat is None:
+            beat = ET.SubElement(elem, "beat-type")
 
-            allowed = [
-                "1",
-                "2",
-                "4",
-                "8",
-                "16"
-            ]
 
-            if elem.text not in allowed:
-                elem.text = "4"
-
-        except:
-
-            elem.text = "4"
+        beats.text = "4"
+        beat.text = "4"
 
 
 
@@ -176,6 +155,5 @@ tree.write(
 )
 
 
-print()
 print("V21 DONE:")
 print(output_file)
