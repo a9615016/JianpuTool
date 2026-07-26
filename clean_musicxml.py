@@ -2,16 +2,18 @@ import sys
 import music21
 
 
+print("CLEAN VERSION 20260726 V5")
+
+
 # ==========================
-# 最小音符限制
-# 1/16拍
+# 強制量化
+# 最小 1/16 拍
 # ==========================
 
-def fix_length(value):
+def quantize_length(value):
 
     value = float(value)
 
-    # 四捨五入到 16 分音符
     value = round(value * 4) / 4
 
     if value <= 0:
@@ -21,9 +23,12 @@ def fix_length(value):
 
 
 
+# ==========================
+# 清理
+# ==========================
+
 def clean_musicxml(input_file, output_file):
 
-    print("CLEAN VERSION 20260726 V4")
     print("input:", input_file)
 
 
@@ -32,59 +37,7 @@ def clean_musicxml(input_file, output_file):
 
 
     # ==========================
-    # Remove Voices
-    # ==========================
-
-    print("remove voices")
-
-
-    for part in score.parts:
-
-        for measure in part.getElementsByClass(
-            music21.stream.Measure
-        ):
-
-            voices = list(
-                measure.getElementsByClass(
-                    music21.stream.Voice
-                )
-            )
-
-
-            if voices:
-
-                elements=[]
-
-
-                for v in voices:
-
-                    for e in v.notesAndRests:
-                        elements.append(e)
-
-
-                measure.removeByClass(
-                    music21.stream.Voice
-                )
-
-
-                offset=0
-
-
-                for e in elements:
-
-                    e.offset=offset
-
-                    measure.insert(
-                        offset,
-                        e
-                    )
-
-                    offset += e.quarterLength
-
-
-
-    # ==========================
-    # Remove Chords
+    # Remove chords
     # ==========================
 
     print("remove chords")
@@ -97,19 +50,19 @@ def clean_musicxml(input_file, output_file):
         )
     ):
 
-        n = chord.notes[-1]
+        note = chord.notes[-1]
 
-        n.duration = chord.duration
+        note.duration = chord.duration
 
         chord.activeSite.replace(
             chord,
-            n
+            note
         )
 
 
 
     # ==========================
-    # Remove Grace
+    # Remove grace
     # ==========================
 
     print("remove grace")
@@ -126,156 +79,203 @@ def clean_musicxml(input_file, output_file):
 
 
     # ==========================
-    # Fix Duration
+    # Collect notes
+    # ==========================
+
+    print("collect notes")
+
+
+    all_elements = []
+
+
+    for part in score.parts:
+
+        for e in part.flatten().notesAndRests:
+
+            all_elements.append(e)
+
+
+
+    # ==========================
+    # Fix duration
     # ==========================
 
     print("fix duration")
 
 
-    for n in score.recurse().notesAndRests:
+    for e in all_elements:
 
-        n.duration.quarterLength = fix_length(
-            n.duration.quarterLength
+        e.duration.quarterLength = quantize_length(
+            e.duration.quarterLength
         )
 
 
+        # 禁止128分音符
+
+        if e.duration.quarterLength < 0.25:
+
+            e.duration.quarterLength = 0.25
+
+
+
+        # remove tuplet
+
+        if e.duration.tuplets:
+
+            e.duration.clear()
+
+
 
     # ==========================
-    # Remove Tuplets
+    # 建立新的 Part
     # ==========================
 
-    print("remove tuplets")
+    print("rebuild 4/4 measures")
 
 
-    for n in score.recurse().notesAndRests:
+    new_score = music21.stream.Score()
 
 
-        if n.duration.tuplets:
+    new_part = music21.stream.Part()
 
 
-            length = fix_length(
-                n.duration.quarterLength
+    new_part.append(
+        music21.instrument.Instrument()
+    )
+
+
+    new_measure = music21.stream.Measure(
+        number=1
+    )
+
+
+    current = 0
+
+
+    measure_no = 1
+
+
+
+    for e in all_elements:
+
+
+        length = float(
+            e.duration.quarterLength
+        )
+
+
+        # 如果超過4拍
+
+        if current + length > 4:
+
+
+            remain = 4-current
+
+
+            if remain > 0:
+
+
+                r = music21.note.Rest()
+
+                r.duration.quarterLength = remain
+
+                new_measure.append(r)
+
+
+
+            new_part.append(
+                new_measure
             )
 
 
-            n.duration.clear()
-
-            n.duration.quarterLength = length
+            measure_no += 1
 
 
-
-    # ==========================
-    # Rebuild measures
-    # ==========================
-
-    print("rebuild measures")
+            new_measure = music21.stream.Measure(
+                number=measure_no
+            )
 
 
-    score.makeMeasures(
-        inPlace=True
+            current = 0
+
+
+
+        e.offset = current
+
+
+        new_measure.insert(
+            current,
+            e
+        )
+
+
+        current += length
+
+
+
+        # 滿4拍換小節
+
+        if current >= 4:
+
+
+            new_part.append(
+                new_measure
+            )
+
+
+            measure_no += 1
+
+
+            new_measure = music21.stream.Measure(
+                number=measure_no
+            )
+
+
+            current = 0
+
+
+
+    # 最後不足補休止符
+
+    if current < 4:
+
+
+        r = music21.note.Rest()
+
+        r.duration.quarterLength = (
+            4-current
+        )
+
+        new_measure.append(r)
+
+
+
+    new_part.append(
+        new_measure
+    )
+
+
+    new_score.append(
+        new_part
     )
 
 
 
     # ==========================
-    # Fix measure duration
+    # Time signature
     # ==========================
 
-    print("fix bars")
+    print("set 4/4")
 
 
-    for part in score.parts:
+    ts = music21.meter.TimeSignature(
+        "4/4"
+    )
 
-
-        for measure in part.getElementsByClass(
-            music21.stream.Measure
-        ):
-
-
-            expected = measure.barDuration.quarterLength
-
-
-            total = sum(
-                e.duration.quarterLength
-                for e in measure.notesAndRests
-            )
-
-
-            diff = expected-total
-
-
-
-            # 不足補休止符
-
-            if diff > 0.01:
-
-
-                r = music21.note.Rest()
-
-                r.duration.quarterLength = fix_length(diff)
-
-                measure.append(r)
-
-
-
-            # 超過刪最後音符長度
-
-            elif diff < -0.01:
-
-
-                print(
-                    "short measure",
-                    measure.number,
-                    total,
-                    expected
-                )
-
-
-                for e in reversed(
-                    list(measure.notesAndRests)
-                ):
-
-                    new_len = (
-                        e.duration.quarterLength
-                        +
-                        diff
-                    )
-
-
-                    new_len = fix_length(
-                        new_len
-                    )
-
-
-                    if new_len > 0:
-
-                        e.duration.quarterLength = new_len
-
-                        break
-
-
-
-    # ==========================
-    # Final check
-    # ==========================
-
-    print("final cleanup")
-
-
-    for n in score.recurse().notesAndRests:
-
-        n.duration.quarterLength = fix_length(
-            n.duration.quarterLength
-        )
-
-
-    # 清除不可表達 duration
-
-    for n in score.recurse().notesAndRests:
-
-        if n.duration.type == "inexpressible":
-
-            n.duration.quarterLength = 0.25
+    new_part.insert(
+        0,
+        ts
+    )
 
 
 
@@ -286,7 +286,7 @@ def clean_musicxml(input_file, output_file):
     print("write")
 
 
-    score.write(
+    new_score.write(
         "musicxml",
         fp=output_file
     )
@@ -299,10 +299,11 @@ def clean_musicxml(input_file, output_file):
 
 
 
+
 if __name__ == "__main__":
 
 
-    if len(sys.argv)<2:
+    if len(sys.argv) < 2:
 
         print(
             "python clean_musicxml.py input.musicxml output.musicxml"
@@ -312,16 +313,16 @@ if __name__ == "__main__":
 
 
 
-    input_file=sys.argv[1]
+    input_file = sys.argv[1]
 
 
-    if len(sys.argv)>=3:
+    if len(sys.argv) >= 3:
 
-        output_file=sys.argv[2]
+        output_file = sys.argv[2]
 
     else:
 
-        output_file=input_file.replace(
+        output_file = input_file.replace(
             ".musicxml",
             "_clean.musicxml"
         )
