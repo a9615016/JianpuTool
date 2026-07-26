@@ -201,16 +201,73 @@ if __name__ == "__main__":
 # Force valid MusicXML for jianpu_ly
 # ======================================
 
+    # =========================
+# V19 Force 4/4
+# =========================
+
 print("force time signature 4/4 V19")
 
 
-# -------------------------
-# 修正拍號
-# -------------------------
+# 重新取得 root
+root = tree.getroot()
 
+
+# namespace
 for elem in root.iter():
 
-    if elem.tag.endswith("time"):
+    tag = elem.tag.split("}")[-1]
+
+
+    # 修改 time signature
+    if tag == "time":
+
+        # remove existing beats
+        for child in list(elem):
+            ctag = child.tag.split("}")[-1]
+
+            if ctag in [
+                "beats",
+                "beat-type"
+            ]:
+                elem.remove(child)
+
+
+        # 加入 4/4
+
+        beats = ET.SubElement(
+            elem,
+            "{http://www.musicxml.org/ns/musicxml}beats"
+        )
+
+        beats.text = "4"
+
+
+        beat_type = ET.SubElement(
+            elem,
+            "{http://www.musicxml.org/ns/musicxml}beat-type"
+        )
+
+        beat_type.text = "4"
+
+
+
+        print("V19 time fix done")
+
+
+        # 保存
+
+        tree.write(
+        output_file,
+        encoding="utf-8",
+        xml_declaration=True
+        )
+
+
+        print("V19 DONE:")
+        print(output_file)
+
+
+        if elem.tag.endswith("time"):
 
         for child in elem:
 
