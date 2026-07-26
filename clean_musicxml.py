@@ -202,13 +202,16 @@ for measure in root.iter(tag("measure")):
 
 
     print("V21.1 measure fix done")
+    # ==========================
+    # remove invalid time
+    # ==========================
+
     print("remove invalid time")
 
-
+    # V21.1 final pass
     for elem in root.iter():
-
     if elem.tag.endswith("measure-style"):
-        parent = None
+        continue
 
 
 
