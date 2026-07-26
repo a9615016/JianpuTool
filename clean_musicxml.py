@@ -196,3 +196,88 @@ if __name__ == "__main__":
         sys.argv[1],
         sys.argv[2]
     )
+    # ======================================
+# CLEAN VERSION 20260726 V19
+# Force valid MusicXML for jianpu_ly
+# ======================================
+
+print("force time signature 4/4 V19")
+
+
+# -------------------------
+# 修正拍號
+# -------------------------
+
+for elem in root.iter():
+
+    if elem.tag.endswith("time"):
+
+        for child in elem:
+
+            if child.tag.endswith("beats"):
+                child.text = "4"
+
+            elif child.tag.endswith("beat-type"):
+                child.text = "4"
+
+
+
+# -------------------------
+# divisions 固定 16
+# -------------------------
+
+for elem in root.iter():
+
+    if elem.tag.endswith("divisions"):
+        elem.text = "16"
+
+
+
+# -------------------------
+# 移除 jianpu_ly 不支援項目
+# -------------------------
+
+remove_tags = [
+    "time-modification",
+    "tuplet",
+    "grace"
+]
+
+
+for parent in root.iter():
+
+    for child in list(parent):
+
+        for tag in remove_tags:
+
+            if child.tag.endswith(tag):
+                parent.remove(child)
+
+
+
+# -------------------------
+# 強制小節完整
+# -------------------------
+
+for measure in root.iter():
+
+    if measure.tag.endswith("measure"):
+
+        duration = None
+
+        for child in measure:
+
+            if child.tag.endswith("duration"):
+                duration = child
+                break
+
+
+        if duration is not None:
+
+            # 4/4, divisions=16
+            # 一小節 = 64
+            duration.text = "64"
+
+
+
+        print("V19 time fix done")
