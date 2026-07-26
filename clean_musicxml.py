@@ -3,7 +3,8 @@ import os
 import xml.etree.ElementTree as ET
 
 
-VERSION = "CLEAN VERSION 20260726 V10"
+VERSION = "CLEAN VERSION 20260726 V11"
+
 
 NS = {
     "m": "http://www.musicxml.org/ns/musicxml"
@@ -16,26 +17,10 @@ def T(name):
     return f"{{{NS['m']}}}{name}"
 
 
-def remove_child(parent, name):
+def remove_tag(parent, name):
     for x in list(parent):
         if x.tag == T(name):
             parent.remove(x)
-
-
-def quantize(d, divisions=16):
-
-    allowed = [
-        divisions * 4,   # whole
-        divisions * 2,   # half
-        divisions,       # quarter
-        divisions // 2,  # eighth
-        divisions // 4   # sixteenth
-    ]
-
-    return min(
-        allowed,
-        key=lambda x: abs(x-d)
-    )
 
 
 def make_rest(duration):
@@ -69,11 +54,12 @@ def clean_musicxml(inp, out):
 
 
     divisions = 16
+    measure_length = 64
 
 
-    # ----------------------
-    # divisions 固定
-    # ----------------------
+    # ------------------
+    # 固定 divisions
+    # ------------------
 
     for d in root.iter(T("divisions")):
         d.text = str(divisions)
@@ -84,13 +70,13 @@ def clean_musicxml(inp, out):
 
     for note in root.iter(T("note")):
 
-        remove_child(note,"voice")
-        remove_child(note,"chord")
-        remove_child(note,"grace")
+        remove_tag(note,"voice")
+        remove_tag(note,"chord")
+        remove_tag(note,"grace")
 
 
 
-    print("quantize duration")
+    print("fix duration")
 
 
     for note in root.iter(T("note")):
@@ -103,12 +89,11 @@ def clean_musicxml(inp, out):
 
                 value = int(dur.text)
 
-                dur.text = str(
-                    quantize(
-                        value,
-                        divisions
-                    )
-                )
+                # 避免太小碎音
+                if value < 2:
+                    value = 2
+
+                dur.text = str(value)
 
             except:
                 pass
@@ -118,10 +103,8 @@ def clean_musicxml(inp, out):
     print("rebuild measures")
 
 
-    target = divisions * 4 * 4
 
-
-    for measure_no, measure in enumerate(
+    for no, measure in enumerate(
         root.iter(T("measure")),
         1
     ):
@@ -136,99 +119,97 @@ def clean_musicxml(inp, out):
 
         for n in notes:
 
-            dur = n.find(
-                T("duration")
-            )
+            d = n.find(T("duration"))
 
-            if dur is not None:
+            if d is not None:
 
-                try:
-                    total += int(dur.text)
-                except:
-                    pass
+                total += int(d.text)
 
 
 
         print(
             "measure",
-            measure_no,
+            no,
+            "before:",
             total
         )
 
 
 
-        # ------------------
-        # 超過小節
-        # ------------------
+        # --------------------
+        # 超過小節修正
+        # --------------------
 
-        if total > target:
-
-            overflow = total-target
-
-            print(
-                "trim",
-                overflow
-            )
+        if total > measure_length:
 
 
-            for n in reversed(notes):
+            remain = measure_length
 
-                dur = n.find(
-                    T("duration")
-                )
 
-                if dur is None:
+            for n in list(notes):
+
+                d = n.find(T("duration"))
+
+                if d is None:
                     continue
 
 
-                value=int(dur.text)
+                value = int(d.text)
 
 
-                if overflow >= value:
+                if remain <= 0:
 
                     measure.remove(n)
 
-                    overflow -= value
+
+                elif value <= remain:
+
+                    remain -= value
 
 
                 else:
 
-                    dur.text=str(
-                        value-overflow
-                    )
+                    # 切斷最後音符
 
-                    break
+                    d.text = str(remain)
+
+                    remain = 0
 
 
 
-        # ------------------
-        # 不足補 rest
-        # ------------------
+            total = measure_length
 
-        elif total < target:
 
-            remain = target-total
+
+        # --------------------
+        # 不足補休止
+        # --------------------
+
+        if total < measure_length:
+
+            rest = measure_length-total
 
             print(
-                "add rest",
-                remain
+                "add rest:",
+                rest
             )
 
             measure.append(
-                make_rest(remain)
+                make_rest(rest)
             )
+
+
+
+        print(
+            "measure",
+            no,
+            "after:",
+            measure_length
+        )
 
 
 
     print("final cleanup")
-
-
-    # 清除空 duration
-
-    for d in root.iter(T("duration")):
-
-        if d.text is None:
-            d.text="16"
 
 
 
@@ -239,12 +220,16 @@ def clean_musicxml(inp, out):
     )
 
 
-    print("done:",out)
+    print(
+        "done:",
+        out
+    )
 
 
 
 
 if __name__=="__main__":
+
 
     if len(sys.argv)<2:
 
@@ -257,10 +242,15 @@ if __name__=="__main__":
 
     inp=sys.argv[1]
 
+
     if len(sys.argv)>=3:
+
         out=sys.argv[2]
+
     else:
+
         out=os.path.splitext(inp)[0]+"_clean.musicxml"
+
 
 
     clean_musicxml(
