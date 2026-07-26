@@ -1,257 +1,258 @@
 import sys
-import music21
-from music21 import note, chord, meter, stream
+import os
+import xml.etree.ElementTree as ET
+from fractions import Fraction
+
+VERSION = "CLEAN VERSION 20260726 V9"
+
+NS = {
+    "m": "http://www.musicxml.org/ns/musicxml"
+}
+
+ET.register_namespace("", NS["m"])
 
 
-print("CLEAN VERSION 20260726 V8 QUANTIZE")
+def qname(tag):
+    return f"{{{NS['m']}}}{tag}"
 
 
-def quantize_duration(n):
-
-    # 最小單位：16分音符
-    step = 0.25
-
-    q = round(
-        n.duration.quarterLength / step
-    ) * step
+def get_text(elem, tag, default=None):
+    x = elem.find(qname(tag))
+    if x is None:
+        return default
+    return x.text
 
 
-    if q < 0.25:
-        q = 0.25
+def set_text(elem, tag, value):
+    x = elem.find(qname(tag))
+    if x is not None:
+        x.text = str(value)
 
 
-    n.duration.quarterLength = q
+def remove_tag(parent, tag):
+    for x in list(parent):
+        if x.tag == qname(tag):
+            parent.remove(x)
 
+
+def quantize_duration(duration, divisions):
+    """
+    四分音符 divisions
+    對齊 1/16, 1/8, 1/4
+    """
+
+    values = [
+        divisions * 4,      # whole
+        divisions * 2,      # half
+        divisions,          # quarter
+        divisions // 2,     # eighth
+        divisions // 4      # sixteenth
+    ]
+
+    return min(
+        values,
+        key=lambda x: abs(x - duration)
+    )
 
 
 def clean_musicxml(input_file, output_file):
 
+    print(VERSION)
     print("input:", input_file)
 
+    tree = ET.parse(input_file)
+    root = tree.getroot()
 
-    score = music21.converter.parse(input_file)
 
+    # ==========================
+    # divisions
+    # ==========================
+
+    divisions = 16
+
+    for div in root.iter(qname("divisions")):
+        div.text = str(divisions)
 
 
     print("remove voices")
 
-    for n in score.recurse():
+    for note in root.iter(qname("note")):
 
-        if hasattr(n, "voice"):
+        remove_tag(note, "voice")
+        remove_tag(note, "chord")
+        remove_tag(note, "grace")
+
+
+    print("fix duration")
+
+    # ==========================
+    # duration quantize
+    # ==========================
+
+    for note in root.iter(qname("note")):
+
+        dur = note.find(qname("duration"))
+
+        if dur is not None:
+
             try:
-                n.voice = None
+                d = int(dur.text)
+
+                new_d = quantize_duration(
+                    d,
+                    divisions
+                )
+
+                dur.text = str(new_d)
+
             except:
                 pass
 
 
 
-    print("remove chords")
-
-    for c in list(
-        score.recurse()
-        .getElementsByClass(chord.Chord)
-    ):
-
-        if len(c.pitches):
-
-            new = note.Note(
-                c.pitches[0]
-            )
-
-            new.duration = c.duration
-
-            c.activeSite.replace(
-                c,
-                new
-            )
-
-
-
-    print("remove grace")
-
-    for n in score.recurse().notes:
-
-        if n.duration.isGrace:
-
-            n.duration = music21.duration.Duration(
-                0.25
-            )
-
-
-
-    print("QUANTIZE 1/16")
-
-    for n in score.recurse().notes:
-
-        quantize_duration(n)
-
-
-
     print("remove tuplets")
 
-    for n in score.recurse().notes:
-
-        if n.duration.tuplets:
-
-            n.duration.tuplets = []
-
-
-
-    print("remove ultra short notes")
-
-    for n in list(score.recurse().notes):
-
-        if n.duration.quarterLength < 0.25:
-
-            n.duration.quarterLength = 0.25
+    for tuplet in root.iter(qname("tuplet")):
+        parent = None
 
 
 
     print("rebuild measures")
 
 
-    for part in score.parts:
+    # ==========================
+    # 重建 measure
+    # ==========================
 
-        part.makeMeasures(
-            inPlace=True
+    for measure in root.iter(qname("measure")):
+
+        notes = list(
+            measure.findall(qname("note"))
         )
 
 
+        total = 0
 
-    print("force 4/4")
+
+        for note in notes:
+
+            dur = note.find(qname("duration"))
+
+            if dur is not None:
+
+                try:
+                    total += int(dur.text)
+                except:
+                    pass
 
 
-    for part in score.parts:
 
-        ts = (
-            part.recurse()
-            .getElementsByClass(
-                meter.TimeSignature
+        target = divisions * 4 * 4
+
+
+        # 超過小節
+        if total > target:
+
+            overflow = total - target
+
+            print(
+                "trim overflow:",
+                overflow
             )
-        )
 
 
-        if len(ts)==0:
+            for note in reversed(notes):
 
-            part.insert(
-                0,
-                meter.TimeSignature("4/4")
-            )
-
-
-
-    print("measure normalize")
-
-
-    for part in score.parts:
-
-
-        for m in part.getElementsByClass(
-            stream.Measure
-        ):
-
-
-            total = m.duration.quarterLength
-
-
-            # 太長
-            if total > 4:
-
-
-                diff = total - 4
-
-
-                for n in reversed(
-                    list(m.notes)
-                ):
-
-                    if diff <= 0:
-                        break
-
-
-                    remove = min(
-                        diff,
-                        n.duration.quarterLength-0.25
-                    )
-
-
-                    if remove > 0:
-
-                        n.duration.quarterLength -= remove
-
-                        diff -= remove
-
-
-
-            # 太短補休止
-
-            total = m.duration.quarterLength
-
-
-            if total < 4:
-
-                r = note.Rest()
-
-                r.duration.quarterLength = (
-                    4-total
+                dur = note.find(
+                    qname("duration")
                 )
 
-                m.append(r)
+                if dur is None:
+                    continue
+
+                d = int(dur.text)
+
+
+                if overflow >= d:
+                    measure.remove(note)
+                    overflow -= d
+
+                else:
+                    dur.text = str(
+                        d - overflow
+                    )
+                    break
 
 
 
-    print("FINAL QUANTIZE")
+        # 不足補休止符
+
+        elif total < target:
+
+            remain = target - total
 
 
-    for n in score.recurse().notes:
+            rest = ET.Element(
+                qname("note")
+            )
 
-        quantize_duration(n)
+            ET.SubElement(
+                rest,
+                qname("rest")
+            )
+
+            duration = ET.SubElement(
+                rest,
+                qname("duration")
+            )
+
+            duration.text = str(remain)
+
+
+            measure.append(rest)
+
+
+
+    print("final cleanup")
+
+
+    # 移除非法空 duration
+
+    for duration in root.iter(qname("duration")):
+
+        if duration.text is None:
+            duration.text = "16"
 
 
 
     print("write")
 
-
-    score.write(
-        "musicxml",
-        fp=output_file
+    tree.write(
+        output_file,
+        encoding="utf-8",
+        xml_declaration=True
     )
 
 
-    print(
-        "done:",
-        output_file
-    )
-
+    print("done:", output_file)
 
 
 
 if __name__ == "__main__":
 
-
-    if len(sys.argv)<2:
-
+    if len(sys.argv) < 2:
         print(
-        "python clean_musicxml.py input.musicxml output.musicxml"
+            "python clean_musicxml.py input.musicxml [output.musicxml]"
         )
-
-        sys.exit()
-
+        exit()
 
 
     inp = sys.argv[1]
 
-
-    if len(sys.argv)>=3:
-
+    if len(sys.argv) >= 3:
         out = sys.argv[2]
-
     else:
-
-        out = inp.replace(
-            ".musicxml",
-            "_clean.musicxml"
-        )
+        out = os.path.splitext(inp)[0] + "_clean.musicxml"
 
 
     clean_musicxml(
