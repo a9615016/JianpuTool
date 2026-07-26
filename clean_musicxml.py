@@ -1,189 +1,173 @@
-print("CLEAN VERSION 20260726 V18")
+print("CLEAN VERSION 20260726 V19")
 
-
-import sys
 import xml.etree.ElementTree as ET
+import sys
+import os
 
 
 def clean(input_file, output_file):
 
     print("input:", input_file)
 
-
     tree = ET.parse(input_file)
-
     root = tree.getroot()
 
 
-    # namespace
+    # MusicXML namespace
     ns = {
-        "m": "http://www.musicxml.org"
+        "m": "http://www.musicxml.org/ns/musicxml"
     }
 
 
+    # =========================
+    # remove voices
+    # =========================
+
     print("remove voices")
 
-
-    for note in root.iter("note"):
-
-        voice = note.find("voice")
-
-        if voice is not None:
-            note.remove(voice)
+    for elem in root.iter():
+        for child in list(elem):
+            if child.tag.endswith("voice"):
+                elem.remove(child)
 
 
+
+    # =========================
+    # remove chords
+    # =========================
 
     print("remove chords")
 
+    for note in root.iter():
+        if note.tag.endswith("note"):
 
-    for measure in root.iter("measure"):
-
-        notes = list(measure)
-
-        chord_found = False
-
-        for n in notes:
-
-            if n.tag == "note":
-
-                chord = n.find("chord")
-
-                if chord is not None:
-
-                    measure.remove(n)
+            for child in list(note):
+                if child.tag.endswith("chord"):
+                    note.remove(child)
 
 
+
+    # =========================
+    # remove grace
+    # =========================
 
     print("remove grace")
 
+    for note in root.iter():
 
-    for grace in root.iter("grace"):
+        if note.tag.endswith("note"):
 
-        parent = None
-
-        for p in root.iter():
-
-            if grace in list(p):
-
-                parent = p
-                break
-
-        if parent is not None:
-
-            parent.remove(grace)
+            for child in list(note):
+                if child.tag.endswith("grace"):
+                    note.remove(child)
 
 
 
-    print("quantize durations")
+    # =========================
+    # FORCE 4/4
+    # =========================
+
+    print("force 4/4")
 
 
-    for duration in root.iter("duration"):
+    for measure in root.iter():
 
-        try:
+        if measure.tag.endswith("measure"):
 
-            value = int(duration.text)
+            has_time = False
 
-            # 強制16格
-            value = round(value / 4) * 4
+            for attr in list(measure):
 
-            if value <= 0:
-                value = 4
+                if attr.tag.endswith("attributes"):
 
-            duration.text = str(value)
+                    for child in attr:
 
+                        if child.tag.endswith("time"):
 
-        except:
+                            has_time = True
 
-            pass
+                            for x in list(child):
 
-
-
-    print("split cross measure notes")
-
-    # 保留結構
-    # 避免跨小節錯誤
+                                child.remove(x)
 
 
+                            beats = ET.Element("beats")
+                            beats.text = "4"
 
-    print("repair measure length")
+                            beat_type = ET.Element("beat-type")
+                            beat_type.text = "4"
 
-
-    print("force divisions = 16")
-
-
-    for divisions in root.iter("divisions"):
-
-        divisions.text = "16"
+                            child.append(beats)
+                            child.append(beat_type)
 
 
 
-    # ============================
-    # V18 修正
-    # 非法拍號修正
-    # ============================
+            # 沒有拍號補一個
+            if not has_time:
 
-    print("fix invalid time signature")
-
-
-    for measure in root.iter("measure"):
-
-
-        attributes = measure.find("attributes")
-
-
-        if attributes is None:
-            continue
+                pass
 
 
 
-        time = attributes.find("time")
+    # =========================
+    # FIX INVALID DURATIONS
+    # =========================
+
+    print("fix durations")
 
 
-        if time is None:
-            continue
+    valid = {
+        1,
+        2,
+        4,
+        8,
+        16,
+        32
+    }
 
 
+    for duration in root.iter():
 
-        beats = time.find("beats")
-
-        beat_type = time.find("beat-type")
-
-
-
-        if beats is not None and beat_type is not None:
-
+        if duration.tag.endswith("duration"):
 
             try:
 
-                beat_value = int(beats.text)
+                value = int(float(duration.text))
+
+                # 避免 7,14,28 等異常
+                if value not in valid:
+
+                    duration.text = "4"
 
 
             except:
 
-                beat_value = 4
+                duration.text = "4"
 
 
 
-            if beat_value not in [2,3,4,6]:
+    # =========================
+    # remove strange time tags
+    # =========================
+
+    print("remove invalid time")
 
 
-                print(
-                    "Fix time:",
-                    beats.text,
-                    "/",
-                    beat_type.text
-                )
+    for elem in root.iter():
 
+        if elem.tag.endswith("time-modification"):
 
-                beats.text = "4"
+            for child in list(elem):
 
-                beat_type.text = "4"
+                if child.tag.endswith("actual-notes"):
+
+                    elem.remove(child)
 
 
 
-    print("V18 time fix done")
-
-
+    # =========================
+    # WRITE
+    # =========================
 
     tree.write(
         output_file,
@@ -191,50 +175,21 @@ def clean(input_file, output_file):
         xml_declaration=True
     )
 
-    # =========================
-# V19 FORCE TIME SIGNATURE
-# =========================
 
-print("force time signature 4/4 V19")
-
-
-for elem in root.iter():
-
-    # 找 attributes
-    if elem.tag.endswith("attributes"):
-
-        for child in elem:
-
-            # 找 time
-            if child.tag.endswith("time"):
-
-                for item in child:
-
-                    if item.tag.endswith("beats"):
-                        item.text = "4"
-
-                    elif item.tag.endswith("beat-type"):
-                        item.text = "4"
-
-
-
-    print("V19 time fix done")
-    print("done:")
-
+    print("V19 DONE:")
     print(output_file)
 
 
 
 if __name__ == "__main__":
 
-
     if len(sys.argv) < 3:
 
         print(
-            "usage: python clean_musicxml.py input.musicxml output.musicxml"
+            "python clean_musicxml.py input.musicxml output.musicxml"
         )
 
-        exit()
+        sys.exit()
 
 
     clean(
