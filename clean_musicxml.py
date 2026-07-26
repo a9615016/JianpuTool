@@ -1,48 +1,89 @@
 import sys
 import music21
-from music21 import stream, note, chord, meter
+from music21 import note, chord, meter, stream
 
 
-print("CLEAN VERSION 20260726 V8")
+print("CLEAN VERSION 20260726 V8 QUANTIZE")
+
+
+def quantize_duration(n):
+
+    # 最小單位：16分音符
+    step = 0.25
+
+    q = round(
+        n.duration.quarterLength / step
+    ) * step
+
+
+    if q < 0.25:
+        q = 0.25
+
+
+    n.duration.quarterLength = q
+
 
 
 def clean_musicxml(input_file, output_file):
 
     print("input:", input_file)
 
+
     score = music21.converter.parse(input_file)
 
 
+
     print("remove voices")
-    for p in score.parts:
-        for n in p.recurse():
-            if hasattr(n, "voice"):
+
+    for n in score.recurse():
+
+        if hasattr(n, "voice"):
+            try:
                 n.voice = None
+            except:
+                pass
+
 
 
     print("remove chords")
-    for p in score.parts:
-        for c in list(p.recurse().getElementsByClass(chord.Chord)):
-            n = note.Note(c.root())
-            n.duration = c.duration
-            c.activeSite.replace(c, n)
+
+    for c in list(
+        score.recurse()
+        .getElementsByClass(chord.Chord)
+    ):
+
+        if len(c.pitches):
+
+            new = note.Note(
+                c.pitches[0]
+            )
+
+            new.duration = c.duration
+
+            c.activeSite.replace(
+                c,
+                new
+            )
 
 
 
     print("remove grace")
+
     for n in score.recurse().notes:
+
         if n.duration.isGrace:
-            n.duration = music21.duration.Duration(0.25)
+
+            n.duration = music21.duration.Duration(
+                0.25
+            )
 
 
 
-    print("fix duration")
+    print("QUANTIZE 1/16")
 
-    # 移除太短音符
-    for n in list(score.recurse().notes):
+    for n in score.recurse().notes:
 
-        if n.duration.quarterLength < 0.25:
-            n.duration.quarterLength = 0.25
+        quantize_duration(n)
 
 
 
@@ -51,12 +92,18 @@ def clean_musicxml(input_file, output_file):
     for n in score.recurse().notes:
 
         if n.duration.tuplets:
-            n.duration.quarterLength = round(
-                n.duration.quarterLength,
-                2
-            )
 
             n.duration.tuplets = []
+
+
+
+    print("remove ultra short notes")
+
+    for n in list(score.recurse().notes):
+
+        if n.duration.quarterLength < 0.25:
+
+            n.duration.quarterLength = 0.25
 
 
 
@@ -65,69 +112,105 @@ def clean_musicxml(input_file, output_file):
 
     for part in score.parts:
 
-        part.makeMeasures(inPlace=True)
-
-
-    print("fix bars")
-
-
-    # 4/4
-    for part in score.parts:
-
-        ts = part.recurse().getElementsByClass(
-            meter.TimeSignature
+        part.makeMeasures(
+            inPlace=True
         )
 
-        if not ts:
+
+
+    print("force 4/4")
+
+
+    for part in score.parts:
+
+        ts = (
+            part.recurse()
+            .getElementsByClass(
+                meter.TimeSignature
+            )
+        )
+
+
+        if len(ts)==0:
+
             part.insert(
                 0,
                 meter.TimeSignature("4/4")
             )
 
 
+
+    print("measure normalize")
+
+
     for part in score.parts:
 
-        for m in part.getElementsByClass(stream.Measure):
+
+        for m in part.getElementsByClass(
+            stream.Measure
+        ):
+
 
             total = m.duration.quarterLength
 
 
             # 太長
-            while total > 4:
+            if total > 4:
 
-                for n in reversed(list(m.notes)):
 
-                    if n.duration.quarterLength > 0.25:
-                        n.duration.quarterLength -= 0.25
+                diff = total - 4
+
+
+                for n in reversed(
+                    list(m.notes)
+                ):
+
+                    if diff <= 0:
                         break
 
-                total = m.duration.quarterLength
+
+                    remove = min(
+                        diff,
+                        n.duration.quarterLength-0.25
+                    )
+
+
+                    if remove > 0:
+
+                        n.duration.quarterLength -= remove
+
+                        diff -= remove
 
 
 
-            # 太短補休止符
+            # 太短補休止
+
+            total = m.duration.quarterLength
+
 
             if total < 4:
 
                 r = note.Rest()
-                r.duration.quarterLength = 4-total
+
+                r.duration.quarterLength = (
+                    4-total
+                )
+
                 m.append(r)
 
 
 
-    print("final cleanup")
+    print("FINAL QUANTIZE")
 
 
-    # 再次量化
     for n in score.recurse().notes:
 
-        n.duration.quarterLength = round(
-            n.duration.quarterLength,
-            2
-        )
+        quantize_duration(n)
+
 
 
     print("write")
+
 
     score.write(
         "musicxml",
@@ -135,28 +218,43 @@ def clean_musicxml(input_file, output_file):
     )
 
 
-    print("done:",output_file)
+    print(
+        "done:",
+        output_file
+    )
 
 
 
-if __name__=="__main__":
+
+if __name__ == "__main__":
+
 
     if len(sys.argv)<2:
+
         print(
         "python clean_musicxml.py input.musicxml output.musicxml"
         )
+
         sys.exit()
 
 
-    inp=sys.argv[1]
+
+    inp = sys.argv[1]
+
 
     if len(sys.argv)>=3:
-        out=sys.argv[2]
+
+        out = sys.argv[2]
+
     else:
-        out=inp.replace(
+
+        out = inp.replace(
             ".musicxml",
             "_clean.musicxml"
         )
 
 
-    clean_musicxml(inp,out)
+    clean_musicxml(
+        inp,
+        out
+    )
