@@ -2,13 +2,12 @@ import sys
 import xml.etree.ElementTree as ET
 import copy
 
-
-print("CLEAN MUSICXML V4")
+print("CLEAN MUSICXML V5")
 
 
 if len(sys.argv) < 3:
-    print("Usage:")
-    print("python clean_musicxml_v4.py input.musicxml output.musicxml")
+    print("usage:")
+    print("python clean_musicxml.py input.musicxml output.musicxml")
     sys.exit(1)
 
 
@@ -23,6 +22,9 @@ print("output:")
 print(output_file)
 
 
+ET.register_namespace("", "http://www.musicxml.org/ns/musicxml")
+
+
 tree = ET.parse(input_file)
 root = tree.getroot()
 
@@ -32,205 +34,172 @@ ns = {
 }
 
 
-# 處理 namespace
-for elem in root.iter():
-    if elem.tag.startswith("{"):
-        elem.tag = elem.tag.split("}",1)[1]
+DIVISION = 16
+
+MEASURE_LENGTH = 64   # 4/4
 
 
 print("讀取 MusicXML")
 
 
-# divisions
-divisions = 16
+# -------------------------
+# 移除 namespace helper
+# -------------------------
+
+def tag(e):
+    return e.tag.split("}")[-1]
 
 
-for d in root.iter("divisions"):
-    divisions = int(d.text)
-    break
+# -------------------------
+# 處理每個 measure
+# -------------------------
+
+for measure in root.iter():
+
+    if tag(measure) != "measure":
+        continue
 
 
-print("divisions:", divisions)
-
-
-
-# 找第一個 part
-part = root.find(".//part")
-
-if part is None:
-    print("No part")
-    sys.exit(1)
-
-
-
-print("開始整理 notes")
-
-
-notes = []
-
-
-for measure in part.findall("measure"):
-
-    for child in list(measure):
-
-        if child.tag == "note":
-
-            # 移除 chord
-            chord = child.find("chord")
-            if chord is not None:
-                continue
-
-
-            duration = child.find("duration")
-
-            if duration is None:
-                continue
-
-
-            try:
-                dur = int(duration.text)
-            except:
-                continue
-
-
-            # 移除太短或異常
-            if dur <= 0:
-                continue
-
-
-            notes.append(copy.deepcopy(child))
-
-
-
-print("notes:", len(notes))
-
-
-
-print("重新建立小節")
-
-
-# 清空原 measures
-
-for m in part.findall("measure"):
-    part.remove(m)
-
-
-
-measure_no = 1
-
-current = 0
-
-
-measure = ET.Element(
-    "measure",
-    {"number":str(measure_no)}
-)
-
-
-def add_measure():
-
-    global measure_no, measure
-
-    part.append(measure)
-
-    measure_no += 1
-
-    measure = ET.Element(
-        "measure",
-        {"number":str(measure_no)}
+    print(
+        "processing measure",
+        measure.attrib.get("number")
     )
 
 
+    notes = []
 
-for note in notes:
+    for child in list(measure):
 
+        if tag(child) == "note":
 
-    duration_node = note.find("duration")
-
-    dur = int(duration_node.text)
-
-
-
-    # 超過小節拆開
-    while dur > 0:
+            # 移除 chord
+            for c in list(child):
+                if tag(c) == "chord":
+                    child.remove(c)
 
 
-        remain = 64 - current
+            notes.append(child)
 
 
-        if dur <= remain:
+    # ---------------------
+    # 計算 duration
+    # ---------------------
+
+    total = 0
+
+    for n in notes:
+
+        d = n.find("{*}duration")
+
+        if d is not None:
+            try:
+                total += int(d.text)
+            except:
+                pass
 
 
-            new_note = copy.deepcopy(note)
-
-            new_note.find("duration").text = str(dur)
-
-            measure.append(new_note)
-
-            current += dur
-
-            dur = 0
+    print(
+        "measure duration:",
+        total
+    )
 
 
+    # ---------------------
+    # 超過小節
+    # 刪除最後超出的 note
+    # ---------------------
 
-        else:
+    if total > MEASURE_LENGTH:
 
+        print(
+            "trim overflow",
+            total
+        )
 
-            # 前半段
+        current = 0
 
-            part_note = copy.deepcopy(note)
+        for n in list(notes):
 
-            part_note.find("duration").text = str(remain)
+            d = n.find("{*}duration")
 
-            measure.append(part_note)
+            if d is None:
+                continue
 
-
-            dur -= remain
-
-
-            current = 64
-
-
-
-        if current >= 64:
-
-
-            add_measure()
-
-            current = 0
+            value = int(d.text)
 
 
+            if current + value > MEASURE_LENGTH:
 
-# 最後一小節
+                measure.remove(n)
 
-if len(measure):
+            else:
 
-    # 補休止符
-
-    remain = 64-current
-
-    if remain > 0:
+                current += value
 
 
-        rest = ET.Element("note")
+
+    # ---------------------
+    # 不足補 rest
+    # ---------------------
+
+    total = 0
+
+    for n in measure:
+
+        if tag(n) == "note":
+
+            d = n.find("{*}duration")
+
+            if d is not None:
+
+                total += int(d.text)
 
 
-        ET.SubElement(rest,"rest")
+    if total < MEASURE_LENGTH:
+
+        remain = MEASURE_LENGTH - total
+
+
+        print(
+            "add rest:",
+            remain
+        )
+
+
+        rest = ET.Element(
+            "note"
+        )
 
 
         ET.SubElement(
             rest,
+            "rest"
+        )
+
+
+        duration = ET.SubElement(
+            rest,
             "duration"
-        ).text=str(remain)
+        )
+
+        duration.text = str(remain)
+
+
+        voice = ET.SubElement(
+            rest,
+            "voice"
+        )
+
+        voice.text="1"
 
 
         measure.append(rest)
 
 
 
-    add_measure()
-
-
+# -------------------------
+# 寫出
+# -------------------------
 
 print("寫入檔案")
 
