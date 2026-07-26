@@ -1,140 +1,262 @@
 import sys
-import os
-import music21
+import xml.etree.ElementTree as ET
 
 
-def clean_musicxml(input_file, output_file):
-
-    print("CLEAN MUSICXML V2")
-    print("input:")
-    print(input_file)
-
-    print("output:")
-    print(output_file)
-
-    if not os.path.exists(input_file):
-        print("ERROR: input not found")
-        return False
+print("CLEAN MUSICXML V3")
 
 
-    print("讀取 MusicXML")
-
-    score = music21.converter.parse(input_file)
-
-
-    print("開始清理")
+if len(sys.argv) < 3:
+    print("使用:")
+    print("python clean_musicxml_v3.py input.musicxml output.musicxml")
+    sys.exit(1)
 
 
-    # 移除不必要元素
-    for part in score.parts:
-
-        # 移除 chord
-        for chord in part.recurse().getElementsByClass(
-            'Chord'
-        ):
-            chord.remove()
-
-        # 移除 grace note
-        for grace in part.recurse().getElementsByClass(
-            'GraceNote'
-        ):
-            grace.remove()
+input_file = sys.argv[1]
+output_file = sys.argv[2]
 
 
+print("input:")
+print(input_file)
 
-        # 修正所有 note
-        for n in part.recurse().notes:
-
-            # 移除 tie
-            if hasattr(n, "tie"):
-                n.tie = None
+print("output:")
+print(output_file)
 
 
-        # 修正休止符
-        for r in part.recurse().getElementsByClass(
-            'Rest'
-        ):
-            if r.duration.quarterLength <= 0:
-                r.duration.quarterLength = 1
+ET.register_namespace("", "http://www.musicxml.org/ns/musicxml")
 
 
-
-    print("重新整理小節")
-
-
-    # 強制 4/4
-    for part in score.parts:
-
-        measures = part.makeMeasures()
-
-        for m in measures:
-
-            # 確保 measure duration
-            total = m.duration.quarterLength
-
-            if total != 4:
-
-                diff = 4 - total
-
-                if diff > 0:
-
-                    rest = music21.note.Rest()
-                    rest.duration.quarterLength = diff
-                    m.append(rest)
+tree = ET.parse(input_file)
+root = tree.getroot()
 
 
-    print("移除複雜節奏")
+ns = {
+    "m": "http://www.musicxml.org/ns/musicxml"
+}
 
 
-    # quantize
-    score.quantize(
-        quarterLengthDivisors=[
-            4,
-            3,
-            2,
-            1
-        ]
-    )
+print("讀取 MusicXML")
 
 
-    print("寫入檔案")
+# ==========================
+# 固定 divisions
+# ==========================
 
-    score.write(
-        "musicxml",
-        fp=output_file
-    )
+for div in root.findall(".//m:divisions", ns):
+    div.text = "16"
 
 
-    print("完成:")
-    print(output_file)
+# ==========================
+# 固定拍號 4/4
+# ==========================
 
-    print(
-        "SIZE:",
-        os.path.getsize(output_file)
-    )
+for measure_attr in root.findall(".//m:time", ns):
 
-    return True
+    beats = measure_attr.find("m:beats", ns)
+    beat_type = measure_attr.find("m:beat-type", ns)
+
+    if beats is not None:
+        beats.text = "4"
+
+    if beat_type is not None:
+        beat_type.text = "4"
+
+
+# ==========================
+# 移除 tie
+# ==========================
+
+for tie in root.findall(".//m:tie", ns):
+    parent = None
+
+    for p in root.iter():
+        if tie in list(p):
+            parent = p
+            break
+
+    if parent is not None:
+        parent.remove(tie)
+
+
+for tied in root.findall(".//m:tied", ns):
+
+    parent = None
+
+    for p in root.iter():
+        if tied in list(p):
+            parent = p
+            break
+
+    if parent is not None:
+        parent.remove(tied)
 
 
 
-if __name__ == "__main__":
+# ==========================
+# 移除 grace note
+# ==========================
+
+for grace in root.findall(".//m:grace", ns):
+
+    parent = None
+
+    for p in root.iter():
+        if grace in list(p):
+            parent = p
+            break
+
+    if parent is not None:
+        parent.remove(grace)
 
 
-    if len(sys.argv) < 3:
+
+# ==========================
+# 修正 duration
+# ==========================
+
+print("修正 duration")
+
+
+for note in root.findall(".//m:note", ns):
+
+    duration = note.find("m:duration", ns)
+
+    if duration is not None:
+
+        try:
+            value = int(duration.text)
+
+            # 最高限制
+            if value > 64:
+                duration.text = "16"
+
+            # 太小
+            if value <= 0:
+                duration.text = "16"
+
+        except:
+            duration.text = "16"
+
+
+
+# ==========================
+# 移除 voice
+# ==========================
+
+for voice in root.findall(".//m:voice", ns):
+
+    parent = None
+
+    for p in root.iter():
+        if voice in list(p):
+            parent = p
+            break
+
+    if parent is not None:
+        parent.remove(voice)
+
+
+
+# ==========================
+# 移除 chord
+# ==========================
+
+print("移除 chord")
+
+
+for chord in root.findall(".//m:chord", ns):
+
+    parent=None
+
+    for p in root.iter():
+        if chord in list(p):
+            parent=p
+            break
+
+    if parent is not None:
+        parent.remove(chord)
+
+
+
+print("重新整理小節")
+
+
+# ==========================
+# measure reset
+# ==========================
+
+measures = root.findall(".//m:measure", ns)
+
+
+for measure in measures:
+
+    notes = measure.findall("m:note", ns)
+
+    total = 0
+
+
+    for note in notes:
+
+        duration = note.find("m:duration", ns)
+
+        if duration is not None:
+
+            try:
+                total += int(duration.text)
+
+            except:
+                pass
+
+
+
+    # 4/4 = 64 ticks
+    if total > 64:
 
         print(
-            "使用方法:"
+            "trim measure:",
+            measure.attrib.get("number"),
+            total
         )
 
-        print(
-            "python clean_musicxml.py input.musicxml output.musicxml"
-        )
 
-        sys.exit(1)
+        current = 0
 
 
+        for note in notes:
 
-    clean_musicxml(
-        sys.argv[1],
-        sys.argv[2]
-    )
+            duration = note.find("m:duration", ns)
+
+            if duration is None:
+                continue
+
+
+            try:
+                d=int(duration.text)
+
+            except:
+                d=16
+
+
+            if current+d > 64:
+
+                duration.text="16"
+
+                current +=16
+
+            else:
+
+                current+=d
+
+
+
+print("寫入檔案")
+
+
+tree.write(
+    output_file,
+    encoding="utf-8",
+    xml_declaration=True
+)
+
+
+print("完成:")
+print(output_file)
