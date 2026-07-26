@@ -45,7 +45,7 @@ async def upload(file: UploadFile = File(...)):
         str(uuid.uuid4())
     )
 
-    os.makedirs(work_dir, exist=True)
+    os.makedirs(work_dir, exist_ok=True)
 
 
     # MP3
