@@ -4,7 +4,7 @@ import xml.etree.ElementTree as ET
 from fractions import Fraction
 
 
-VERSION = "CLEAN VERSION 20260726 V17"
+VERSION = "CLEAN VERSION 20260726 V18"
 
 
 NS = "http://www.musicxml.org/ns/musicxml"
@@ -22,7 +22,7 @@ def quantize_duration(value, old_div):
 
     beats = Fraction(value, old_div)
 
-    unit = Fraction(1, 4)
+    unit = Fraction(1,4)
 
     result = round(beats / unit) * unit
 
@@ -30,47 +30,80 @@ def quantize_duration(value, old_div):
 
 
 
-def add_tie(note, tie_type):
+def force_44(root):
 
-    tie = ET.SubElement(
-        note,
-        qname("tie")
-    )
-
-    tie.set(
-        "type",
-        tie_type
-    )
+    print("force time signature 4/4")
 
 
-    notations = note.find(
-        qname("notations")
-    )
+    for measure in root.iter(qname("measure")):
 
-    if notations is None:
 
-        notations = ET.SubElement(
-            note,
-            qname("notations")
+        attributes = measure.find(
+            qname("attributes")
         )
 
 
-    tied = ET.SubElement(
-        notations,
-        qname("tied")
-    )
+        if attributes is None:
 
-    tied.set(
-        "type",
-        tie_type
-    )
+            attributes = ET.SubElement(
+                measure,
+                qname("attributes")
+            )
+
+
+        time = attributes.find(
+            qname("time")
+        )
+
+
+        if time is None:
+
+            time = ET.SubElement(
+                attributes,
+                qname("time")
+            )
+
+
+        beats = time.find(
+            qname("beats")
+        )
+
+
+        if beats is None:
+
+            beats = ET.SubElement(
+                time,
+                qname("beats")
+            )
+
+
+        beats.text = "4"
+
+
+
+        beat_type = time.find(
+            qname("beat-type")
+        )
+
+
+        if beat_type is None:
+
+            beat_type = ET.SubElement(
+                time,
+                qname("beat-type")
+            )
+
+
+        beat_type.text = "4"
 
 
 
 def clean(input_file, output_file):
 
+
     print(VERSION)
     print("input:", input_file)
+
 
 
     tree = ET.parse(input_file)
@@ -78,26 +111,17 @@ def clean(input_file, output_file):
     root = tree.getroot()
 
 
-    old_div = 1
-
-    d = root.find(
-        ".//" + qname("divisions")
-    )
-
-    if d is not None:
-        old_div = int(d.text)
-
-
 
     print("remove voices")
 
+
     for voice in root.iter(qname("voice")):
 
-        for p in root.iter():
+        for parent in root.iter():
 
-            if voice in list(p):
+            if voice in list(parent):
 
-                p.remove(voice)
+                parent.remove(voice)
 
                 break
 
@@ -106,13 +130,14 @@ def clean(input_file, output_file):
 
     print("remove chords")
 
+
     for chord in root.iter(qname("chord")):
 
-        for p in root.iter():
+        for parent in root.iter():
 
-            if chord in list(p):
+            if chord in list(parent):
 
-                p.remove(chord)
+                parent.remove(chord)
 
                 break
 
@@ -121,29 +146,50 @@ def clean(input_file, output_file):
 
     print("remove grace")
 
+
     for grace in root.iter(qname("grace")):
 
-        for p in root.iter():
+        for parent in root.iter():
 
-            if grace in list(p):
+            if grace in list(parent):
 
-                p.remove(grace)
+                parent.remove(grace)
 
                 break
 
 
 
 
+    force_44(root)
+
+
+
     print("quantize durations")
+
+
+    old_div = 1
+
+
+    d = root.find(
+        ".//" + qname("divisions")
+    )
+
+
+    if d is not None:
+
+        old_div = int(d.text)
+
 
 
     for dur in root.iter(qname("duration")):
 
         try:
 
+            value = int(dur.text)
+
             dur.text = str(
                 quantize_duration(
-                    int(dur.text),
+                    value,
                     old_div
                 )
             )
@@ -155,11 +201,10 @@ def clean(input_file, output_file):
 
 
 
+    print("repair measure length")
 
-    print("split cross measure notes")
 
-
-    measure_limit = 64
+    limit = 64
 
 
 
@@ -169,14 +214,12 @@ def clean(input_file, output_file):
         total = 0
 
 
-        notes = list(
-            measure.findall(
-                qname("note")
-            )
-        )
+        notes=[]
 
 
-        for note in notes:
+        for note in measure.findall(
+            qname("note")
+        ):
 
 
             dur = note.find(
@@ -184,120 +227,67 @@ def clean(input_file, output_file):
             )
 
 
-            if dur is None:
-                continue
-
-
-            try:
-
-                d = int(dur.text)
-
-            except:
-
-                continue
-
-
-
-            if total + d > measure_limit:
-
-
-                first = measure_limit - total
-
-                second = d - first
-
-
-
-                print(
-                    "split note in measure",
-                    measure.attrib.get("number"),
-                    d,
-                    "=>",
-                    first,
-                    "+",
-                    second
-                )
-
-
-
-                # 原 note 改前半
-
-                dur.text = str(first)
-
-                add_tie(
-                    note,
-                    "start"
-                )
-
-
-
-                # 複製後半 note
-
-                new_note = ET.fromstring(
-                    ET.tostring(note)
-                )
-
-
-                new_dur = new_note.find(
-                    qname("duration")
-                )
-
-                new_dur.text = str(second)
-
-
-                add_tie(
-                    new_note,
-                    "stop"
-                )
-
-
-                measure.append(
-                    new_note
-                )
-
-
-                total = measure_limit
-
-
-
-            else:
-
-                total += d
-
-
-
-
-
-    print("repair measure length")
-
-
-
-    for measure in root.iter(qname("measure")):
-
-
-        total = 0
-
-
-        for note in measure.findall(qname("note")):
-
-            dur = note.find(qname("duration"))
-
             if dur is not None:
 
                 try:
-                    total += int(dur.text)
+
+                    d=int(dur.text)
+
+                    total += d
+
+                    notes.append(
+                        (note,d)
+                    )
 
                 except:
+
                     pass
 
 
 
-        if total != 64:
+        if total > limit:
+
 
             print(
-                "measure duration:",
+                "fix measure",
                 measure.attrib.get("number"),
                 total
             )
+
+
+            overflow = total-limit
+
+
+
+            for note,d in reversed(notes):
+
+
+                if overflow <=0:
+
+                    break
+
+
+
+                newd=d-overflow
+
+
+
+                if newd>0:
+
+                    note.find(
+                        qname("duration")
+                    ).text=str(newd)
+
+                    overflow=0
+
+
+                else:
+
+                    note.find(
+                        qname("duration")
+                    ).text="1"
+
+                    overflow-=d
 
 
 
@@ -305,11 +295,16 @@ def clean(input_file, output_file):
     print("force divisions = 16")
 
 
-    for div in root.iter(qname("divisions")):
+    for div in root.iter(
+        qname("divisions")
+    ):
 
         div.text="16"
 
 
+
+
+    print("write")
 
 
     tree.write(
@@ -348,7 +343,9 @@ if __name__=="__main__":
 
     else:
 
-        out=os.path.splitext(inp)[0]+"_clean.musicxml"
+        base=os.path.splitext(inp)[0]
+
+        out=base+"_clean.musicxml"
 
 
 
