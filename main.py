@@ -218,7 +218,7 @@ async def upload(file: UploadFile = File(...)):
     start = ly_content.find("OctavesAfter")
 
     if start != -1:
-    ly_content = ly_content[start:]
+        ly_content = ly_content[start:]
 
 
     with open(
