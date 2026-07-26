@@ -282,7 +282,13 @@ async def upload(file: UploadFile = File(...)):
     # =========================
 
     print("產生簡譜")
+    from validator_v212 import fix_jianpu_xml
 
+    print("開始 JIANPU V21.2 VALIDATOR")
+
+    fix_jianpu_xml(
+    score_clean_musicxml
+    )
 
     ly_file = os.path.join(
         work_dir,
