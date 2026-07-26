@@ -39,16 +39,17 @@ def run_cmd(cmd):
 @app.post("/upload")
 async def upload(file: UploadFile = File(...)):
 
-
     work_dir = os.path.join(
         "outputs",
         str(uuid.uuid4())
     )
 
-    os.makedirs(work_dir, exist_ok=True)
+    # 修正 exist_ok
+    os.makedirs(
+        work_dir,
+        exist_ok=True
+    )
 
-
-    # MP3
 
     input_audio = os.path.join(
         work_dir,
@@ -64,6 +65,7 @@ async def upload(file: UploadFile = File(...)):
     print("收到:")
     print(file.filename)
     print("================")
+
 
 
     # =====================
@@ -94,10 +96,9 @@ async def upload(file: UploadFile = File(...)):
         }
 
 
-
     if not os.path.exists(midi_file):
         return {
-            "error":"MIDI missing"
+            "error":"MIDI not created"
         }
 
 
@@ -106,8 +107,7 @@ async def upload(file: UploadFile = File(...)):
     # Quantize
     # =====================
 
-
-    clean_midi=os.path.join(
+    clean_midi = os.path.join(
         work_dir,
         "melody_clean.mid"
     )
@@ -116,7 +116,7 @@ async def upload(file: UploadFile = File(...)):
     print("開始 MIDI Quantize")
 
 
-    r=run_cmd([
+    r = run_cmd([
         "python",
         "midi_quantize.py",
         midi_file,
@@ -124,7 +124,7 @@ async def upload(file: UploadFile = File(...)):
     ])
 
 
-    if r.returncode!=0:
+    if r.returncode != 0:
         return {
             "error":"quantize failed",
             "log":r.stdout
@@ -132,13 +132,11 @@ async def upload(file: UploadFile = File(...)):
 
 
 
-
     # =====================
-    # MIDI → MusicXML
+    # MIDI -> MusicXML
     # =====================
 
-
-    musicxml=os.path.join(
+    musicxml = os.path.join(
         work_dir,
         "input.musicxml"
     )
@@ -147,7 +145,7 @@ async def upload(file: UploadFile = File(...)):
     print("MIDI轉MusicXML")
 
 
-    r=run_cmd([
+    r = run_cmd([
         "python",
         "midi_to_musicxml.py",
         clean_midi,
@@ -155,8 +153,7 @@ async def upload(file: UploadFile = File(...)):
     ])
 
 
-
-    if r.returncode!=0:
+    if r.returncode != 0:
         return {
             "error":"musicxml failed",
             "log":r.stdout
@@ -164,13 +161,11 @@ async def upload(file: UploadFile = File(...)):
 
 
 
-
     # =====================
     # Clean MusicXML
     # =====================
 
-
-    clean_xml=os.path.join(
+    clean_xml = os.path.join(
         work_dir,
         "clean.musicxml"
     )
@@ -179,7 +174,7 @@ async def upload(file: UploadFile = File(...)):
     print("清理 MusicXML")
 
 
-    r=run_cmd([
+    r = run_cmd([
         "python",
         "clean_musicxml.py",
         musicxml,
@@ -187,8 +182,7 @@ async def upload(file: UploadFile = File(...)):
     ])
 
 
-
-    if r.returncode!=0:
+    if r.returncode != 0:
         return {
             "error":"clean_musicxml failed",
             "log":r.stdout
@@ -196,12 +190,18 @@ async def upload(file: UploadFile = File(...)):
 
 
 
-    # =====================
-    # Jianpu ly
-    # =====================
+    if not os.path.exists(clean_xml):
+        return {
+            "error":"clean xml missing"
+        }
 
 
-    ly_file=os.path.join(
+
+    # =====================
+    # Jianpu LY
+    # =====================
+
+    ly_file = os.path.join(
         work_dir,
         "jianpu.ly"
     )
@@ -217,7 +217,7 @@ async def upload(file: UploadFile = File(...)):
     ) as f:
 
 
-        r=subprocess.run(
+        r = subprocess.run(
             [
                 "python",
                 "-m",
@@ -230,16 +230,20 @@ async def upload(file: UploadFile = File(...)):
         )
 
 
-    if r.returncode!=0:
-
+    if r.returncode != 0:
         return {
             "error":"jianpu_ly failed",
             "log":r.stderr
         }
 
 
+    if not os.path.exists(ly_file):
+        return {
+            "error":"jianpu.ly not created"
+        }
 
-    print("LY完成:")
+
+    print("jianpu.ly created:")
     print(ly_file)
 
 
@@ -248,11 +252,10 @@ async def upload(file: UploadFile = File(...)):
     # LilyPond
     # =====================
 
-
     print("開始 LilyPond")
 
 
-    r=run_cmd([
+    r = run_cmd([
         "lilypond",
         "-o",
         work_dir,
@@ -260,11 +263,14 @@ async def upload(file: UploadFile = File(...)):
     ])
 
 
-
-    pdf_file=os.path.join(
+    pdf_file = os.path.join(
         work_dir,
         "jianpu.pdf"
     )
+
+
+    print("CHECK PDF:")
+    print(pdf_file)
 
 
     if not os.path.exists(pdf_file):
@@ -275,8 +281,7 @@ async def upload(file: UploadFile = File(...)):
         }
 
 
-
-    print("PDF完成")
+    print("PDF SUCCESS")
 
 
 
