@@ -1,65 +1,49 @@
 import os
 import uuid
-import shutil
 import subprocess
+import shutil
 
 from fastapi import FastAPI, UploadFile, File
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 
 
 app = FastAPI()
 
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = "/app"
+OUTPUT_DIR = "/app/outputs"
 
-OUTPUT_DIR = os.path.join(
-    BASE_DIR,
-    "outputs"
-)
-
-os.makedirs(
-    OUTPUT_DIR,
-    exist_ok=True
-)
-
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
 @app.get("/")
-async def home():
+def home():
+    return HTMLResponse("""
+    <h2>JianpuTool</h2>
 
-    with open(
-        "index.html",
-        encoding="utf-8"
-    ) as f:
+    <form action="/upload" method="post" enctype="multipart/form-data">
 
-        return HTMLResponse(
-            f.read()
-        )
+    <input type="file" name="file">
+
+    <button type="submit">
+    Convert
+    </button>
+
+    </form>
+    """)
 
 
 
 @app.post("/upload")
-async def upload(
-    file: UploadFile = File(...)
-):
+async def upload(file: UploadFile = File(...)):
 
-    job_id = str(uuid.uuid4())
-
+    work_id = str(uuid.uuid4())
     work_dir = os.path.join(
         OUTPUT_DIR,
-        job_id
+        work_id
     )
 
-    os.makedirs(
-        work_dir,
-        exist_ok=True
-    )
-
-
-    mp3 = os.path.join(
-        work_dir,
-        file.filename
-    )
+    os.makedirs(work_dir)
 
 
     print("================")
@@ -68,7 +52,17 @@ async def upload(
     print("================")
 
 
-    with open(mp3, "wb") as f:
+    # =====================
+    # Save MP3
+    # =====================
+
+    mp3 = os.path.join(
+        work_dir,
+        file.filename
+    )
+
+
+    with open(mp3,"wb") as f:
         shutil.copyfileobj(
             file.file,
             f
@@ -78,10 +72,9 @@ async def upload(
     print("MP3保存完成")
 
 
-
-    ################################################
-    # MP3 -> MIDI
-    ################################################
+    # =====================
+    # BasicPitch
+    # =====================
 
     print("開始 BasicPitch")
 
@@ -108,18 +101,17 @@ async def upload(
     print(result.stdout)
 
 
-    if result.returncode != 0:
-
+    if not os.path.exists(midi):
         return {
-            "error":"BasicPitch失敗",
+            "error":"BasicPitch failed",
             "log":result.stdout
         }
 
 
 
-    ################################################
+    # =====================
     # MIDI -> MusicXML
-    ################################################
+    # =====================
 
     print("MIDI轉MusicXML")
 
@@ -146,18 +138,10 @@ async def upload(
     print(result.stdout)
 
 
-    if result.returncode != 0:
 
-        return {
-            "error":"MusicXML產生失敗",
-            "log":result.stdout
-        }
-
-
-
-    ################################################
-    # Clean MusicXML
-    ################################################
+    # =====================
+    # Clean MusicXML V13
+    # =====================
 
     print("清理 MusicXML")
 
@@ -184,94 +168,80 @@ async def upload(
     print(result.stdout)
 
 
-    if result.returncode != 0:
 
-        return {
-            "error":"MusicXML清理失敗",
-            "log":result.stdout
-        }
-
-
-
-    ################################################
-    # MusicXML -> Jianpu
-    ################################################
+    # =====================
+    # jianpu_ly
+    # =====================
 
     print("產生簡譜")
 
-    print(
-        "clean xml size:",
-        os.path.getsize(clean_xml)
-    )
 
-
-    ly = os.path.join(
+    ly_file = os.path.join(
         work_dir,
         "jianpu.ly"
     )
 
 
     print("執行 jianpu_ly")
-    print("輸入檔:", clean_xml)
 
 
-    try:
-
-        result = subprocess.run(
-            [
-                "python",
-                "-m",
-                "jianpu_ly",
-                clean_xml
-            ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            timeout=60
-        )
-
-
-    except subprocess.TimeoutExpired:
-
-        return {
-            "error":"jianpu_ly timeout",
-            "log":"超過60秒沒有完成",
-            "folder":work_dir
-        }
-
+    result = subprocess.run(
+        [
+            "python",
+            "-m",
+            "jianpu_ly",
+            clean_xml
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True
+    )
 
 
     print("================")
-    print("jianpu_ly output:")
-    print(result.stdout)
-    print("================")
+    print("jianpu_ly stderr:")
+    print(result.stderr)
 
 
     if result.returncode != 0:
-
         return {
-            "error":"jianpu_ly失敗",
-            "log":result.stdout,
-            "folder":work_dir
+            "error":"jianpu_ly failed",
+            "log":result.stderr
         }
 
 
+    # 只寫 stdout
     with open(
-        ly,
+        ly_file,
         "w",
         encoding="utf-8"
     ) as f:
 
-        f.write(result.stdout)
+        f.write(
+            result.stdout
+        )
 
 
     print("jianpu.ly完成")
 
 
 
-    ################################################
+    # DEBUG 第一行
+    with open(
+        ly_file,
+        encoding="utf-8"
+    ) as f:
+
+        print(
+            f.read(200)
+        )
+
+
+
+    # =====================
     # LilyPond PDF
-    ################################################
+    # =====================
+
 
     print("LilyPond PDF")
 
@@ -284,8 +254,9 @@ async def upload(
                 work_dir,
                 "jianpu"
             ),
-            ly
+            ly_file
         ],
+        cwd=work_dir,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True
@@ -302,28 +273,16 @@ async def upload(
     )
 
 
-    if os.path.exists(pdf):
+    if not os.path.exists(pdf):
 
-        return FileResponse(
-            pdf,
-            media_type="application/pdf",
-            filename="jianpu.pdf"
-        )
-
-
-    return {
-        "error":"PDF產生失敗",
-        "log":result.stdout,
-        "folder":work_dir
-    }
+        return {
+            "error":"PDF failed",
+            "log":result.stdout
+        }
 
 
-
-
-
-@app.post("/demucs")
-async def demucs(
-    file: UploadFile = File(...)
-):
-
-    return await upload(file)
+    return FileResponse(
+        pdf,
+        media_type="application/pdf",
+        filename="jianpu.pdf"
+    )
