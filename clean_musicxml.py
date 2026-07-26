@@ -4,7 +4,7 @@ import xml.etree.ElementTree as ET
 
 def clean_musicxml(input_file, output_file):
 
-    print("CLEAN MUSICXML FINAL V9")
+    print("CLEAN MUSICXML FINAL V10")
 
     print("input:")
     print(input_file)
@@ -17,12 +17,7 @@ def clean_musicxml(input_file, output_file):
     root = tree.getroot()
 
 
-    ns = {
-        "m": "http://www.musicxml.org/xsd/partwise"
-    }
-
-
-    # namespace
+    # 移除 namespace
     for elem in root.iter():
         if "}" in elem.tag:
             elem.tag = elem.tag.split("}",1)[1]
@@ -30,104 +25,111 @@ def clean_musicxml(input_file, output_file):
 
     print("remove backup forward")
 
-    for backup in root.findall(".//backup"):
-        parent = None
-        for p in root.iter():
-            if backup in list(p):
-                parent = p
-                break
+    for parent in root.iter():
 
-        if parent:
-            parent.remove(backup)
+        for child in list(parent):
+
+            if child.tag == "backup" or child.tag == "forward":
+                parent.remove(child)
+
 
 
     print("remove chords")
 
-    for chord in root.findall(".//chord"):
-        parent = None
-        for p in root.iter():
-            if chord in list(p):
-                parent = p
-                break
+    for parent in root.iter():
 
-        if parent:
-            parent.remove(chord)
+        for child in list(parent):
+
+            if child.tag == "chord":
+                parent.remove(child)
+
+
+
+    print("force divisions=16")
+
+    for div in root.findall(".//divisions"):
+        div.text="16"
+
 
 
     print("force 4/4")
 
-    # 強制所有 part 使用 4/4
-    for measure in root.findall(".//measure"):
+    for time in root.findall(".//time"):
 
-        attrs = measure.findall("attributes")
+        for c in list(time):
+            time.remove(c)
 
-        for attr in attrs:
+        beats=ET.SubElement(time,"beats")
+        beats.text="4"
 
-            time = attr.find("time")
+        beat=ET.SubElement(time,"beat-type")
+        beat.text="4"
 
-            if time is not None:
-
-                for child in list(time):
-                    time.remove(child)
-
-                beats = ET.SubElement(time,"beats")
-                beats.text = "4"
-
-                beat_type = ET.SubElement(time,"beat-type")
-                beat_type.text = "4"
-
-
-    print("fix divisions")
-
-    for div in root.findall(".//divisions"):
-
-        div.text = "16"
 
 
     print("keep voice 1")
 
+    for parent in root.iter():
+
+        for note in list(parent):
+
+            if note.tag=="note":
+
+                voice=note.find("voice")
+
+                if voice is not None and voice.text!="1":
+                    parent.remove(note)
+
+
+
+    print("split long notes")
+
+    # 修正 duration 過長
     for note in root.findall(".//note"):
 
-        voice = note.find("voice")
+        duration = note.find("duration")
 
-        if voice is not None:
+        if duration is not None:
 
-            if voice.text != "1":
+            try:
+                value=int(duration.text)
 
-                parent=None
+                # divisions=16
+                # 一小節=64
+                # 超過64拆短
+                if value > 64:
 
-                for p in root.iter():
+                    print(
+                        "split duration:",
+                        value
+                    )
 
-                    if note in list(p):
-                        parent=p
-                        break
+                    duration.text="64"
 
-                if parent:
-                    parent.remove(note)
+
+            except:
+                pass
+
 
 
     print("remove unsupported tags")
 
-    remove_tags=[
+
+    remove=[
         "staff",
         "instrument",
         "sound"
     ]
 
-    for tag in remove_tags:
 
-        for item in root.findall(".//"+tag):
+    for tag in remove:
 
-            parent=None
+        for parent in root.iter():
 
-            for p in root.iter():
+            for child in list(parent):
 
-                if item in list(p):
-                    parent=p
-                    break
-
-            if parent:
-                parent.remove(item)
+                if child.tag==tag:
+                    parent.remove(child)
 
 
 
@@ -148,7 +150,7 @@ if __name__=="__main__":
     if len(sys.argv)<3:
 
         print(
-            "python clean_musicxml_final_v9.py input.musicxml output.musicxml"
+            "python clean_musicxml_final_v10.py input.musicxml output.musicxml"
         )
 
         sys.exit()
