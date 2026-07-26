@@ -1,284 +1,139 @@
 import sys
+import os
 import music21
 
 
-# ==========================
-# 量化
-# ==========================
+VERSION = "CLEAN VERSION 20260726 V6"
 
-def quantize_length(value):
-
-    value = float(value)
-
-    # 最小 1/16 音符
-    steps = round(value * 4)
-
-    if steps <= 0:
-        steps = 1
-
-    return steps / 4
-
-
-
-# ==========================
-# 清理
-# ==========================
 
 def clean_musicxml(input_file, output_file):
 
-    print("CLEAN VERSION 20260726 V6")
+    print(VERSION)
     print("input:", input_file)
-
 
     score = music21.converter.parse(input_file)
 
-
-
-    # ==========================
-    # Remove Voices
-    # ==========================
-
     print("remove voices")
-
-
     for part in score.parts:
+        for n in part.recurse():
+            if hasattr(n, "voice"):
+                n.voice = None
 
-        for measure in part.getElementsByClass(
-            music21.stream.Measure
-        ):
-
-            voices = list(
-                measure.getElementsByClass(
-                    music21.stream.Voice
-                )
-            )
-
-
-            if voices:
-
-                elements = []
-
-                for v in voices:
-
-                    for e in v.notesAndRests:
-                        elements.append(e)
-
-
-                measure.removeByClass(
-                    music21.stream.Voice
-                )
-
-
-                offset = 0
-
-                for e in elements:
-
-                    e.offset = offset
-
-                    measure.insert(
-                        offset,
-                        e
-                    )
-
-                    offset += e.quarterLength
-
-
-
-    # ==========================
-    # Remove Chords
-    # ==========================
 
     print("remove chords")
+    for part in score.parts:
+        for c in list(part.recurse().getElementsByClass("Chord")):
+            c_notes = c.notes
+            if len(c_notes) > 0:
+                c.activeSite.replace(
+                    c,
+                    c_notes[0]
+                )
 
-
-    for chord in list(
-        score.recurse()
-        .getElementsByClass(
-            music21.chord.Chord
-        )
-    ):
-
-        note = chord.notes[0]
-
-        note.duration = chord.duration
-
-        chord.activeSite.replace(
-            chord,
-            note
-        )
-
-
-
-    # ==========================
-    # Remove Grace
-    # ==========================
 
     print("remove grace")
+    for n in score.recurse():
+        if hasattr(n, "grace"):
+            try:
+                n.duration = n.duration.getGraceDuration()
+            except:
+                pass
 
-
-    for n in list(
-        score.recurse()
-        .notesAndRests
-    ):
-
-        if n.duration.isGrace:
-
-            n.activeSite.remove(n)
-
-
-
-    # ==========================
-    # Duration Normalize
-    # ==========================
 
     print("fix duration")
 
+    # 禁止過短音符
+    print("limit short notes")
 
-    for n in score.recurse().notesAndRests:
+    for n in score.recurse().notes:
 
-        n.duration.clear()
+        q = n.duration.quarterLength
 
-        n.duration.quarterLength = quantize_length(
-            n.duration.quarterLength
-        )
+        # 128分音符以下全部提高
+        if q < 0.0625:
+            n.duration.quarterLength = 0.0625
 
-
-
-    # ==========================
-    # Remove Tuplets
-    # ==========================
 
     print("remove tuplets")
 
-
-    for n in score.recurse().notesAndRests:
+    for n in score.recurse().notes:
 
         if n.duration.tuplets:
-
-            q = quantize_length(
-                n.duration.quarterLength
+            n.duration.quarterLength = (
+                n.duration.quarterLength *
+                n.duration.tuplets[0].tupletMultiplier()
             )
 
-            n.duration.clear()
-
-            n.duration.quarterLength = q
+            n.duration.tuplets = []
 
 
+    print("rebuild measures")
 
-    # ==========================
-    # Fix Bars
-    # ==========================
+    score.makeMeasures(
+        inPlace=True
+    )
+
 
     print("fix bars")
 
+    # 4/4
+    target = 4.0
 
     for part in score.parts:
 
+        for m in part.getElementsByClass("Measure"):
 
-        for measure in part.getElementsByClass(
-            music21.stream.Measure
-        ):
+            length = m.duration.quarterLength
 
-
-            expected = 4.0
-
-
-            elements = list(
-                measure.notesAndRests
-            )
-
-
-            total = sum(
-                float(e.duration.quarterLength)
-                for e in elements
-            )
-
-
-            diff = expected - total
-
-
-
-            # 少拍補休止
-
-            if diff > 0.01:
-
-
-                rest = music21.note.Rest()
-
-                rest.duration.quarterLength = quantize_length(
-                    diff
-                )
-
-                measure.append(rest)
-
-
-
-            # 超拍修最後元素
-
-            elif diff < -0.01:
-
+            # 超過小節
+            if length > target:
 
                 print(
                     "trim measure",
-                    measure.number,
-                    total
+                    m.number,
+                    length
                 )
 
+                remain = target
 
-                remain = expected
-
-
-                for e in elements:
-
+                for n in list(m.notesAndRests):
 
                     if remain <= 0:
-                        break
-
-
-                    length = float(
-                        e.duration.quarterLength
-                    )
-
-
-                    if length > remain:
-
-
-                        e.duration.quarterLength = remain
-
-                        remain = 0
-
+                        m.remove(n)
 
                     else:
 
-                        remain -= length
+                        if n.duration.quarterLength > remain:
+                            n.duration.quarterLength = remain
+
+                        remain -= n.duration.quarterLength
 
 
+            # 不足補休止
+            elif length < target:
 
-    # ==========================
-    # Final Check
-    # ==========================
+                diff = target - length
+
+                r = music21.note.Rest()
+
+                r.duration.quarterLength = diff
+
+                m.insert(
+                    m.duration.quarterLength,
+                    r
+                )
+
 
     print("final cleanup")
 
 
-    for n in score.recurse().notesAndRests:
+    # 再一次移除 tuplets
+    for n in score.recurse().notes:
 
-        n.duration.quarterLength = quantize_length(
-            n.duration.quarterLength
-        )
+        n.duration.tuplets = []
 
-
-
-    # 不重新 makeMeasures
-    # 避免破壞 bar
-
-
-    # ==========================
-    # Write
-    # ==========================
 
     print("write")
-
 
     score.write(
         "musicxml",
@@ -286,39 +141,26 @@ def clean_musicxml(input_file, output_file):
     )
 
 
-    print(
-        "done:",
-        output_file
-    )
+    print("done:", output_file)
 
 
 
 if __name__ == "__main__":
 
-
     if len(sys.argv) < 2:
-
         print(
-            "python clean_musicxml.py input.musicxml output.musicxml"
+            "python clean_musicxml.py input.musicxml [output.musicxml]"
         )
-
-        sys.exit(1)
-
+        exit()
 
 
     input_file = sys.argv[1]
 
-
     if len(sys.argv) >= 3:
-
         output_file = sys.argv[2]
-
     else:
-
-        output_file = input_file.replace(
-            ".musicxml",
-            "_clean.musicxml"
-        )
+        base = os.path.splitext(input_file)[0]
+        output_file = base + "_clean.musicxml"
 
 
     clean_musicxml(
