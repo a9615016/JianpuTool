@@ -69,11 +69,7 @@ async def upload(
     print("================")
 
 
-    with open(
-        mp3,
-        "wb"
-    ) as f:
-
+    with open(mp3, "wb") as f:
         shutil.copyfileobj(
             file.file,
             f
@@ -114,7 +110,6 @@ async def upload(
 
 
     if result.returncode != 0:
-
         return {
             "error":"BasicPitch失敗",
             "log":result.stdout
@@ -152,7 +147,6 @@ async def upload(
 
 
     if result.returncode != 0:
-
         return {
             "error":"MusicXML產生失敗",
             "log":result.stdout
@@ -190,7 +184,6 @@ async def upload(
 
 
     if result.returncode != 0:
-
         return {
             "error":"MusicXML清理失敗",
             "log":result.stdout
@@ -211,32 +204,41 @@ async def upload(
     )
 
 
+    result = subprocess.run(
+        [
+            "python",
+            "-m",
+            "jianpu_ly",
+            clean_xml
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True
+    )
+
+
+    print("jianpu_ly output:")
+    print(result.stdout)
+
+
+    if result.returncode != 0:
+        return {
+            "error":"jianpu_ly失敗",
+            "log":result.stdout,
+            "folder":work_dir
+        }
+
+
     with open(
         ly,
         "w",
         encoding="utf-8"
     ) as f:
 
-
-        result = subprocess.run(
-            [
-                "python",
-                "-m",
-                "jianpu_ly",
-                clean_xml
-            ],
-            stdout=f,
-            stderr=subprocess.STDOUT,
-            text=True
-        )
+        f.write(result.stdout)
 
 
-    if result.returncode != 0:
-
-        return {
-            "error":"jianpu_ly失敗",
-            "folder":work_dir
-        }
+    print("jianpu.ly完成")
 
 
 
