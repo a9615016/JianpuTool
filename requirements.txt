@@ -2,7 +2,7 @@ fastapi==0.115.0
 uvicorn[standard]==0.30.6
 python-multipart==0.0.9
 
-basic-pitch==0.4.0
+basic-pitch[onnx]
 music21==9.1.0
 
 jianpu-ly==1.872
