@@ -1,281 +1,160 @@
 import sys
-import os
-import music21
-from music21 import note, chord, stream
+import xml.etree.ElementTree as ET
+import copy
 
 
-VERSION = "20260726 V14"
+print("CLEAN VERSION 20260726 V14")
+print("force split measure crossing notes")
 
 
-def split_crossing_notes(score):
+input_file = sys.argv[1]
+output_file = sys.argv[2]
 
-    print("split crossing notes")
 
-    for part in score.parts:
+tree = ET.parse(input_file)
+root = tree.getroot()
 
-        new_measures = []
 
-        for m in part.getElementsByClass("Measure"):
+ns = {
+    "m":"http://www.musicxml.org/ns/musicxml"
+}
 
-            expected = 64
-            current = 0
 
-            new_measure = music21.stream.Measure(
-                number=m.number
-            )
+# divisions
+divisions = None
 
-            for element in m.notesAndRests:
+for d in root.iter():
+    if d.tag.endswith("divisions"):
+        divisions = int(d.text)
+        break
 
-                dur = element.duration.quarterLength
 
-                ticks = int(dur * 16)
+if divisions is None:
+    divisions = 16
 
-                # 超過小節容量
-                if current + ticks > expected:
 
-                    remain = expected - current
+print("divisions:", divisions)
 
-                    if remain > 0 and element.isNote:
 
-                        n1 = element.deepcopy()
 
-                        n1.duration.quarterLength = (
-                            remain / 16
-                        )
+# 每小節容量
+measure_length = divisions * 4
 
-                        new_measure.append(n1)
+print("measure length:", measure_length)
 
 
-                    # 建立下一小節
-                    overflow = ticks - remain
 
-                    if overflow > 0 and element.isNote:
+for part in root.iter():
 
-                        n2 = element.deepcopy()
+    if not part.tag.endswith("measure"):
+        continue
 
-                        n2.duration.quarterLength = (
-                            overflow / 16
-                        )
 
-                        # 放入下一小節
-                        new_measure.append(n2)
+    current = 0
 
 
-                    current = overflow
+    notes = list(part)
 
-                else:
 
-                    new_measure.append(
-                        element.deepcopy()
-                    )
+    for elem in notes:
 
-                    current += ticks
 
+        if not elem.tag.endswith("note"):
+            continue
 
-            new_measures.append(
-                new_measure
-            )
 
+        duration_node = None
 
-        part.removeByClass(
-            "Measure"
-        )
+        for c in elem:
 
-        for m in new_measures:
-            part.append(m)
+            if c.tag.endswith("duration"):
+                duration_node=c
+                break
 
 
-    return score
+        if duration_node is None:
+            continue
 
 
+        dur=int(duration_node.text)
 
-def clean_musicxml(
-    input_file,
-    output_file
-):
 
-    print(
-        "CLEAN VERSION",
-        VERSION
-    )
 
-    print(
-        "input:",
-        input_file
-    )
+        remain = measure_length-current
 
 
-    score = music21.converter.parse(
-        input_file
-    )
 
-
-    print("remove voices")
-
-
-    # 移除 voice
-    for v in score.recurse().getElementsByClass(
-        "Voice"
-    ):
-        v.activeSite.remove(v)
-
-
-
-    print("remove chords")
-
-
-    # chord取最高音
-    for c in score.recurse().getElementsByClass(
-        "Chord"
-    ):
-
-        n = note.Note(
-            c.pitches[-1]
-        )
-
-        n.duration = c.duration
-
-        c.activeSite.replace(
-            c,
-            n
-        )
-
-
-
-    print("remove grace")
-
-
-    for n in score.recurse().notes:
-
-        if n.duration.isGrace:
-
-            n.duration = music21.duration.Duration(
-                0.25
-            )
-
-
-
-    print("quantize duration")
-
-
-    for n in score.recurse().notesAndRests:
-
-        q = round(
-            n.duration.quarterLength * 16
-        ) / 16
-
-
-        if q <= 0:
-            q = 0.25
-
-
-        n.duration.quarterLength = q
-
-
-
-    print("repair measures")
-
-
-    score.makeMeasures(
-        inPlace=True
-    )
-
-
-
-    print("split crossing notes")
-
-
-    score = split_crossing_notes(
-        score
-    )
-
-
-    print("rebuild measures")
-
-
-    score.makeMeasures(
-        inPlace=True
-    )
-
-
-
-    print("measure verify")
-
-
-    for part in score.parts:
-
-        for m in part.getElementsByClass(
-            "Measure"
-        ):
-
-            length = 0
-
-            for n in m.notesAndRests:
-
-                length += int(
-                    n.duration.quarterLength * 16
-                )
+        # 超過小節
+        if dur > remain:
 
 
             print(
-                "Measure",
-                m.number,
-                length
+                "split note:",
+                dur,
+                "remain:",
+                remain
             )
 
 
-    print("final cleanup")
+            first = copy.deepcopy(elem)
+            second = copy.deepcopy(elem)
 
 
-    score.write(
-        "musicxml",
-        fp=output_file
-    )
+            for x in first.iter():
+
+                if x.tag.endswith("duration"):
+                    x.text=str(remain)
 
 
-    print(
-        "done:",
-        output_file
-    )
+            for x in second.iter():
+
+                if x.tag.endswith("duration"):
+                    x.text=str(dur-remain)
 
 
 
-if __name__ == "__main__":
+            # tie
+            tie1=ET.SubElement(first,"tie")
+            tie1.set("type","start")
 
 
-    if len(sys.argv) < 2:
-
-        print(
-            "usage:"
-        )
-
-        print(
-            "python clean_musicxml.py input.musicxml output.musicxml"
-        )
-
-        sys.exit()
+            tie2=ET.SubElement(second,"tie")
+            tie2.set("type","stop")
 
 
-    input_file = sys.argv[1]
+
+            index=list(part).index(elem)
 
 
-    if len(sys.argv) >= 3:
+            part.remove(elem)
 
-        output_file = sys.argv[2]
+            part.insert(index,first)
 
-    else:
-
-        base = os.path.splitext(
-            input_file
-        )[0]
-
-        output_file = (
-            base +
-            "_clean.musicxml"
-        )
+            part.insert(index+1,second)
 
 
-    clean_musicxml(
-        input_file,
-        output_file
-    )
+            current=measure_length
+
+
+
+        else:
+
+            current += dur
+
+
+
+    # 修正小節重新計算
+    if current > measure_length:
+        current=measure_length
+
+
+
+tree.write(
+    output_file,
+    encoding="utf-8",
+    xml_declaration=True
+)
+
+
+print("done:")
+print(output_file)
