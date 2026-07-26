@@ -1,3 +1,4 @@
+print("BASIC PITCH VERSION FIX V2")
 import sys
 import os
 
