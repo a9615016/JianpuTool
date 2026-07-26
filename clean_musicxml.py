@@ -3,7 +3,7 @@ import os
 import xml.etree.ElementTree as ET
 
 
-print("CLEAN VERSION 20260726 V21")
+print("CLEAN VERSION 20260726 V21.1")
 
 
 if len(sys.argv) < 2:
@@ -142,11 +142,70 @@ for duration in root.iter(tag("duration")):
 # ==========================
 # remove invalid time
 # ==========================
+# ==========================
+# FINAL JIANPU FIX V21.1
+# ==========================
 
-print("remove invalid time")
+print("fix measure duration V21.1")
 
 
-for elem in root.iter():
+for measure in root.iter(tag("measure")):
+
+    total = 0
+
+    for duration in measure.iter(tag("duration")):
+
+        try:
+            total += float(duration.text)
+
+        except:
+            pass
+
+
+    # jianpu_ly 常用 4/4:
+    # quarter = 4
+    # measure = 16
+
+    # 發現異常小節直接重置
+
+    if total not in [
+        4,
+        8,
+        12,
+        16,
+        32,
+        48,
+        64
+    ]:
+
+        print(
+            "V21.1 fix measure:",
+            total,
+            "-> normalize"
+        )
+
+
+        durations = list(
+            measure.iter(tag("duration"))
+        )
+
+
+        if len(durations) > 0:
+
+            each = 16 / len(durations)
+
+
+            for d in durations:
+
+                d.text = str(each)
+
+
+
+    print("V21.1 measure fix done")
+    print("remove invalid time")
+
+
+    for elem in root.iter():
 
     if elem.tag.endswith("measure-style"):
         parent = None
