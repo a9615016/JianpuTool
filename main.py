@@ -10,13 +10,6 @@ from fastapi.responses import FileResponse
 app = FastAPI()
 
 
-BASE_DIR = "/app"
-OUTPUT_DIR = "outputs"
-
-
-os.makedirs(OUTPUT_DIR, exist_ok=True)
-
-
 @app.get("/")
 def home():
     return {
@@ -25,15 +18,12 @@ def home():
     }
 
 
-
 @app.post("/upload")
 async def upload(file: UploadFile = File(...)):
 
-    work_id = str(uuid.uuid4())
-
     work_dir = os.path.join(
-        OUTPUT_DIR,
-        work_id
+        "outputs",
+        str(uuid.uuid4())
     )
 
     os.makedirs(work_dir, exist_ok=True)
@@ -45,46 +35,50 @@ async def upload(file: UploadFile = File(...)):
     print("================")
 
 
-    # =========================
-    # MP3 SAVE
-    # =========================
+    # =====================
+    # MP3
+    # =====================
 
-    mp3 = os.path.join(
+    mp3_file = os.path.join(
         work_dir,
         file.filename
     )
 
 
-    with open(mp3,"wb") as f:
+    with open(mp3_file,"wb") as f:
         shutil.copyfileobj(
             file.file,
             f
         )
 
-
     print("MP3保存完成")
 
 
-
-    # =========================
+    # =====================
     # BasicPitch
-    # =========================
+    # =====================
 
     print("開始 BasicPitch")
 
 
-    midi = os.path.join(
+    melody_mid = os.path.join(
         work_dir,
         "melody.mid"
+    )
+
+
+    basic_pitch = os.path.join(
+        os.path.dirname(__file__),
+        "basic_pitch_convert.py"
     )
 
 
     result = subprocess.run(
         [
             "python",
-            "basic_pitch_convert.py",
-            mp3,
-            midi
+            basic_pitch,
+            mp3_file,
+            melody_mid
         ],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -95,21 +89,19 @@ async def upload(file: UploadFile = File(...)):
     print(result.stdout)
 
 
-    if result.returncode != 0:
+    if not os.path.exists(melody_mid):
         return {
-            "error":"BasicPitch失敗",
+            "error":"BasicPitch failed",
             "log":result.stdout
         }
 
 
 
-    print("MIDI完成:",midi)
-
-
-
-    # =========================
+    # =====================
     # MIDI Quantize
-    # =========================
+    # =====================
+
+    print("開始 MIDI Quantize")
 
 
     clean_mid = os.path.join(
@@ -118,36 +110,28 @@ async def upload(file: UploadFile = File(...)):
     )
 
 
-    print("開始 MIDI Quantize")
-
-
     subprocess.run(
         [
             "python",
             "midi_quantize.py",
-            midi,
+            melody_mid,
             clean_mid
         ]
     )
 
 
 
-    print("MIDI Quantize完成")
-
-
-
-    # =========================
+    # =====================
     # MIDI -> MusicXML
-    # =========================
+    # =====================
+
+    print("MIDI轉MusicXML")
 
 
-    musicxml = os.path.join(
+    input_xml = os.path.join(
         work_dir,
         "input.musicxml"
     )
-
-
-    print("MIDI轉MusicXML")
 
 
     subprocess.run(
@@ -155,76 +139,52 @@ async def upload(file: UploadFile = File(...)):
             "python",
             "midi_to_musicxml.py",
             clean_mid,
-            musicxml
+            input_xml
         ]
     )
 
 
-    print(
-        "MusicXML:",
-        musicxml
-    )
 
-
-
-    # =========================
-    # CLEAN V21.2
-    # =========================
-
+    # =====================
+    # Clean MusicXML V21.2
+    # =====================
 
     print("清理 MusicXML")
 
 
-    score_clean = os.path.join(
+    clean_xml = os.path.join(
         work_dir,
         "score_clean.musicxml"
     )
 
 
-    result = subprocess.run(
+    subprocess.run(
         [
             "python",
             "clean_musicxml.py",
-            musicxml,
-            score_clean
-        ],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True
+            input_xml,
+            clean_xml
+        ]
     )
 
 
-    print(result.stdout)
-
-
-
-    if not os.path.exists(score_clean):
-
+    if not os.path.exists(clean_xml):
         return {
-            "error":
-            "clean_musicxml沒有產生 score_clean.musicxml"
+            "error":"clean_musicxml failed"
         }
 
 
 
-    print(
-        "V21.2 CLEAN完成",
-        score_clean
-    )
-
-
-
-    # =========================
-    # VALIDATOR V21.2
-    # =========================
-
+    # =====================
+    # Validator V21.2
+    # =====================
 
     print("MusicXML Validator V21.2")
 
 
-    validated = os.path.join(
+    validator_xml = os.path.join(
         work_dir,
-        "validated.musicxml"
+        "jianpu.musicxml"
     )
 
 
@@ -232,22 +192,15 @@ async def upload(file: UploadFile = File(...)):
 
 
     fix_jianpu_xml(
-        score_clean,
-        validated
-    )
-
-
-    print(
-        "Validator完成:",
-        validated
+        clean_xml,
+        validator_xml
     )
 
 
 
-    # =========================
+    # =====================
     # jianpu_ly
-    # =========================
-
+    # =====================
 
     print("產生簡譜")
 
@@ -258,70 +211,58 @@ async def upload(file: UploadFile = File(...)):
     )
 
 
-    result = subprocess.run(
-        [
-            "python",
-            "-m",
-            "jianpu_ly",
-            validated
-        ],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True
-    )
-
-
-    print(result.stdout)
-
-
-
     with open(
         ly_file,
         "w",
         encoding="utf-8"
     ) as f:
 
-        f.write(
-            result.stdout
+        subprocess.run(
+            [
+                "python",
+                "-m",
+                "jianpu_ly",
+                validator_xml
+            ],
+            stdout=f,
+            stderr=subprocess.STDOUT
         )
 
 
 
-    # =========================
+    # =====================
     # LilyPond PDF
-    # =========================
+    # =====================
 
-
-    print("開始 LilyPond")
+    print("產生PDF")
 
 
     subprocess.run(
         [
             "lilypond",
             "-o",
-            work_dir,
+            os.path.join(work_dir,"jianpu"),
             ly_file
         ]
     )
 
 
-    pdf = os.path.join(
+    pdf_file=os.path.join(
         work_dir,
         "jianpu.pdf"
     )
 
 
-
-    if os.path.exists(pdf):
+    if os.path.exists(pdf_file):
 
         return FileResponse(
-            pdf,
+            pdf_file,
             media_type="application/pdf",
             filename="jianpu.pdf"
         )
 
 
     return {
-        "status":"完成",
+        "status":"完成流程",
         "folder":work_dir
     }
