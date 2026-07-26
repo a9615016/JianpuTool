@@ -1,65 +1,42 @@
 import os
 import uuid
-import shutil
 import subprocess
+import shutil
 
 from fastapi import FastAPI, UploadFile, File
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse
 
 
 app = FastAPI()
 
 
 BASE_DIR = "/app"
+OUTPUT_DIR = "outputs"
 
-OUTPUT_DIR = os.path.join(BASE_DIR, "outputs")
+
 os.makedirs(OUTPUT_DIR, exist_ok=True)
-
 
 
 @app.get("/")
 def home():
-
-    return HTMLResponse("""
-    <!DOCTYPE html>
-    <html>
-    <head>
-    <title>JianpuTool</title>
-    </head>
-
-    <body>
-
-    <h2>AI 簡譜產生器</h2>
-
-    <form action="/upload" method="post" enctype="multipart/form-data">
-
-    <input type="file" name="file">
-
-    <button type="submit">
-    轉換簡譜 PDF
-    </button>
-
-    </form>
-
-    </body>
-    </html>
-    """)
-
+    return {
+        "status": "JianpuTool running",
+        "version": "V21.2.1"
+    }
 
 
 
 @app.post("/upload")
 async def upload(file: UploadFile = File(...)):
 
-
-    job_id = str(uuid.uuid4())
+    work_id = str(uuid.uuid4())
 
     work_dir = os.path.join(
         OUTPUT_DIR,
-        job_id
+        work_id
     )
 
-    os.makedirs(work_dir)
+    os.makedirs(work_dir, exist_ok=True)
 
 
     print("================")
@@ -69,16 +46,16 @@ async def upload(file: UploadFile = File(...)):
 
 
     # =========================
-    # MP3保存
+    # MP3 SAVE
     # =========================
 
-    mp3_file = os.path.join(
+    mp3 = os.path.join(
         work_dir,
         file.filename
     )
 
 
-    with open(mp3_file,"wb") as f:
+    with open(mp3,"wb") as f:
         shutil.copyfileobj(
             file.file,
             f
@@ -96,7 +73,7 @@ async def upload(file: UploadFile = File(...)):
     print("開始 BasicPitch")
 
 
-    midi_file = os.path.join(
+    midi = os.path.join(
         work_dir,
         "melody.mid"
     )
@@ -105,9 +82,9 @@ async def upload(file: UploadFile = File(...)):
     result = subprocess.run(
         [
             "python",
-            "basicpitch_convert.py",
-            mp3_file,
-            midi_file
+            "basic_pitch_convert.py",
+            mp3,
+            midi
         ],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -118,13 +95,21 @@ async def upload(file: UploadFile = File(...)):
     print(result.stdout)
 
 
+    if result.returncode != 0:
+        return {
+            "error":"BasicPitch失敗",
+            "log":result.stdout
+        }
+
+
+
+    print("MIDI完成:",midi)
+
+
 
     # =========================
     # MIDI Quantize
     # =========================
-
-
-    print("開始 MIDI Quantize")
 
 
     clean_mid = os.path.join(
@@ -133,14 +118,18 @@ async def upload(file: UploadFile = File(...)):
     )
 
 
+    print("開始 MIDI Quantize")
+
+
     subprocess.run(
         [
             "python",
             "midi_quantize.py",
-            midi_file,
+            midi,
             clean_mid
         ]
     )
+
 
 
     print("MIDI Quantize完成")
@@ -148,17 +137,17 @@ async def upload(file: UploadFile = File(...)):
 
 
     # =========================
-    # MIDI → MusicXML
+    # MIDI -> MusicXML
     # =========================
-
-
-    print("MIDI轉MusicXML")
 
 
     musicxml = os.path.join(
         work_dir,
         "input.musicxml"
     )
+
+
+    print("MIDI轉MusicXML")
 
 
     subprocess.run(
@@ -172,6 +161,7 @@ async def upload(file: UploadFile = File(...)):
 
 
     print(
+        "MusicXML:",
         musicxml
     )
 
@@ -185,37 +175,56 @@ async def upload(file: UploadFile = File(...)):
     print("清理 MusicXML")
 
 
-    clean_xml = os.path.join(
+    score_clean = os.path.join(
         work_dir,
-        "Jainpu.musicxml"
+        "score_clean.musicxml"
     )
 
 
-    subprocess.run(
+    result = subprocess.run(
         [
             "python",
             "clean_musicxml.py",
             musicxml,
-            clean_xml
-        ]
+            score_clean
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True
     )
 
 
-    print("V21.2 CLEAN完成")
+    print(result.stdout)
+
+
+
+    if not os.path.exists(score_clean):
+
+        return {
+            "error":
+            "clean_musicxml沒有產生 score_clean.musicxml"
+        }
+
+
+
+    print(
+        "V21.2 CLEAN完成",
+        score_clean
+    )
 
 
 
     # =========================
-    # V21.2 FINAL VALIDATOR
+    # VALIDATOR V21.2
     # =========================
 
 
     print("MusicXML Validator V21.2")
 
 
-    final_xml = os.path.join(
+    validated = os.path.join(
         work_dir,
-        "final.musicxml"
+        "validated.musicxml"
     )
 
 
@@ -223,14 +232,14 @@ async def upload(file: UploadFile = File(...)):
 
 
     fix_jianpu_xml(
-        clean_xml,
-        final_xml
+        score_clean,
+        validated
     )
 
 
     print(
-        "validator完成:",
-        final_xml
+        "Validator完成:",
+        validated
     )
 
 
@@ -254,7 +263,7 @@ async def upload(file: UploadFile = File(...)):
             "python",
             "-m",
             "jianpu_ly",
-            final_xml
+            validated
         ],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -272,7 +281,9 @@ async def upload(file: UploadFile = File(...)):
         encoding="utf-8"
     ) as f:
 
-        f.write(result.stdout)
+        f.write(
+            result.stdout
+        )
 
 
 
@@ -288,32 +299,29 @@ async def upload(file: UploadFile = File(...)):
         [
             "lilypond",
             "-o",
-            os.path.join(work_dir,"output"),
+            work_dir,
             ly_file
         ]
     )
 
 
-    pdf_file=os.path.join(
+    pdf = os.path.join(
         work_dir,
-        "output.pdf"
+        "jianpu.pdf"
     )
 
 
-    if os.path.exists(pdf_file):
 
-        print("PDF完成")
+    if os.path.exists(pdf):
 
         return FileResponse(
-            pdf_file,
+            pdf,
             media_type="application/pdf",
             filename="jianpu.pdf"
         )
 
 
-    else:
-
-        return {
-            "error":"PDF產生失敗",
-            "folder":work_dir
-        }
+    return {
+        "status":"完成",
+        "folder":work_dir
+    }
