@@ -1,136 +1,181 @@
 import sys
+import os
 import xml.etree.ElementTree as ET
 
 
-print("CLEAN VERSION 20260726 V20")
+print("CLEAN VERSION 20260726 V21")
 
 
-def clean(input_file, output_file):
-
-    print("input:", input_file)
-
-    tree = ET.parse(input_file)
-    root = tree.getroot()
+if len(sys.argv) < 2:
+    print("usage: python clean_musicxml.py input.musicxml [output.musicxml]")
+    sys.exit(1)
 
 
-    # namespace
-    ns = ""
+input_file = sys.argv[1]
 
-    if root.tag.startswith("{"):
-        ns = root.tag.split("}")[0] + "}"
-
-
-    print("remove voices")
-    for elem in root.iter(ns + "voice"):
-        elem.text = "1"
+if len(sys.argv) >= 3:
+    output_file = sys.argv[2]
+else:
+    base = os.path.splitext(input_file)[0]
+    output_file = base + "_clean.musicxml"
 
 
-    print("remove chords")
-    for elem in root.iter(ns + "chord"):
-        parent = None
+print("input:", input_file)
 
 
-    print("remove grace")
-    for elem in root.iter(ns + "grace"):
-        elem.clear()
+tree = ET.parse(input_file)
+root = tree.getroot()
 
 
-    print("force 4/4")
-
-    for measure in root.iter(ns + "measure"):
-
-        attributes = measure.find(ns + "attributes")
-
-        if attributes is not None:
-
-            time = attributes.find(ns + "time")
-
-            if time is not None:
-
-                beats = time.find(ns + "beats")
-                beat_type = time.find(ns + "beat-type")
-
-                if beats is not None:
-                    beats.text = "4"
-
-                if beat_type is not None:
-                    beat_type.text = "4"
+# namespace
+ns = {
+    "m": "http://www.musicxml.org/xlink"
+}
 
 
-
-    print("fix durations V20")
-
-    # 修正 jianpu_ly 不接受的 duration
-
-    valid = [
-        0.5,
-        0.75,
-        1,
-        1.5,
-        2,
-        3,
-        4,
-        6,
-        8,
-        12
-    ]
+print("remove voices")
 
 
-    for duration in root.iter(ns + "duration"):
+# 移除 voice
+for elem in root.iter():
+    for child in list(elem):
+        if child.tag.endswith("voice"):
+            elem.remove(child)
+
+
+print("remove chords")
+
+
+# 移除 chord
+for elem in root.iter():
+    for child in list(elem):
+        if child.tag.endswith("chord"):
+            elem.remove(child)
+
+
+print("remove grace")
+
+
+# 移除 grace
+for elem in root.iter():
+    for child in list(elem):
+        if child.tag.endswith("grace"):
+            elem.remove(child)
+
+
+
+# ==========================
+# V21 強制全部 4/4
+# ==========================
+
+print("force time signature V21")
+
+
+for time in root.iter():
+
+    if time.tag.endswith("time"):
+
+        beats = None
+        beat_type = None
+
+        for child in time:
+            if child.tag.endswith("beats"):
+                beats = child
+
+            if child.tag.endswith("beat-type"):
+                beat_type = child
+
+
+        if beats is None:
+            beats = ET.SubElement(time, "beats")
+
+        if beat_type is None:
+            beat_type = ET.SubElement(time, "beat-type")
+
+
+        beats.text = "4"
+        beat_type.text = "4"
+
+
+
+# ==========================
+# V21 修 duration
+# ==========================
+
+print("fix durations V21")
+
+
+for elem in root.iter():
+
+    if elem.tag.endswith("duration"):
 
         try:
 
-            value = float(duration.text)
+            value = float(elem.text)
 
-
-            # jianpu_ly 禁止奇怪長度
-            if value not in valid:
-
+            # 避免超大 duration
+            if value > 64 or value <= 0:
                 print(
                     "fix duration:",
                     value,
                     "-> 4"
                 )
-
-                duration.text = "4"
+                elem.text = "4"
 
 
         except:
 
-            pass
+            elem.text = "4"
 
 
 
-    print("remove invalid time")
+# ==========================
+# 移除非法 time
+# ==========================
 
-    for time_mod in root.iter(ns + "time-modification"):
-
-        parent = None
-
-
-
-    tree.write(
-        output_file,
-        encoding="utf-8",
-        xml_declaration=True
-    )
+print("remove invalid time")
 
 
-    print("V20 DONE:")
-    print(output_file)
+for elem in root.iter():
+
+    if elem.tag.endswith("beats"):
+
+        try:
+            if float(elem.text) > 12:
+                elem.text = "4"
+
+        except:
+            elem.text = "4"
+
+
+    if elem.tag.endswith("beat-type"):
+
+        try:
+
+            allowed = [
+                "1",
+                "2",
+                "4",
+                "8",
+                "16"
+            ]
+
+            if elem.text not in allowed:
+                elem.text = "4"
+
+        except:
+
+            elem.text = "4"
 
 
 
-if __name__ == "__main__":
-
-    if len(sys.argv) < 3:
-        print(
-            "usage: python clean_musicxml.py input.musicxml output.musicxml"
-        )
-        sys.exit(1)
+tree.write(
+    output_file,
+    encoding="utf-8",
+    xml_declaration=True
+)
 
 
-    clean(
-        sys.argv[1],
-        sys.argv[2]
-    )
+print()
+print("V21 DONE:")
+print(output_file)
