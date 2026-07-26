@@ -1,9 +1,11 @@
+# clean_musicxml.py
+# CLEAN VERSION 20260726 V11
+# quantize + repair measure overflow
+
+
 import sys
 import os
 import xml.etree.ElementTree as ET
-
-
-VERSION = "CLEAN VERSION 20260726 V11"
 
 
 NS = {
@@ -13,247 +15,228 @@ NS = {
 ET.register_namespace("", NS["m"])
 
 
-def T(name):
-    return f"{{{NS['m']}}}{name}"
+STEP = 16   # divisions per quarter
+BAR = 64    # 4/4
 
 
-def remove_tag(parent, name):
-    for x in list(parent):
-        if x.tag == T(name):
-            parent.remove(x)
+def qname(tag):
+    return f"{{{NS['m']}}}{tag}"
 
 
-def make_rest(duration):
+def quantize_duration(value):
 
-    note = ET.Element(T("note"))
+    try:
+        d = int(value)
+    except:
+        return STEP
 
-    ET.SubElement(
-        note,
-        T("rest")
+    # 量化到 16th
+    allowed = [
+        1,
+        2,
+        4,
+        8,
+        16,
+        32,
+        64
+    ]
+
+    nearest = min(
+        allowed,
+        key=lambda x: abs(x-d)
     )
 
-    dur = ET.SubElement(
-        note,
-        T("duration")
-    )
-
-    dur.text = str(duration)
-
-    return note
+    return nearest
 
 
 
-def clean_musicxml(inp, out):
+def clean_musicxml(input_file, output_file):
 
-    print(VERSION)
-    print("input:", inp)
+    print("CLEAN VERSION 20260726 V11")
+    print("input:", input_file)
 
-
-    tree = ET.parse(inp)
+    tree = ET.parse(input_file)
     root = tree.getroot()
 
 
-    divisions = 16
-    measure_length = 64
-
-
-    # ------------------
-    # 固定 divisions
-    # ------------------
-
-    for d in root.iter(T("divisions")):
-        d.text = str(divisions)
-
-
-
     print("remove voices")
-
-    for note in root.iter(T("note")):
-
-        remove_tag(note,"voice")
-        remove_tag(note,"chord")
-        remove_tag(note,"grace")
+    for voice in root.findall(".//" + qname("voice")):
+        voice.text = "1"
 
 
+    print("remove chords")
+    for chord in root.findall(".//" + qname("chord")):
+        parent = None
 
-    print("fix duration")
+
+    print("remove grace")
+    for grace in root.findall(".//" + qname("grace")):
+        parent = None
 
 
-    for note in root.iter(T("note")):
+    print("quantize duration")
 
-        dur = note.find(T("duration"))
 
-        if dur is not None:
+    for duration in root.findall(".//" + qname("duration")):
 
-            try:
+        new = quantize_duration(duration.text)
 
-                value = int(dur.text)
-
-                # 避免太小碎音
-                if value < 2:
-                    value = 2
-
-                dur.text = str(value)
-
-            except:
-                pass
+        duration.text = str(new)
 
 
 
-    print("rebuild measures")
+    print("repair measures")
 
 
+    measures = root.findall(
+        ".//" + qname("measure")
+    )
 
-    for no, measure in enumerate(
-        root.iter(T("measure")),
-        1
-    ):
 
-        notes = measure.findall(
-            T("note")
-        )
-
+    for idx, measure in enumerate(measures):
 
         total = 0
 
+        durations = []
 
-        for n in notes:
+        for note in measure.findall(
+            qname("note")
+        ):
 
-            d = n.find(T("duration"))
+            d = note.find(
+                qname("duration")
+            )
 
             if d is not None:
 
-                total += int(d.text)
-
-
-
-        print(
-            "measure",
-            no,
-            "before:",
-            total
-        )
-
-
-
-        # --------------------
-        # 超過小節修正
-        # --------------------
-
-        if total > measure_length:
-
-
-            remain = measure_length
-
-
-            for n in list(notes):
-
-                d = n.find(T("duration"))
-
-                if d is None:
-                    continue
-
-
                 value = int(d.text)
 
+                total += value
 
-                if remain <= 0:
-
-                    measure.remove(n)
-
-
-                elif value <= remain:
-
-                    remain -= value
+                durations.append(
+                    (d,value)
+                )
 
 
-                else:
-
-                    # 切斷最後音符
-
-                    d.text = str(remain)
-
-                    remain = 0
-
-
-
-            total = measure_length
-
-
-
-        # --------------------
-        # 不足補休止
-        # --------------------
-
-        if total < measure_length:
-
-            rest = measure_length-total
+        # 超過小節
+        if total > BAR:
 
             print(
-                "add rest:",
-                rest
-            )
-
-            measure.append(
-                make_rest(rest)
+                "fix overflow measure",
+                idx+1,
+                total
             )
 
 
+            overflow = total - BAR
 
-        print(
-            "measure",
-            no,
-            "after:",
-            measure_length
-        )
+
+            for d,value in reversed(durations):
+
+                if overflow <= 0:
+                    break
+
+
+                new = value - overflow
+
+
+                if new <= 0:
+                    new = 1
+
+
+                overflow -= (
+                    value-new
+                )
+
+
+                d.text=str(new)
+
+
+
+        # 不足補休止符
+
+        elif total < BAR:
+
+            remain = BAR-total
+
+
+            print(
+                "fill rest",
+                idx+1,
+                remain
+            )
+
+
+            note = ET.Element(
+                qname("note")
+            )
+
+            rest = ET.SubElement(
+                note,
+                qname("rest")
+            )
+
+
+            duration = ET.SubElement(
+                note,
+                qname("duration")
+            )
+
+            duration.text=str(remain)
+
+
+            measure.append(note)
 
 
 
     print("final cleanup")
 
 
+    # 移除空 voice
+    for elem in root.iter():
+
+        for child in list(elem):
+
+            if child.tag == qname("voice"):
+                elem.remove(child)
+
+
 
     tree.write(
-        out,
+        output_file,
         encoding="utf-8",
         xml_declaration=True
     )
 
 
-    print(
-        "done:",
-        out
-    )
+    print("done:", output_file)
 
 
 
-
-if __name__=="__main__":
-
+if __name__ == "__main__":
 
     if len(sys.argv)<2:
 
         print(
-            "python clean_musicxml.py input.musicxml output.musicxml"
+            "python clean_musicxml.py input.musicxml [output.musicxml]"
         )
 
-        exit()
+        sys.exit()
 
 
-    inp=sys.argv[1]
+    input_file=sys.argv[1]
 
 
     if len(sys.argv)>=3:
-
-        out=sys.argv[2]
+        output_file=sys.argv[2]
 
     else:
-
-        out=os.path.splitext(inp)[0]+"_clean.musicxml"
+        base=os.path.splitext(input_file)[0]
+        output_file=base+"_clean.musicxml"
 
 
 
     clean_musicxml(
-        inp,
-        out
+        input_file,
+        output_file
     )
