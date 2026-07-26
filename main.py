@@ -155,7 +155,16 @@ async def upload(
     ################################################
     # MusicXML -> Jianpu
     ################################################
+    print("清理 MusicXML")
 
+    subprocess.run([
+    "python",
+    "clean_musicxml.py",
+    musicxml,
+    clean_xml
+    ])
+
+    musicxml = clean_xml
 
     print("產生簡譜")
 
