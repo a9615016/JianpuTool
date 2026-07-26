@@ -30,9 +30,8 @@ async def upload(file: UploadFile = File(...)):
     os.makedirs(work_dir, exist_ok=True)
 
 
-
     # =====================
-    # 保存 MP3
+    # Save MP3
     # =====================
 
     input_audio = os.path.join(
@@ -90,9 +89,23 @@ async def upload(file: UploadFile = File(...)):
 
 
 
+    if not os.path.exists(midi_file):
+
+        return {
+            "error":"MIDI not created"
+        }
+
+
+
+    print("MIDI完成:",midi_file)
+
+
+
+
     # =====================
     # MIDI Quantize
     # =====================
+
 
     clean_midi = os.path.join(
         work_dir,
@@ -119,7 +132,9 @@ async def upload(file: UploadFile = File(...)):
     print(result.stdout)
 
 
+
     if result.returncode != 0:
+
         return {
             "error":"quantize failed",
             "log":result.stdout
@@ -127,10 +142,10 @@ async def upload(file: UploadFile = File(...)):
 
 
 
-
     # =====================
     # MIDI → MusicXML
     # =====================
+
 
     musicxml = os.path.join(
         work_dir,
@@ -157,7 +172,9 @@ async def upload(file: UploadFile = File(...)):
     print(result.stdout)
 
 
+
     if result.returncode != 0:
+
         return {
             "error":"musicxml failed",
             "log":result.stdout
@@ -165,10 +182,10 @@ async def upload(file: UploadFile = File(...)):
 
 
 
-
     # =====================
     # Clean MusicXML
     # =====================
+
 
     clean_xml = os.path.join(
         work_dir,
@@ -177,6 +194,7 @@ async def upload(file: UploadFile = File(...)):
 
 
     print("清理 MusicXML")
+
 
 
     result = subprocess.run(
@@ -195,7 +213,9 @@ async def upload(file: UploadFile = File(...)):
     print(result.stdout)
 
 
+
     if result.returncode != 0:
+
         return {
             "error":"clean_musicxml failed",
             "log":result.stdout
@@ -208,6 +228,7 @@ async def upload(file: UploadFile = File(...)):
     # MusicXML → Jianpu
     # =====================
 
+
     ly_file = os.path.join(
         work_dir,
         "jianpu.ly"
@@ -217,36 +238,48 @@ async def upload(file: UploadFile = File(...)):
     print("產生簡譜")
 
 
-    result = subprocess.run(
-        [
-            "python",
-            "-m",
-            "jianpu_ly",
-            clean_xml
-        ],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True
-    )
-
-
-    print(result.stdout)
-
-
-    if result.returncode != 0:
-        return {
-            "error":"jianpu_ly failed",
-            "log":result.stdout
-        }
-
-
 
     with open(
         ly_file,
         "w",
         encoding="utf-8"
-    ) as f:
-        f.write(result.stdout)
+    ) as out:
+
+
+        with open(
+            clean_xml,
+            "r",
+            encoding="utf-8"
+        ) as xml:
+
+
+            result = subprocess.run(
+                [
+                    "python",
+                    "-m",
+                    "jianpu_ly"
+                ],
+                stdin=xml,
+                stdout=out,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+
+
+
+    print(
+        "jianpu_ly return:",
+        result.returncode
+    )
+
+
+
+    if result.returncode != 0:
+
+        return {
+            "error":"jianpu_ly failed",
+            "log":result.stderr
+        }
 
 
 
@@ -255,12 +288,13 @@ async def upload(file: UploadFile = File(...)):
 
 
 
-
     # =====================
     # LilyPond PDF
     # =====================
 
+
     print("產生PDF")
+
 
 
     result = subprocess.run(
@@ -296,7 +330,7 @@ async def upload(file: UploadFile = File(...)):
 
 
 
-    print("PDF完成:")
+    print("完成PDF:")
     print(pdf_file)
 
 
