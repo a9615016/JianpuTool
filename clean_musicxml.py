@@ -1,191 +1,181 @@
-# clean_musicxml.py V12
-# 強制每小節=64量化版
-
-import sys
 import xml.etree.ElementTree as ET
-import copy
-
-NS = {"m": "http://www.musicxml.org/ns/musicxml"}
-
-ET.register_namespace("", "http://www.musicxml.org/ns/musicxml")
+import sys
+import os
 
 
-TARGET_DURATION = 64
+INPUT = sys.argv[1]
+OUTPUT = sys.argv[2] if len(sys.argv) > 2 else INPUT.replace(
+    ".musicxml",
+    "_clean.musicxml"
+)
 
 
-def get_duration(note):
-    d = note.find("m:duration", NS)
-    if d is not None:
-        return int(d.text)
-    return 0
+print("CLEAN VERSION 20260726 V13")
+print("input:", INPUT)
 
 
-def set_duration(note, value):
-    d = note.find("m:duration", NS)
-    if d is not None:
-        d.text = str(value)
+tree = ET.parse(INPUT)
+root = tree.getroot()
 
 
-def create_rest(duration):
+ns = {
+    "m": "http://www.musicxml.org/ns/musicxml"
+}
 
-    note = ET.Element(
-        "{http://www.musicxml.org/ns/musicxml}note"
-    )
 
-    rest = ET.SubElement(
-        note,
-        "{http://www.musicxml.org/ns/musicxml}rest"
-    )
+# remove voices
+print("remove voices")
 
-    duration_node = ET.SubElement(
-        note,
-        "{http://www.musicxml.org/ns/musicxml}duration"
-    )
+for note in root.findall(".//note"):
+    voice = note.find("voice")
+    if voice is not None:
+        note.remove(voice)
 
-    duration_node.text = str(duration)
 
-    type_node = ET.SubElement(
-        note,
-        "{http://www.musicxml.org/ns/musicxml}type"
-    )
+# remove chords
+print("remove chords")
 
-    type_node.text = "quarter"
+for note in root.findall(".//note"):
+    for c in note.findall("chord"):
+        note.remove(c)
 
-    return note
+
+# remove grace
+print("remove grace")
+
+for note in root.findall(".//note"):
+    for g in note.findall("grace"):
+        note.remove(g)
 
 
 
-def fix_measure(measure):
-
-    notes = []
-
-    for child in list(measure):
-
-        if child.tag.endswith("note"):
-            notes.append(child)
+print("quantize duration")
 
 
-    total = sum(get_duration(n) for n in notes)
+# divisions
+divisions = root.find(".//divisions")
+
+if divisions is None:
+    div = 16
+else:
+    div = int(divisions.text)
 
 
-    print(
-        "measure",
-        measure.find("m:measure-number",NS),
-        "duration=",
-        total
-    )
+TARGET = 64
 
 
-    # 太長，裁切
-    if total > TARGET_DURATION:
+print("repair measures")
 
-        current = 0
 
-        for note in notes:
+measures = root.findall(".//measure")
 
-            dur = get_duration(note)
 
-            if current + dur <= TARGET_DURATION:
+for measure in measures:
 
-                current += dur
+    notes = measure.findall("note")
 
-            else:
+    total = 0
 
-                remain = TARGET_DURATION-current
 
-                if remain > 0:
-                    set_duration(note, remain)
-                    current = TARGET_DURATION
+    for note in list(notes):
 
+        duration = note.find("duration")
+
+        if duration is None:
+            continue
+
+
+        d = int(duration.text)
+
+
+        # quarter grid
+        q = round(d / 4) * 4
+
+        if q <= 0:
+            q = 4
+
+
+        duration.text = str(q)
+
+
+        total += q
+
+
+
+    # 修正超長小節
+
+    if total > TARGET:
+
+        overflow = total - TARGET
+
+        print(
+            "overflow measure",
+            measure.attrib.get("number"),
+            total
+        )
+
+
+        notes = measure.findall("note")
+
+
+        while total > TARGET and notes:
+
+            n = notes[-1]
+
+            d = n.find("duration")
+
+            if d is not None:
+
+                old = int(d.text)
+
+                remove = min(
+                    old,
+                    total - TARGET
+                )
+
+                new = old - remove
+
+                if new <= 0:
+                    measure.remove(n)
                 else:
-                    measure.remove(note)
-
-        return
+                    d.text = str(new)
 
 
-    # 太短，補休止
-    if total < TARGET_DURATION:
+                total -= remove
 
-        remain = TARGET_DURATION-total
+            notes.pop()
 
-        rest = create_rest(remain)
+
+
+    # 不足補 rest
+
+    if total < TARGET:
+
+        rest = ET.Element("note")
+
+        ET.SubElement(rest,"rest")
+
+        dur = ET.SubElement(
+            rest,
+            "duration"
+        )
+
+        dur.text=str(
+            TARGET-total
+        )
 
         measure.append(rest)
 
 
 
-
-def clean(input_file, output_file):
-
-    print("CLEAN VERSION 20260726 V12")
-
-    print("input:",input_file)
+print("final cleanup")
 
 
-    tree = ET.parse(input_file)
-
-    root = tree.getroot()
-
-
-    # 移除 voices/chords/grace
-    for elem in root.iter():
-
-        for child in list(elem):
-
-            tag = child.tag.split("}")[-1]
-
-            if tag in [
-                "voice",
-                "chord",
-                "grace",
-                "tuplet"
-            ]:
-                elem.remove(child)
+tree.write(
+    OUTPUT,
+    encoding="utf-8",
+    xml_declaration=True
+)
 
 
-
-    # divisions固定16
-    for div in root.iter(
-        "{http://www.musicxml.org/ns/musicxml}divisions"
-    ):
-        div.text="16"
-
-
-
-    # 修小節
-    for measure in root.iter(
-        "{http://www.musicxml.org/ns/musicxml}measure"
-    ):
-
-        fix_measure(measure)
-
-
-
-    print("final cleanup")
-
-    tree.write(
-        output_file,
-        encoding="utf-8",
-        xml_declaration=True
-    )
-
-
-    print("done:",output_file)
-
-
-
-if __name__=="__main__":
-
-    if len(sys.argv)<3:
-
-        print(
-            "python clean_musicxml.py input.musicxml output.musicxml"
-        )
-
-        sys.exit()
-
-
-    clean(
-        sys.argv[1],
-        sys.argv[2]
-    )
+print("done:", OUTPUT)
