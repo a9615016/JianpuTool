@@ -3,229 +3,185 @@ import os
 import xml.etree.ElementTree as ET
 
 
-print("CLEAN VERSION 20260726 V21.1")
+VERSION = "CLEAN VERSION 20260726 V21.1"
 
 
-if len(sys.argv) < 2:
-    print("usage: python clean_musicxml.py input.musicxml [output.musicxml]")
-    sys.exit(1)
+def clean_musicxml(input_file, output_file):
+
+    print(VERSION)
+    print("input:", input_file)
+
+    tree = ET.parse(input_file)
+    root = tree.getroot()
 
 
-input_file = sys.argv[1]
+    # namespace
+    ns = ""
 
-if len(sys.argv) >= 3:
-    output_file = sys.argv[2]
-else:
-    base = os.path.splitext(input_file)[0]
-    output_file = base + "_clean.musicxml"
+    if root.tag.startswith("{"):
+        ns = root.tag.split("}")[0] + "}"
 
 
-print("input:", input_file)
+    print("remove voices")
 
 
-tree = ET.parse(input_file)
-root = tree.getroot()
+    # remove voice tags
+    for elem in root.iter():
 
+        for child in list(elem):
 
-# ==========================
-# namespace
-# ==========================
-
-ns = {}
-
-if root.tag.startswith("{"):
-    ns["m"] = root.tag.split("}")[0].strip("{")
-
-
-def tag(name):
-    if ns:
-        return "{%s}%s" % (ns["m"], name)
-    return name
-
-
-# ==========================
-# remove voices
-# ==========================
-
-print("remove voices")
-
-for elem in root.iter(tag("voice")):
-    elem.text = "1"
-
-
-# ==========================
-# remove chords
-# ==========================
-
-print("remove chords")
-
-for note in root.iter(tag("note")):
-    for child in list(note):
-        if child.tag.endswith("chord"):
-            note.remove(child)
-
-
-# ==========================
-# remove grace
-# ==========================
-
-print("remove grace")
-
-for note in root.iter(tag("note")):
-    for child in list(note):
-        if child.tag.endswith("grace"):
-            note.remove(child)
-
-
-# ==========================
-# force 4/4
-# ==========================
-
-print("force 4/4")
-
-
-for time in root.iter(tag("time")):
-
-    beats = time.find(tag("beats"))
-    beat_type = time.find(tag("beat-type"))
-
-    if beats is not None:
-        beats.text = "4"
-
-    if beat_type is not None:
-        beat_type.text = "4"
-
-
-# ==========================
-# V21 duration fix
-# ==========================
-
-print("fix durations V21")
-
-
-valid = [
-    0.5,
-    0.75,
-    1,
-    1.5,
-    2,
-    3,
-    4,
-    6,
-    8,
-    12
-]
-
-
-for duration in root.iter(tag("duration")):
-
-    try:
-
-        value = float(duration.text)
-
-        if value not in valid:
-
-            print(
-                "V21 fix duration:",
-                value,
-                "-> 4"
-            )
-
-            duration.text = "4"
-
-    except:
-
-        duration.text = "4"
+            if child.tag == ns + "voice":
+                elem.remove(child)
 
 
 
-# ==========================
-# remove invalid time
-# ==========================
-# ==========================
-# FINAL JIANPU FIX V21.1
-# ==========================
-
-print("fix measure duration V21.1")
+    print("remove chords")
 
 
-for measure in root.iter(tag("measure")):
+    # remove chord tags
+    for elem in root.iter():
 
-    total = 0
+        for child in list(elem):
 
-    for duration in measure.iter(tag("duration")):
+            if child.tag == ns + "chord":
+                elem.remove(child)
+
+
+
+    print("remove grace")
+
+
+    # remove grace notes
+    for elem in root.iter():
+
+        for child in list(elem):
+
+            if child.tag == ns + "grace":
+                elem.remove(child)
+
+
+
+    print("force 4/4")
+
+
+    # 強制 4/4
+    for time in root.iter(ns + "time"):
+
+        for child in list(time):
+
+            if child.tag == ns + "beats":
+                child.text = "4"
+
+            if child.tag == ns + "beat-type":
+                child.text = "4"
+
+
+
+    print("fix measure duration V21.1")
+
+
+    divisions = 1
+
+
+    # 取得 divisions
+    for d in root.iter(ns + "divisions"):
 
         try:
-            total += float(duration.text)
-
+            divisions = int(d.text)
         except:
-            pass
-
-
-    # jianpu_ly 常用 4/4:
-    # quarter = 4
-    # measure = 16
-
-    # 發現異常小節直接重置
-
-    if total not in [
-        4,
-        8,
-        12,
-        16,
-        32,
-        48,
-        64
-    ]:
-
-        print(
-            "V21.1 fix measure:",
-            total,
-            "-> normalize"
-        )
-
-
-        durations = list(
-            measure.iter(tag("duration"))
-        )
-
-
-        if len(durations) > 0:
-
-            each = 16 / len(durations)
-
-
-            for d in durations:
-
-                d.text = str(each)
+            divisions = 1
 
 
 
-    print("V21.1 measure fix done")
-    # ==========================
-    # remove invalid time
-    # ==========================
+    # 修 duration
+    for note in root.iter(ns + "note"):
+
+        for duration in note.iter(ns + "duration"):
+
+            try:
+
+                value = float(duration.text)
+
+                # 過大 duration 修正
+                if value > divisions * 8:
+
+                    print(
+                        "fix duration:",
+                        value,
+                        "->",
+                        divisions
+                    )
+
+                    duration.text = str(divisions)
+
+
+            except:
+                pass
+
+
 
     print("remove invalid time")
 
-    # V21.1 final pass
+
+    # 移除 jianpu_ly 不支援的 measure-style
     for elem in root.iter():
-    if elem.tag.endswith("measure-style"):
-        continue
+
+        for child in list(elem):
+
+            if child.tag.endswith("measure-style"):
+
+                elem.remove(child)
 
 
 
-# ==========================
-# FINAL WRITE
-# ==========================
+    # 移除非法 time-modification
+    for elem in root.iter():
+
+        for child in list(elem):
+
+            if child.tag.endswith("time-modification"):
+
+                elem.remove(child)
 
 
-tree.write(
-    output_file,
-    encoding="utf-8",
-    xml_declaration=True
-)
+
+    tree.write(
+        output_file,
+        encoding="utf-8",
+        xml_declaration=True
+    )
 
 
-print("V21 DONE:")
-print(output_file)
+    print("V21.1 DONE:")
+    print(output_file)
+
+
+
+if __name__ == "__main__":
+
+
+    if len(sys.argv) < 2:
+
+        print(
+            "python clean_musicxml.py input.musicxml output.musicxml"
+        )
+        sys.exit()
+
+
+
+    input_file = sys.argv[1]
+
+
+    if len(sys.argv) >= 3:
+        output_file = sys.argv[2]
+
+    else:
+        base = os.path.splitext(input_file)[0]
+        output_file = base + "_clean.musicxml"
+
+
+
+    clean_musicxml(
+        input_file,
+        output_file
+    )
