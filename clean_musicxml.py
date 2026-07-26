@@ -1,13 +1,14 @@
 import sys
-import xml.etree.ElementTree as ET
+import music21
+from music21 import note, chord, stream, meter
 
 
-print("CLEAN MUSICXML V3")
+print("CLEAN MUSICXML V4")
 
 
 if len(sys.argv) < 3:
-    print("使用:")
-    print("python clean_musicxml_v3.py input.musicxml output.musicxml")
+    print("usage:")
+    print("python clean_musicxml_v4.py input.musicxml output.musicxml")
     sys.exit(1)
 
 
@@ -22,158 +23,150 @@ print("output:")
 print(output_file)
 
 
-ET.register_namespace("", "http://www.musicxml.org/ns/musicxml")
-
-
-tree = ET.parse(input_file)
-root = tree.getroot()
-
-
-ns = {
-    "m": "http://www.musicxml.org/ns/musicxml"
-}
-
-
 print("讀取 MusicXML")
 
+score = music21.converter.parse(input_file)
 
-# ==========================
-# 固定 divisions
-# ==========================
 
-for div in root.findall(".//m:divisions", ns):
-    div.text = "16"
+print("開始清理")
 
 
 # ==========================
-# 固定拍號 4/4
+# 移除多聲部
 # ==========================
 
-for measure_attr in root.findall(".//m:time", ns):
+for part in score.parts:
 
-    beats = measure_attr.find("m:beats", ns)
-    beat_type = measure_attr.find("m:beat-type", ns)
+    new_part = stream.Part()
 
-    if beats is not None:
-        beats.text = "4"
+    # 保留拍號
+    ts = part.recurse().getElementsByClass(
+        meter.TimeSignature
+    )
 
-    if beat_type is not None:
-        beat_type.text = "4"
-
-
-# ==========================
-# 移除 tie
-# ==========================
-
-for tie in root.findall(".//m:tie", ns):
-    parent = None
-
-    for p in root.iter():
-        if tie in list(p):
-            parent = p
-            break
-
-    if parent is not None:
-        parent.remove(tie)
+    for t in ts:
+        new_part.insert(0, t)
 
 
-for tied in root.findall(".//m:tied", ns):
+    # ======================
+    # 單音旋律
+    # ======================
 
-    parent = None
+    notes = []
 
-    for p in root.iter():
-        if tied in list(p):
-            parent = p
-            break
+    for n in part.flatten().notes:
 
-    if parent is not None:
-        parent.remove(tied)
+        if isinstance(n, chord.Chord):
 
+            # chord取最高音
+            nn = n.sortAscending().notes[-1]
 
+            new_note = note.Note(
+                nn.pitch
+            )
 
-# ==========================
-# 移除 grace note
-# ==========================
+            new_note.duration = n.duration
 
-for grace in root.findall(".//m:grace", ns):
-
-    parent = None
-
-    for p in root.iter():
-        if grace in list(p):
-            parent = p
-            break
-
-    if parent is not None:
-        parent.remove(grace)
+            notes.append(new_note)
 
 
+        elif isinstance(n, note.Note):
 
-# ==========================
-# 修正 duration
-# ==========================
-
-print("修正 duration")
+            notes.append(n)
 
 
-for note in root.findall(".//m:note", ns):
-
-    duration = note.find("m:duration", ns)
-
-    if duration is not None:
-
-        try:
-            value = int(duration.text)
-
-            # 最高限制
-            if value > 64:
-                duration.text = "16"
-
-            # 太小
-            if value <= 0:
-                duration.text = "16"
-
-        except:
-            duration.text = "16"
+    print(
+        "notes:",
+        len(notes)
+    )
 
 
+    # ======================
+    # 建立 4/4 measure
+    # ======================
 
-# ==========================
-# 移除 voice
-# ==========================
+    measure_num = 1
 
-for voice in root.findall(".//m:voice", ns):
+    m = stream.Measure(
+        number=measure_num
+    )
 
-    parent = None
-
-    for p in root.iter():
-        if voice in list(p):
-            parent = p
-            break
-
-    if parent is not None:
-        parent.remove(voice)
+    current = 0
 
 
-
-# ==========================
-# 移除 chord
-# ==========================
-
-print("移除 chord")
+    LIMIT = 4.0
 
 
-for chord in root.findall(".//m:chord", ns):
+    for n in notes:
 
-    parent=None
+        dur = n.duration.quarterLength
 
-    for p in root.iter():
-        if chord in list(p):
-            parent=p
-            break
 
-    if parent is not None:
-        parent.remove(chord)
+        # 避免0長度
+        if dur <= 0:
+            continue
+
+
+        # 超過小節
+        if current + dur > LIMIT:
+
+
+            remain = LIMIT-current
+
+
+            if remain > 0:
+
+                n2 = n.clone()
+
+                n2.duration.quarterLength = remain
+
+                m.append(n2)
+
+
+            new_part.append(m)
+
+
+            measure_num += 1
+
+            m = stream.Measure(
+                number=measure_num
+            )
+
+            current = 0
+
+
+            # 剩餘部分放下一小節
+
+            left = dur-remain
+
+
+            if left > 0:
+
+                n3 = n.clone()
+
+                n3.duration.quarterLength = left
+
+                m.append(n3)
+
+                current += left
+
+
+        else:
+
+            m.append(n)
+
+            current += dur
+
+
+
+    if len(m.notes)>0:
+        new_part.append(m)
+
+
+    part.clear()
+
+    for e in new_part:
+        part.append(e)
 
 
 
@@ -181,82 +174,37 @@ print("重新整理小節")
 
 
 # ==========================
-# measure reset
+# 強制4/4
 # ==========================
 
-measures = root.findall(".//m:measure", ns)
+for p in score.parts:
 
+    for m in p.getElementsByClass(
+        stream.Measure
+    ):
 
-for measure in measures:
-
-    notes = measure.findall("m:note", ns)
-
-    total = 0
-
-
-    for note in notes:
-
-        duration = note.find("m:duration", ns)
-
-        if duration is not None:
-
-            try:
-                total += int(duration.text)
-
-            except:
-                pass
-
-
-
-    # 4/4 = 64 ticks
-    if total > 64:
-
-        print(
-            "trim measure:",
-            measure.attrib.get("number"),
-            total
+        m.insert(
+            0,
+            meter.TimeSignature("4/4")
         )
-
-
-        current = 0
-
-
-        for note in notes:
-
-            duration = note.find("m:duration", ns)
-
-            if duration is None:
-                continue
-
-
-            try:
-                d=int(duration.text)
-
-            except:
-                d=16
-
-
-            if current+d > 64:
-
-                duration.text="16"
-
-                current +=16
-
-            else:
-
-                current+=d
-
 
 
 print("寫入檔案")
 
 
-tree.write(
-    output_file,
-    encoding="utf-8",
-    xml_declaration=True
+score.write(
+    "musicxml",
+    fp=output_file
 )
 
 
 print("完成:")
 print(output_file)
+
+
+import os
+
+print(
+    "SIZE:",
+    os.path.getsize(output_file)
+)
