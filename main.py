@@ -83,6 +83,7 @@ async def upload(
     print("MP3保存完成")
 
 
+
     ################################################
     # MP3 -> MIDI
     ################################################
@@ -125,7 +126,6 @@ async def upload(
     # MIDI -> MusicXML
     ################################################
 
-
     print("MIDI轉MusicXML")
 
 
@@ -151,20 +151,56 @@ async def upload(
     print(result.stdout)
 
 
+    if result.returncode != 0:
+
+        return {
+            "error":"MusicXML產生失敗",
+            "log":result.stdout
+        }
+
+
+
+    ################################################
+    # Clean MusicXML
+    ################################################
+
+    print("清理 MusicXML")
+
+
+    clean_xml = os.path.join(
+        work_dir,
+        "score_clean.musicxml"
+    )
+
+
+    result = subprocess.run(
+        [
+            "python",
+            "clean_musicxml.py",
+            xml,
+            clean_xml
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True
+    )
+
+
+    print(result.stdout)
+
+
+    if result.returncode != 0:
+
+        return {
+            "error":"MusicXML清理失敗",
+            "log":result.stdout
+        }
+
+
 
     ################################################
     # MusicXML -> Jianpu
     ################################################
-    print("清理 MusicXML")
-
-    subprocess.run([
-    "python",
-    "clean_musicxml.py",
-    musicxml,
-    clean_xml
-    ])
-
-    musicxml = clean_xml
 
     print("產生簡譜")
 
@@ -181,15 +217,26 @@ async def upload(
         encoding="utf-8"
     ) as f:
 
-        subprocess.run(
+
+        result = subprocess.run(
             [
                 "python",
                 "-m",
                 "jianpu_ly",
-                xml
+                clean_xml
             ],
-            stdout=f
+            stdout=f,
+            stderr=subprocess.STDOUT,
+            text=True
         )
+
+
+    if result.returncode != 0:
+
+        return {
+            "error":"jianpu_ly失敗",
+            "folder":work_dir
+        }
 
 
 
@@ -197,18 +244,27 @@ async def upload(
     # LilyPond PDF
     ################################################
 
-
     print("LilyPond PDF")
 
 
-    subprocess.run(
+    result = subprocess.run(
         [
             "lilypond",
             "-o",
-            os.path.join(work_dir,"jianpu"),
+            os.path.join(
+                work_dir,
+                "jianpu"
+            ),
             ly
-        ]
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True
     )
+
+
+    print(result.stdout)
+
 
 
     pdf = os.path.join(
@@ -228,8 +284,10 @@ async def upload(
 
     return {
         "error":"PDF產生失敗",
+        "log":result.stdout,
         "folder":work_dir
     }
+
 
 
 
