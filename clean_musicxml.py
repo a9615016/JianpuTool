@@ -2,19 +2,37 @@ import sys
 import music21
 
 
+def limit_short_notes(value):
+    """
+    jianpu_ly 不支援過短音符
+    最短限制為16分音符
+    """
+
+    value = float(value)
+
+    # 16分音符 = 0.25 quarterLength
+    minimum = 0.25
+
+    if value < minimum:
+        value = minimum
+
+    return value
+
+
+
 def clean_musicxml(input_file, output_file):
 
-    print("CLEAN VERSION 20260726 MVP")
-
+    print("CLEAN VERSION 20260726 V3")
     print("input:", input_file)
 
 
     score = music21.converter.parse(input_file)
 
 
-    # =========================
-    # remove voices
-    # =========================
+
+    # ==========================
+    # Remove Voices
+    # ==========================
 
     print("remove voices")
 
@@ -32,72 +50,76 @@ def clean_musicxml(input_file, output_file):
             )
 
 
-            if voices:
-
-                notes=[]
-
-                for v in voices:
-                    notes.extend(
-                        list(v.notesAndRests)
-                    )
+            if not voices:
+                continue
 
 
-                measure.removeByClass(
-                    music21.stream.Voice
+            notes = []
+
+
+            for voice in voices:
+
+                for n in voice.notesAndRests:
+
+                    notes.append(n)
+
+
+
+            measure.removeByClass(
+                music21.stream.Voice
+            )
+
+
+            offset = 0
+
+
+            for n in notes:
+
+                n.offset = offset
+
+                measure.insert(
+                    offset,
+                    n
                 )
 
-
-                offset=0
-
-
-                for n in notes:
-
-                    n.offset=offset
-
-                    measure.insert(
-                        offset,
-                        n
-                    )
-
-                    offset += n.quarterLength
+                offset += n.quarterLength
 
 
 
-    # =========================
-    # remove chords
-    # =========================
+    # ==========================
+    # Remove Chords
+    # ==========================
 
     print("remove chords")
 
 
-    for c in list(
+    for chord in list(
         score.recurse()
         .getElementsByClass(
             music21.chord.Chord
         )
     ):
 
-        n=c.notes[0]
+        note = chord.notes[0]
 
-        n.duration=c.duration
+        note.duration = chord.duration
 
-        c.activeSite.replace(
-            c,
-            n
+        chord.activeSite.replace(
+            chord,
+            note
         )
 
 
 
-    # =========================
-    # remove grace
-    # =========================
+    # ==========================
+    # Remove Grace
+    # ==========================
 
     print("remove grace")
 
 
     for n in list(
-        score.recurse()
-        .notes
+        score.recurse().notes
     ):
 
         if n.duration.isGrace:
@@ -106,145 +128,88 @@ def clean_musicxml(input_file, output_file):
 
 
 
-    # =========================
-    # force duration
-    # =========================
+    # ==========================
+    # Fix Duration
+    # ==========================
 
     print("fix duration")
-    print("remove unsupported note types")
 
 
     for n in score.recurse().notesAndRests:
 
-    if n.duration.type in [
-        "128th",
-        "256th"
-    ]:
+        if n.duration.quarterLength <= 0:
 
-        print(
-            "convert:",
-            n.duration.type
-        )
-
-        n.duration.quarterLength = 0.125
-    print("remove unsupported durations")
+            n.duration.quarterLength = 0.25
 
 
-    for n in score.recurse().notesAndRests:
 
-    if n.duration.type in [
-        "128th",
-        "256th"
-    ]:
+    # ==========================
+    # Disable 128th notes
+    # ==========================
 
-        print(
-            "fix:",
-            n.duration.type
-        )
-
-        n.duration.quarterLength = 0.125
+    print("limit short notes")
 
 
     for n in score.recurse().notesAndRests:
 
-
-        q=float(
+        n.duration.quarterLength = limit_short_notes(
             n.duration.quarterLength
         )
 
 
-        if q <=0:
 
-            q=0.25
+    # ==========================
+    # Remove Tuplets
+    # ==========================
 
-
-        # 四分音符量化
-        q=round(q*4)/4
-
-
-        if q<=0:
-
-            q=0.25
+    print("remove tuplets")
 
 
-        n.duration.quarterLength=q
+    for n in score.recurse().notesAndRests:
+
+        if n.duration.tuplets:
+
+            ql = limit_short_notes(
+                n.duration.quarterLength
+            )
+
+            n.duration.clear()
+
+            n.duration.quarterLength = ql
 
 
 
-    # =========================
-    # rebuild measures
-    # =========================
+    # ==========================
+    # Rebuild Measures
+    # ==========================
 
     print("rebuild measures")
 
 
-    for part in score.parts:
+    score.makeMeasures(
+        inPlace=True
+    )
 
-        part.makeMeasures(
-            inPlace=True
+
+
+    # ==========================
+    # Final check
+    # ==========================
+
+    print("final cleanup")
+
+
+    for n in score.recurse().notesAndRests:
+
+        n.duration.quarterLength = limit_short_notes(
+            n.duration.quarterLength
         )
 
 
 
-    # =========================
-    # force 4/4 bars
-    # =========================
-
-    print("fix bars")
-
-
-    for part in score.parts:
-
-
-        for measure in part.getElementsByClass(
-            music21.stream.Measure
-        ):
-
-
-            total=sum(
-                e.duration.quarterLength
-                for e in measure.notesAndRests
-            )
-
-
-            # 4/4 = 4拍
-
-            if total > 4:
-
-
-                print(
-                    "trim measure",
-                    measure.number,
-                    total
-                )
-
-
-                remain=4
-
-
-                for e in list(
-                    measure.notesAndRests
-                ):
-
-                    if remain<=0:
-
-                        measure.remove(e)
-
-                        continue
-
-
-                    if e.duration.quarterLength > remain:
-
-                        e.duration.quarterLength=remain
-
-
-                    remain -= e.duration.quarterLength
-
-
-
-    # =========================
-    # final
-    # =========================
+    # ==========================
+    # Write
+    # ==========================
 
     print("write")
 
@@ -262,22 +227,37 @@ def clean_musicxml(input_file, output_file):
 
 
 
-if __name__=="__main__":
+if __name__ == "__main__":
 
 
-    input_file=sys.argv[1]
+    if len(sys.argv) < 2:
+
+        print(
+            "Usage:"
+        )
+
+        print(
+            "python clean_musicxml.py input.musicxml output.musicxml"
+        )
+
+        sys.exit(1)
 
 
-    if len(sys.argv)>=3:
 
-        output_file=sys.argv[2]
+    input_file = sys.argv[1]
+
+
+    if len(sys.argv) >= 3:
+
+        output_file = sys.argv[2]
 
     else:
 
-        output_file=input_file.replace(
+        output_file = input_file.replace(
             ".musicxml",
             "_clean.musicxml"
         )
+
 
 
     clean_musicxml(
