@@ -13,12 +13,14 @@ app = FastAPI()
 def home():
     return {
         "status": "JianpuTool running",
-        "version": "V21.3"
+        "version": "V21.4"
     }
+
 
 
 @app.post("/upload")
 async def upload(file: UploadFile = File(...)):
+
 
     work_dir = os.path.join(
         "outputs",
@@ -26,6 +28,7 @@ async def upload(file: UploadFile = File(...)):
     )
 
     os.makedirs(work_dir, exist_ok=True)
+
 
 
     # =====================
@@ -37,7 +40,8 @@ async def upload(file: UploadFile = File(...)):
         file.filename
     )
 
-    with open(input_audio, "wb") as f:
+
+    with open(input_audio,"wb") as f:
         f.write(await file.read())
 
 
@@ -46,6 +50,7 @@ async def upload(file: UploadFile = File(...)):
     print(file.filename)
     print("================")
     print("MP3保存完成")
+
 
 
     # =====================
@@ -79,18 +84,9 @@ async def upload(file: UploadFile = File(...)):
 
     if result.returncode != 0:
         return {
-            "error": "BasicPitch failed",
-            "log": result.stdout
+            "error":"BasicPitch failed",
+            "log":result.stdout
         }
-
-
-    if not os.path.exists(midi_file):
-        return {
-            "error": "MIDI not created"
-        }
-
-
-    print("MIDI完成:", midi_file)
 
 
 
@@ -131,6 +127,7 @@ async def upload(file: UploadFile = File(...)):
 
 
 
+
     # =====================
     # MIDI → MusicXML
     # =====================
@@ -165,6 +162,7 @@ async def upload(file: UploadFile = File(...)):
             "error":"musicxml failed",
             "log":result.stdout
         }
+
 
 
 
@@ -205,8 +203,9 @@ async def upload(file: UploadFile = File(...)):
 
 
 
+
     # =====================
-    # Jianpu
+    # MusicXML → Jianpu
     # =====================
 
     ly_file = os.path.join(
@@ -218,26 +217,42 @@ async def upload(file: UploadFile = File(...)):
     print("產生簡譜")
 
 
-    with open(ly_file, "w", encoding="utf-8") as f:
+    result = subprocess.run(
+        [
+            "python",
+            "-m",
+            "jianpu_ly",
+            clean_xml
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True
+    )
 
-        result = subprocess.run(
-            [
-                "python",
-                "-m",
-                "jianpu_ly",
-                clean_xml
-            ],
-            stdout=f,
-            stderr=subprocess.PIPE,
-            text=True
-        )
+
+    print(result.stdout)
 
 
     if result.returncode != 0:
         return {
             "error":"jianpu_ly failed",
-            "log":result.stderr
+            "log":result.stdout
         }
+
+
+
+    with open(
+        ly_file,
+        "w",
+        encoding="utf-8"
+    ) as f:
+        f.write(result.stdout)
+
+
+
+    print("jianpu完成:")
+    print(ly_file)
+
 
 
 
@@ -264,17 +279,26 @@ async def upload(file: UploadFile = File(...)):
     print(result.stdout)
 
 
+
     pdf_file = os.path.join(
         work_dir,
         "jianpu.pdf"
     )
 
 
+
     if not os.path.exists(pdf_file):
+
         return {
             "error":"PDF failed",
             "log":result.stdout
         }
+
+
+
+    print("PDF完成:")
+    print(pdf_file)
+
 
 
     return FileResponse(
