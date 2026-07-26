@@ -1,259 +1,228 @@
-# clean_musicxml.py
-# CLEAN VERSION 20260726 V14
-# force measure split version
-
 import sys
-import xml.etree.ElementTree as ET
-import copy
+import music21
+from music21 import note, chord, stream
 
 
-TARGET_DIVISIONS = 16
-BEATS_PER_BAR = 4
-BAR_LENGTH = TARGET_DIVISIONS * BEATS_PER_BAR
+print("CLEAN VERSION 20260726 V14")
+print("Force split crossing notes")
 
 
-def tag(x):
-    return x.split("}")[-1]
+input_file = sys.argv[1]
+
+if len(sys.argv) >= 3:
+    output_file = sys.argv[2]
+else:
+    output_file = input_file.replace(
+        ".musicxml",
+        "_clean.musicxml"
+    )
 
 
-def make_element(name, text=None):
-    e = ET.Element(name)
-    if text:
-        e.text = str(text)
-    return e
+score = music21.converter.parse(input_file)
 
 
-def quantize_duration(d):
+# =========================
+# remove voices
+# =========================
 
-    values = [
-        1,2,4,8,16,32
+for p in score.parts:
+
+    for v in p.voices:
+        v.remove(v[:])
+
+
+
+# =========================
+# remove chords
+# =========================
+
+for p in score.parts:
+
+    for c in p.recurse().getElementsByClass(
+        chord.Chord
+    ):
+
+        n = note.Note(
+            c.pitches[0]
+        )
+
+        n.duration = c.duration
+
+        c.activeSite.replace(
+            c,
+            n
+        )
+
+
+
+# =========================
+# remove grace
+# =========================
+
+for g in score.recurse().notes:
+
+    if g.duration.isGrace:
+
+        g.activeSite.remove(g)
+
+
+
+# =========================
+# FORCE 4/4
+# =========================
+
+for p in score.parts:
+
+    measures = p.getElementsByClass(
+        stream.Measure
+    )
+
+    for m in measures:
+
+        ts = m.timeSignature
+
+        if ts is None:
+
+            m.insert(
+                0,
+                music21.meter.TimeSignature("4/4")
+            )
+
+
+
+# =========================
+# SPLIT CROSS BAR NOTES
+# =========================
+
+for p in score.parts:
+
+    new_part = stream.Part()
+
+    current_measure = 1
+    used = 0
+
+    measure_length = 4.0
+
+
+    for n in p.recurse().notesAndRests:
+
+
+        dur = n.duration.quarterLength
+
+
+        while dur > 0:
+
+
+            remain = (
+                measure_length
+                -
+                used
+            )
+
+
+            if dur <= remain:
+
+
+                n2 = n.clone()
+
+                n2.duration.quarterLength = dur
+
+                new_part.append(n2)
+
+
+                used += dur
+                dur = 0
+
+
+
+            else:
+
+                # split first part
+
+                n1 = n.clone()
+
+                n1.duration.quarterLength = remain
+
+
+                if isinstance(
+                    n1,
+                    note.Note
+                ):
+
+                    n1.tie = music21.tie.Tie(
+                        "start"
+                    )
+
+
+                new_part.append(n1)
+
+
+                dur -= remain
+
+
+                # next measure
+
+                current_measure += 1
+
+                used = 0
+
+
+                n3 = n.clone()
+
+                n3.duration.quarterLength = dur
+
+
+                if isinstance(
+                    n3,
+                    note.Note
+                ):
+
+                    n3.tie = music21.tie.Tie(
+                        "stop"
+                    )
+
+
+                new_part.append(n3)
+
+                used = dur
+                dur = 0
+
+
+
+        if used >= measure_length:
+
+            current_measure += 1
+            used = 0
+
+
+
+    p.clear()
+
+    for e in new_part:
+
+        p.append(e)
+
+
+
+# =========================
+# quantize
+# =========================
+
+score.quantize(
+    quarterLengthDivisors=[
+        4,
+        8,
+        16
     ]
+)
 
-    return min(
-        values,
-        key=lambda x:abs(x-d)
-    )
 
 
-def clean_measure(measure):
+score.write(
+    "musicxml",
+    fp=output_file
+)
 
-    new_notes = []
 
-    current = 0
-
-
-    for note in list(measure):
-
-        if tag(note.tag) != "note":
-            continue
-
-
-        duration_node = note.find(
-            "{*}duration"
-        )
-
-
-        if duration_node is None:
-            continue
-
-
-        duration = int(duration_node.text)
-
-
-        # quantize
-        duration = quantize_duration(duration)
-
-
-        # split across bar
-        while current + duration > BAR_LENGTH:
-
-            remain = BAR_LENGTH - current
-
-
-            if remain > 0:
-
-                part = copy.deepcopy(note)
-
-                part.find(
-                    "{*}duration"
-                ).text = str(remain)
-
-                new_notes.append(part)
-
-
-
-            # new bar marker
-            current = 0
-
-
-            duration -= remain
-
-
-            if duration <= 0:
-                break
-
-
-
-        if duration > 0:
-
-            part = copy.deepcopy(note)
-
-            part.find(
-                "{*}duration"
-            ).text = str(duration)
-
-            new_notes.append(part)
-
-            current += duration
-
-
-
-        # bar full
-        if current == BAR_LENGTH:
-
-            current = 0
-
-
-
-    # rebuild measure
-
-    for child in list(measure):
-        measure.remove(child)
-
-
-    for n in new_notes:
-        measure.append(n)
-
-
-
-    # fill missing duration
-
-    total = 0
-
-    for n in new_notes:
-
-        d=n.find("{*}duration")
-
-        if d is not None:
-            total += int(d.text)
-
-
-
-    if total < BAR_LENGTH:
-
-        rest = ET.Element(
-            "note"
-        )
-
-        ET.SubElement(
-            rest,
-            "rest"
-        )
-
-        ET.SubElement(
-            rest,
-            "duration"
-        ).text=str(
-            BAR_LENGTH-total
-        )
-
-        measure.append(rest)
-
-
-
-def clean_file(src,dst):
-
-    print(
-        "CLEAN VERSION 20260726 V14"
-    )
-
-    print(
-        "input:",
-        src
-    )
-
-
-    tree=ET.parse(src)
-
-    root=tree.getroot()
-
-
-    # remove voices/chords/grace
-
-    for elem in root.iter():
-
-        if tag(elem.tag)=="voice":
-
-            elem.clear()
-
-
-        if tag(elem.tag)=="chord":
-
-            elem.clear()
-
-
-        if tag(elem.tag)=="grace":
-
-            elem.clear()
-
-
-
-    # set divisions
-
-    for div in root.iter():
-
-        if tag(div.tag)=="divisions":
-
-            div.text=str(
-                TARGET_DIVISIONS
-            )
-
-
-    print(
-        "repair measures"
-    )
-
-
-    for measure in root.iter():
-
-        if tag(measure.tag)=="measure":
-
-            clean_measure(
-                measure
-            )
-
-
-    print(
-        "final cleanup"
-    )
-
-
-    tree.write(
-        dst,
-        encoding="utf-8",
-        xml_declaration=True
-    )
-
-
-    print(
-        "done:",
-        dst
-    )
-
-
-
-if __name__=="__main__":
-
-    if len(sys.argv)<3:
-
-        print(
-            "usage: python clean_musicxml.py input.musicxml output.musicxml"
-        )
-
-        sys.exit(1)
-
-
-    clean_file(
-        sys.argv[1],
-        sys.argv[2]
-    )
+print("DONE:")
+print(output_file)
