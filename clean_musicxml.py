@@ -111,6 +111,22 @@ def clean_musicxml(input_file, output_file):
     # =========================
 
     print("fix duration")
+    print("remove unsupported note types")
+
+
+    for n in score.recurse().notesAndRests:
+
+    if n.duration.type in [
+        "128th",
+        "256th"
+    ]:
+
+        print(
+            "convert:",
+            n.duration.type
+        )
+
+        n.duration.quarterLength = 0.125
     print("remove unsupported durations")
 
 
