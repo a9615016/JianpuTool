@@ -1,12 +1,14 @@
 import sys
 import xml.etree.ElementTree as ET
+import copy
 
-print("CLEAN MUSICXML V6")
+
+print("CLEAN MUSICXML V7")
 
 
 if len(sys.argv) < 3:
-    print("python clean_musicxml.py input.musicxml output.musicxml")
-    exit()
+    print("usage: python clean_musicxml_v7.py input.musicxml output.musicxml")
+    sys.exit(1)
 
 
 input_file = sys.argv[1]
@@ -24,163 +26,161 @@ tree = ET.parse(input_file)
 root = tree.getroot()
 
 
-def tag(e):
-    return e.tag.split("}")[-1]
+ns = ""
+if root.tag.startswith("{"):
+    ns = root.tag.split("}")[0] + "}"
 
 
-def find(e, name):
-    for x in e:
-        if tag(x) == name:
-            return x
-    return None
-
-
-print("讀取 MusicXML")
+def tag(name):
+    return ns + name
 
 
 # -------------------------
-# 強制 divisions = 16
+# divisions
 # -------------------------
 
-for div in root.iter():
+divisions = 16
 
-    if tag(div) == "divisions":
-        div.text = "16"
+for d in root.iter(tag("divisions")):
+    d.text = str(divisions)
+
+
+BAR_LENGTH = divisions * 4   # 4/4 = 64
+
+
+print("BAR LENGTH:", BAR_LENGTH)
+
 
 
 # -------------------------
-# 處理 measures
+# 清理 note
 # -------------------------
 
-for measure in root.iter():
+for measure in root.iter(tag("measure")):
 
-    if tag(measure) != "measure":
+    notes = list(measure.findall(tag("note")))
+
+    if not notes:
         continue
 
 
-    print(
-        "處理小節:",
-        measure.attrib.get("number")
-    )
-
-
-    notes = []
-
-
-    for child in list(measure):
-
-        if tag(child) == "note":
-
-            # 移除 chord
-            for c in list(child):
-
-                if tag(c) == "chord":
-                    child.remove(c)
-
-
-            # 移除 voice 2
-            voice = find(child,"voice")
-
-            if voice is not None:
-                if voice.text != "1":
-                    measure.remove(child)
-                    continue
-
-
-            notes.append(child)
-
-
-
-    # ---------------------
-    # 重新計算
-    # ---------------------
-
-    used = 0
+    current = 0
+    new_notes = []
 
 
     for note in notes:
 
-        dur = find(note,"duration")
+        duration_node = note.find(tag("duration"))
 
-        if dur is None:
+        if duration_node is None:
             continue
 
 
-        value = int(dur.text)
+        try:
+            duration = int(duration_node.text)
+
+        except:
+            duration = divisions
 
 
-        # 超過64直接截斷
-        if used + value > 64:
-
-            remain = 64-used
-
-            if remain > 0:
-                dur.text=str(remain)
-                used=64
-
-            else:
-                measure.remove(note)
-
-            continue
-
-
-        used += value
+        # 移除 chord
+        chord = note.find(tag("chord"))
+        if chord is not None:
+            note.remove(chord)
 
 
 
-    # ---------------------
+        # 防止超過小節
+        remain = BAR_LENGTH - current
+
+
+        if remain <= 0:
+            break
+
+
+        if duration > remain:
+            duration = remain
+
+
+        duration_node.text = str(duration)
+
+
+        new_notes.append(note)
+
+
+        current += duration
+
+
+
+    # -------------------------
     # 補 rest
-    # ---------------------
+    # -------------------------
 
-    if used < 64:
+    if current < BAR_LENGTH:
 
-
-        remain = 64-used
-
-
-        print(
-            "補休止:",
-            remain
-        )
+        rest_duration = BAR_LENGTH - current
 
 
-        rest = ET.Element(
-            "note"
-        )
+        rest = ET.Element(tag("note"))
 
-
-        ET.SubElement(
+        rest_tag = ET.SubElement(
             rest,
-            "rest"
+            tag("rest")
         )
 
 
-        duration = ET.SubElement(
+        dur = ET.SubElement(
             rest,
-            "duration"
+            tag("duration")
         )
 
-        duration.text=str(remain)
+        dur.text = str(rest_duration)
 
 
         voice = ET.SubElement(
             rest,
-            "voice"
+            tag("voice")
         )
 
-        voice.text="1"
+        voice.text = "1"
 
 
-        measure.append(rest)
+        new_notes.append(rest)
+
+
+    # -------------------------
+    # 重建 measure
+    # -------------------------
+
+    for n in notes:
+        measure.remove(n)
+
+
+    for n in new_notes:
+        measure.append(n)
 
 
 
 # -------------------------
-# 寫檔
+# 移除多餘聲部
 # -------------------------
 
-print("寫入")
+for voice in root.iter(tag("voice")):
+    voice.text = "1"
 
+
+
+# -------------------------
+# 移除 tie
+# -------------------------
+
+for tie in list(root.iter(tag("tie"))):
+    parent = None
+
+
+# -------------------------
+# 寫出
+# -------------------------
 
 tree.write(
     output_file,
