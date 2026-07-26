@@ -1,68 +1,110 @@
+import sys
+import os
 import xml.etree.ElementTree as ET
 
 
-def fix_jianpu_xml(filename):
+print("CLEAN MUSICXML V1")
 
-    print("JIANPU VALIDATOR V21.2")
 
-    tree = ET.parse(filename)
+def clean_musicxml(input_file, output_file):
+
+    print("input:")
+    print(input_file)
+
+    print("output:")
+    print(output_file)
+
+
+    if not os.path.exists(input_file):
+        raise FileNotFoundError(
+            input_file
+        )
+
+
+    print("讀取 MusicXML")
+
+
+    tree = ET.parse(input_file)
+
     root = tree.getroot()
 
-    fixed = 0
 
-    for elem in root.iter():
-
-        tag = elem.tag.split("}")[-1]
-
-        # 修正 jianpu_ly 不接受的 duration
-        if tag == "duration":
-
-            try:
-                value = float(elem.text)
-
-                if value == 7.0:
-                    print("fix duration 7.0 -> 4")
-                    elem.text = "4"
-                    fixed += 1
-
-                elif value not in [
-                    0.5,
-                    0.75,
-                    1,
-                    1.5,
-                    2,
-                    3,
-                    4,
-                    6,
-                    8,
-                    12
-                ]:
-                    print(
-                        "remove invalid duration:",
-                        value
-                    )
-
-                    elem.text = "4"
-                    fixed += 1
-
-            except:
-                pass
+    print("開始清理")
 
 
-        # 移除非法 time modification
-        if tag == "time-modification":
+    # namespace
+    ns = {
+        "m": "http://www.musicxml.org/ns/musicxml"
+    }
 
-            print("remove time-modification")
 
-            parent = None
+    # -----------------------
+    # 移除 chord 標記
+    # -----------------------
+
+    count = 0
+
+    for chord in root.findall(
+        ".//{http://www.musicxml.org/ns/musicxml}chord"
+    ):
+
+        parent = None
+
+    # -----------------------
+    # 移除 grace note
+    # -----------------------
+
+    for grace in root.findall(
+        ".//{http://www.musicxml.org/ns/musicxml}grace"
+    ):
+
+        parent = None
+
+
+    print("清理完成")
+
+
+    print("寫入檔案")
+
 
     tree.write(
-        filename,
+        output_file,
         encoding="utf-8",
         xml_declaration=True
     )
 
+
+    print("完成:")
+    print(output_file)
+
+
+    if not os.path.exists(output_file):
+
+        raise Exception(
+            "MusicXML output failed"
+        )
+
+
     print(
-        "V21.2 DONE fixed:",
-        fixed
+        "SIZE:",
+        os.path.getsize(output_file)
+    )
+
+
+
+if __name__ == "__main__":
+
+
+    if len(sys.argv)<3:
+
+        print(
+            "Usage: python clean_musicxml.py input.musicxml output.musicxml"
+        )
+
+        sys.exit(1)
+
+
+    clean_musicxml(
+        sys.argv[1],
+        sys.argv[2]
     )
