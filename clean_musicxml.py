@@ -1,132 +1,200 @@
-import xml.etree.ElementTree as ET
 import sys
+import xml.etree.ElementTree as ET
 import copy
 
-NS = {
-    "": "http://www.musicxml.org/ns/musicxml"
-}
+NS = "http://www.musicxml.org/ns/musicxml"
+ET.register_namespace("", NS)
 
-ET.register_namespace("", NS[""])
-
-
-TARGET = 64   # 4/4 * divisions16
+TARGET_DURATION = 64
 
 
-def tag(x):
-    return x.split("}")[-1]
+def tag(name):
+    return f"{{{NS}}}{name}"
 
 
-def make_rest(duration):
-    note = ET.Element("note")
+def get_duration(note):
+    d = note.find(tag("duration"))
+    if d is not None:
+        return int(d.text)
+    return 0
 
-    ET.SubElement(note, "rest")
 
-    d = ET.SubElement(note, "duration")
-    d.text = str(duration)
+def set_duration(note, value):
+    d = note.find(tag("duration"))
+    if d is not None:
+        d.text = str(value)
 
-    ET.SubElement(note, "voice").text = "1"
+
+def create_rest(duration):
+    note = ET.Element(tag("note"))
+
+    rest = ET.SubElement(note, tag("rest"))
+
+    duration_node = ET.SubElement(
+        note,
+        tag("duration")
+    )
+    duration_node.text = str(duration)
+
+    voice = ET.SubElement(
+        note,
+        tag("voice")
+    )
+    voice.text = "1"
 
     return note
 
 
-def clean(input_file, output_file):
+def clean_measure(measure):
+
+    notes = measure.findall(tag("note"))
+
+    total = sum(get_duration(n) for n in notes)
+
+    print(
+        "measure duration before:",
+        total
+    )
+
+    # 超過64
+    if total > TARGET_DURATION:
+
+        overflow = total - TARGET_DURATION
+
+        print(
+            "remove overflow:",
+            overflow
+        )
+
+        for note in reversed(notes):
+
+            if overflow <= 0:
+                break
+
+            # 只刪 rest
+            rest = note.find(tag("rest"))
+
+            if rest is not None:
+
+                dur = get_duration(note)
+
+                if dur <= overflow:
+                    measure.remove(note)
+                    overflow -= dur
+
+                else:
+                    set_duration(
+                        note,
+                        dur - overflow
+                    )
+                    overflow = 0
+
+
+    # 重新計算
+    notes = measure.findall(tag("note"))
+
+    total = sum(
+        get_duration(n)
+        for n in notes
+    )
+
+
+    # 不足補休止
+    if total < TARGET_DURATION:
+
+        add = TARGET_DURATION - total
+
+        print(
+            "add rest:",
+            add
+        )
+
+        measure.append(
+            create_rest(add)
+        )
+
+
+    total = sum(
+        get_duration(n)
+        for n in measure.findall(tag("note"))
+    )
+
+
+    print(
+        "measure duration after:",
+        total
+    )
+
+
+
+def clean_musicxml(input_file, output_file):
+
+    print("CLEAN MUSICXML FINAL V12")
+
+    print("input:")
+    print(input_file)
+
+    print("output:")
+    print(output_file)
+
 
     tree = ET.parse(input_file)
     root = tree.getroot()
 
 
-    # divisions
-    for d in root.iter():
-        if tag(d.tag) == "divisions":
-            d.text = "16"
+    # divisions = 16
+
+    for divisions in root.iter(tag("divisions")):
+        divisions.text = "16"
 
 
-    for measure in root.iter():
+    # 強制4/4
 
-        if tag(measure.tag) != "measure":
-            continue
+    for time in root.iter(tag("time")):
 
+        beats = time.find(tag("beats"))
+        beat_type = time.find(tag("beat-type"))
 
-        notes = []
+        if beats is not None:
+            beats.text = "4"
 
-        for n in list(measure):
-
-            if tag(n.tag) != "note":
-                continue
-
-
-            # remove chord
-            for c in list(n):
-                if tag(c.tag) == "chord":
-                    n.remove(c)
-
-
-            # keep voice 1
-            voice = n.find("voice")
-
-            if voice is not None:
-                if voice.text != "1":
-                    measure.remove(n)
-                    continue
-
-
-            notes.append(n)
+        if beat_type is not None:
+            beat_type.text = "4"
 
 
 
-        # calculate duration
+    for part in root.findall(tag("part")):
 
-        total = 0
-
-        for n in notes:
-
-            dur = n.find("duration")
-
-            if dur is not None:
-                total += int(dur.text)
+        for measure in part.findall(tag("measure")):
 
 
+            # 移除 chord
 
-        # too long
-        while total > TARGET:
-
-            last = notes[-1]
-
-            dur = last.find("duration")
-
-            if dur is None:
-                break
-
-
-            value = int(dur.text)
-
-            reduce = total - TARGET
-
-
-            if value > reduce:
-
-                dur.text = str(value-reduce)
-                total = TARGET
-
-            else:
-
-                measure.remove(last)
-
-                notes.pop()
-
-                total -= value
+            for chord in measure.findall(
+                ".//" + tag("chord")
+            ):
+                parent = measure
+                parent.remove(chord)
 
 
 
-        # too short
+            # 保留 voice 1
 
-        if total < TARGET:
+            for note in list(
+                measure.findall(tag("note"))
+            ):
 
-            rest = make_rest(
-                TARGET-total
-            )
+                voice = note.find(
+                    tag("voice")
+                )
 
-            measure.append(rest)
+                if voice is not None:
+                    if voice.text != "1":
+                        measure.remove(note)
+
+
+
+            clean_measure(measure)
 
 
 
@@ -137,7 +205,6 @@ def clean(input_file, output_file):
     )
 
 
-    print("CLEAN MUSICXML FINAL V11")
     print("DONE")
     print(output_file)
 
@@ -145,7 +212,16 @@ def clean(input_file, output_file):
 
 if __name__ == "__main__":
 
-    clean(
+    if len(sys.argv) < 3:
+
+        print(
+            "usage: python clean_musicxml_final_v12.py input.musicxml output.musicxml"
+        )
+
+        sys.exit(1)
+
+
+    clean_musicxml(
         sys.argv[1],
         sys.argv[2]
     )
