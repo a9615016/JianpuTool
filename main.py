@@ -215,7 +215,7 @@ async def upload(file: UploadFile = File(...)):
 
 
     # 移除前面非 LilyPond 內容
-    start = ly_content.find("OctavesAfter")
+    start = ly_content.find("OctavesAfter")f.write(
 
     if start != -1:
         ly_content = ly_content[start:]
@@ -226,7 +226,7 @@ async def upload(file: UploadFile = File(...)):
     "w",
     encoding="utf-8"
     ) as f:
-    f.write(ly_content)
+       f.write(ly_content)
 
 
     print("jianpu.ly完成")
