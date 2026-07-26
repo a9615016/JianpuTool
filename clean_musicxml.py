@@ -3,130 +3,138 @@ import os
 import music21
 
 
-print("CLEAN MUSICXML V2")
+def clean_musicxml(input_file, output_file):
+
+    print("CLEAN MUSICXML V2")
+    print("input:")
+    print(input_file)
+
+    print("output:")
+    print(output_file)
+
+    if not os.path.exists(input_file):
+        print("ERROR: input not found")
+        return False
 
 
-src = sys.argv[1]
-dst = sys.argv[2]
+    print("讀取 MusicXML")
+
+    score = music21.converter.parse(input_file)
 
 
-print("input:")
-print(src)
-
-print("output:")
-print(dst)
+    print("開始清理")
 
 
-score = music21.converter.parse(src)
+    # 移除不必要元素
+    for part in score.parts:
 
+        # 移除 chord
+        for chord in part.recurse().getElementsByClass(
+            'Chord'
+        ):
+            chord.remove()
 
-# ======================
-# 移除 chord
-# ======================
-
-for part in score.parts:
-
-    for c in list(part.recurse().getElementsByClass("Chord")):
-
-        n = music21.note.Note(
-            c.pitches[0]
-        )
-
-        n.duration = c.duration
-
-        c.activeSite.replace(
-            c,
-            n
-        )
-
-
-
-# ======================
-# 強制單聲部
-# ======================
-
-for part in score.parts:
-
-    part.removeByClass("Voice")
+        # 移除 grace note
+        for grace in part.recurse().getElementsByClass(
+            'GraceNote'
+        ):
+            grace.remove()
 
 
 
-# ======================
-# Quantize
-# ======================
+        # 修正所有 note
+        for n in part.recurse().notes:
 
-print("quantize")
+            # 移除 tie
+            if hasattr(n, "tie"):
+                n.tie = None
 
-score.quantize(
-    quarterLengthDivisors=[
-        16,
-        8,
-        4,
-        2,
-        1
-    ],
-    processOffsets=True,
-    processDurations=True
-)
+
+        # 修正休止符
+        for r in part.recurse().getElementsByClass(
+            'Rest'
+        ):
+            if r.duration.quarterLength <= 0:
+                r.duration.quarterLength = 1
 
 
 
-# ======================
-# 強制4/4
-# ======================
-
-for part in score.parts:
-
-    for m in part.getElementsByClass(
-        music21.stream.Measure
-    ):
-
-        m.timeSignature = music21.meter.TimeSignature(
-            "4/4"
-        )
+    print("重新整理小節")
 
 
+    # 強制 4/4
+    for part in score.parts:
 
-# ======================
-# 重新切小節
-# ======================
+        measures = part.makeMeasures()
 
-print("make measures")
+        for m in measures:
 
-for part in score.parts:
+            # 確保 measure duration
+            total = m.duration.quarterLength
 
-    part.makeMeasures(
-        inPlace=True
+            if total != 4:
+
+                diff = 4 - total
+
+                if diff > 0:
+
+                    rest = music21.note.Rest()
+                    rest.duration.quarterLength = diff
+                    m.append(rest)
+
+
+    print("移除複雜節奏")
+
+
+    # quantize
+    score.quantize(
+        quarterLengthDivisors=[
+            4,
+            3,
+            2,
+            1
+        ]
     )
 
 
+    print("寫入檔案")
 
-# ======================
-# 修正最後超長音
-# ======================
-
-for n in score.recurse().notes:
-
-    if n.duration.quarterLength > 4:
-
-        n.duration.quarterLength = 4
+    score.write(
+        "musicxml",
+        fp=output_file
+    )
 
 
+    print("完成:")
+    print(output_file)
 
-# ======================
-# output
-# ======================
+    print(
+        "SIZE:",
+        os.path.getsize(output_file)
+    )
 
-score.write(
-    "musicxml",
-    fp=dst
-)
+    return True
 
 
-print("完成:")
-print(dst)
 
-print(
-    "SIZE:",
-    os.path.getsize(dst)
-)
+if __name__ == "__main__":
+
+
+    if len(sys.argv) < 3:
+
+        print(
+            "使用方法:"
+        )
+
+        print(
+            "python clean_musicxml.py input.musicxml output.musicxml"
+        )
+
+        sys.exit(1)
+
+
+
+    clean_musicxml(
+        sys.argv[1],
+        sys.argv[2]
+    )
