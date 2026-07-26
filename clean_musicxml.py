@@ -1,14 +1,12 @@
 import sys
 import xml.etree.ElementTree as ET
-import copy
 
-print("CLEAN MUSICXML V5")
+print("CLEAN MUSICXML V6")
 
 
 if len(sys.argv) < 3:
-    print("usage:")
     print("python clean_musicxml.py input.musicxml output.musicxml")
-    sys.exit(1)
+    exit()
 
 
 input_file = sys.argv[1]
@@ -22,36 +20,36 @@ print("output:")
 print(output_file)
 
 
-ET.register_namespace("", "http://www.musicxml.org/ns/musicxml")
-
-
 tree = ET.parse(input_file)
 root = tree.getroot()
 
 
-ns = {
-    "m": "http://www.musicxml.org/ns/musicxml"
-}
+def tag(e):
+    return e.tag.split("}")[-1]
 
 
-DIVISION = 16
-
-MEASURE_LENGTH = 64   # 4/4
+def find(e, name):
+    for x in e:
+        if tag(x) == name:
+            return x
+    return None
 
 
 print("讀取 MusicXML")
 
 
 # -------------------------
-# 移除 namespace helper
+# 強制 divisions = 16
 # -------------------------
 
-def tag(e):
-    return e.tag.split("}")[-1]
+for div in root.iter():
+
+    if tag(div) == "divisions":
+        div.text = "16"
 
 
 # -------------------------
-# 處理每個 measure
+# 處理 measures
 # -------------------------
 
 for measure in root.iter():
@@ -61,12 +59,13 @@ for measure in root.iter():
 
 
     print(
-        "processing measure",
+        "處理小節:",
         measure.attrib.get("number")
     )
 
 
     notes = []
+
 
     for child in list(measure):
 
@@ -74,94 +73,73 @@ for measure in root.iter():
 
             # 移除 chord
             for c in list(child):
+
                 if tag(c) == "chord":
                     child.remove(c)
+
+
+            # 移除 voice 2
+            voice = find(child,"voice")
+
+            if voice is not None:
+                if voice.text != "1":
+                    measure.remove(child)
+                    continue
 
 
             notes.append(child)
 
 
-    # ---------------------
-    # 計算 duration
-    # ---------------------
-
-    total = 0
-
-    for n in notes:
-
-        d = n.find("{*}duration")
-
-        if d is not None:
-            try:
-                total += int(d.text)
-            except:
-                pass
-
-
-    print(
-        "measure duration:",
-        total
-    )
-
 
     # ---------------------
-    # 超過小節
-    # 刪除最後超出的 note
+    # 重新計算
     # ---------------------
 
-    if total > MEASURE_LENGTH:
-
-        print(
-            "trim overflow",
-            total
-        )
-
-        current = 0
-
-        for n in list(notes):
-
-            d = n.find("{*}duration")
-
-            if d is None:
-                continue
-
-            value = int(d.text)
+    used = 0
 
 
-            if current + value > MEASURE_LENGTH:
+    for note in notes:
 
-                measure.remove(n)
+        dur = find(note,"duration")
+
+        if dur is None:
+            continue
+
+
+        value = int(dur.text)
+
+
+        # 超過64直接截斷
+        if used + value > 64:
+
+            remain = 64-used
+
+            if remain > 0:
+                dur.text=str(remain)
+                used=64
 
             else:
+                measure.remove(note)
 
-                current += value
+            continue
+
+
+        used += value
 
 
 
     # ---------------------
-    # 不足補 rest
+    # 補 rest
     # ---------------------
 
-    total = 0
-
-    for n in measure:
-
-        if tag(n) == "note":
-
-            d = n.find("{*}duration")
-
-            if d is not None:
-
-                total += int(d.text)
+    if used < 64:
 
 
-    if total < MEASURE_LENGTH:
-
-        remain = MEASURE_LENGTH - total
+        remain = 64-used
 
 
         print(
-            "add rest:",
+            "補休止:",
             remain
         )
 
@@ -182,7 +160,7 @@ for measure in root.iter():
             "duration"
         )
 
-        duration.text = str(remain)
+        duration.text=str(remain)
 
 
         voice = ET.SubElement(
@@ -198,10 +176,10 @@ for measure in root.iter():
 
 
 # -------------------------
-# 寫出
+# 寫檔
 # -------------------------
 
-print("寫入檔案")
+print("寫入")
 
 
 tree.write(
