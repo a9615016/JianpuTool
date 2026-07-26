@@ -1,181 +1,215 @@
-import xml.etree.ElementTree as ET
 import sys
 import os
+import xml.etree.ElementTree as ET
+from fractions import Fraction
 
 
-INPUT = sys.argv[1]
-OUTPUT = sys.argv[2] if len(sys.argv) > 2 else INPUT.replace(
-    ".musicxml",
-    "_clean.musicxml"
-)
+VERSION = "CLEAN VERSION 20260726 V13"
 
 
-print("CLEAN VERSION 20260726 V13")
-print("input:", INPUT)
+def log(x):
+    print(x)
 
 
-tree = ET.parse(INPUT)
-root = tree.getroot()
+def quantize_duration(duration, divisions):
+    """
+    四捨五入到 16 分音符
+    """
+    step = divisions // 4
+
+    if step <= 0:
+        return duration
+
+    q = round(duration / step) * step
+
+    if q <= 0:
+        q = step
+
+    return q
 
 
-ns = {
-    "m": "http://www.musicxml.org/ns/musicxml"
-}
+def clean_musicxml(input_file, output_file):
+
+    log(VERSION)
+    log("input: " + input_file)
+
+    tree = ET.parse(input_file)
+    root = tree.getroot()
 
 
-# remove voices
-print("remove voices")
+    divisions = 16
 
-for note in root.findall(".//note"):
-    voice = note.find("voice")
-    if voice is not None:
-        note.remove(voice)
+    div_node = root.find(".//divisions")
+    if div_node is not None:
+        divisions = int(div_node.text)
 
 
-# remove chords
-print("remove chords")
+    log("remove voices")
+    log("remove chords")
+    log("remove grace")
 
-for note in root.findall(".//note"):
-    for c in note.findall("chord"):
-        note.remove(c)
+    # 移除 voice
+    for voice in root.findall(".//voice"):
+        parent = None
+        for p in root.iter():
+            if voice in list(p):
+                parent = p
+                break
 
-
-# remove grace
-print("remove grace")
-
-for note in root.findall(".//note"):
-    for g in note.findall("grace"):
-        note.remove(g)
-
-
-
-print("quantize duration")
+        if parent is not None:
+            parent.remove(voice)
 
 
-# divisions
-divisions = root.find(".//divisions")
+    # 移除 chord 標記
+    for chord in root.findall(".//chord"):
+        parent = None
+        for p in root.iter():
+            if chord in list(p):
+                parent=p
+                break
 
-if divisions is None:
-    div = 16
-else:
-    div = int(divisions.text)
-
-
-TARGET = 64
-
-
-print("repair measures")
+        if parent:
+            parent.remove(chord)
 
 
-measures = root.findall(".//measure")
+    log("quantize duration")
 
+    # 所有 note duration 量化
+    for dur in root.findall(".//duration"):
 
-for measure in measures:
+        try:
+            value=int(dur.text)
 
-    notes = measure.findall("note")
+            value=quantize_duration(
+                value,
+                divisions
+            )
 
-    total = 0
+            dur.text=str(value)
 
-
-    for note in list(notes):
-
-        duration = note.find("duration")
-
-        if duration is None:
-            continue
-
-
-        d = int(duration.text)
-
-
-        # quarter grid
-        q = round(d / 4) * 4
-
-        if q <= 0:
-            q = 4
-
-
-        duration.text = str(q)
-
-
-        total += q
+        except:
+            pass
 
 
 
-    # 修正超長小節
+    log("repair measures")
 
-    if total > TARGET:
+    measure_list = root.findall(".//measure")
 
-        overflow = total - TARGET
+
+    for measure in measure_list:
+
+        notes = measure.findall(".//note")
+
+        total = 0
+
+        for note in notes:
+
+            dur = note.find("duration")
+
+            if dur is not None:
+                try:
+                    total += int(dur.text)
+                except:
+                    pass
+
+
+        target = divisions * 4
+
+
+        # 超過小節
+        if total > target:
+
+            overflow = total-target
+
+
+            for note in reversed(notes):
+
+                dur=note.find("duration")
+
+                if dur is None:
+                    continue
+
+                d=int(dur.text)
+
+
+                if d > overflow:
+
+                    dur.text=str(d-overflow)
+                    overflow=0
+                    break
+
+                else:
+
+                    dur.text=str(divisions//4)
+                    overflow-=d
+
+
+                if overflow<=0:
+                    break
+
+
+
+        # 不足補休止符
+
+        if total < target:
+
+            rest_time = target-total
+
+            rest = ET.Element("note")
+
+            ET.SubElement(rest,"rest")
+
+            ET.SubElement(
+                rest,
+                "duration"
+            ).text=str(rest_time)
+
+
+            measure.append(rest)
+
+
+
+    log("final cleanup")
+
+
+    tree.write(
+        output_file,
+        encoding="utf-8",
+        xml_declaration=True
+    )
+
+
+    log("done:")
+    log(output_file)
+
+
+
+if __name__=="__main__":
+
+    if len(sys.argv)<2:
 
         print(
-            "overflow measure",
-            measure.attrib.get("number"),
-            total
+            "python clean_musicxml.py input.musicxml output.musicxml"
+        )
+
+        exit()
+
+
+    input_file=sys.argv[1]
+
+
+    if len(sys.argv)>=3:
+        output_file=sys.argv[2]
+
+    else:
+        output_file=input_file.replace(
+            ".musicxml",
+            "_clean.musicxml"
         )
 
 
-        notes = measure.findall("note")
-
-
-        while total > TARGET and notes:
-
-            n = notes[-1]
-
-            d = n.find("duration")
-
-            if d is not None:
-
-                old = int(d.text)
-
-                remove = min(
-                    old,
-                    total - TARGET
-                )
-
-                new = old - remove
-
-                if new <= 0:
-                    measure.remove(n)
-                else:
-                    d.text = str(new)
-
-
-                total -= remove
-
-            notes.pop()
-
-
-
-    # 不足補 rest
-
-    if total < TARGET:
-
-        rest = ET.Element("note")
-
-        ET.SubElement(rest,"rest")
-
-        dur = ET.SubElement(
-            rest,
-            "duration"
-        )
-
-        dur.text=str(
-            TARGET-total
-        )
-
-        measure.append(rest)
-
-
-
-print("final cleanup")
-
-
-tree.write(
-    OUTPUT,
-    encoding="utf-8",
-    xml_declaration=True
-)
-
-
-print("done:", OUTPUT)
+    clean_musicxml(
+        input_file,
+        output_file
+    )
