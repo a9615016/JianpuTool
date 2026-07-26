@@ -191,7 +191,34 @@ def clean(input_file, output_file):
         xml_declaration=True
     )
 
+    # =========================
+# V19 FORCE TIME SIGNATURE
+# =========================
 
+print("force time signature 4/4 V19")
+
+
+for elem in root.iter():
+
+    # 找 attributes
+    if elem.tag.endswith("attributes"):
+
+        for child in elem:
+
+            # 找 time
+            if child.tag.endswith("time"):
+
+                for item in child:
+
+                    if item.tag.endswith("beats"):
+                        item.text = "4"
+
+                    elif item.tag.endswith("beat-type"):
+                        item.text = "4"
+
+
+
+    print("V19 time fix done")
     print("done:")
 
     print(output_file)
