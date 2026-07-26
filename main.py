@@ -211,19 +211,30 @@ async def upload(file: UploadFile = File(...)):
 
 
     # 只寫 stdout
-    with open(
-        ly_file,
-        "w",
-        encoding="utf-8"
-    ) as f:
+    ly_content = result.stdout
 
-        f.write(
-            result.stdout
-        )
+
+    # 移除前面非 LilyPond 內容
+    start = ly_content.find("OctavesAfter")
+
+    if start != -1:
+    ly_content = ly_content[start:]
+
+
+    with open(
+    ly_file,
+    "w",
+    encoding="utf-8"
+    ) as f:
+    f.write(ly_content)
 
 
     print("jianpu.ly完成")
-
+    with open(
+    ly_file,
+    encoding="utf-8"
+    ) as f:
+    print(f.read(100))
 
 
     # DEBUG 第一行
