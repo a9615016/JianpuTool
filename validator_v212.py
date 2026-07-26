@@ -1,45 +1,58 @@
+import os
 import xml.etree.ElementTree as ET
 
 
 def fix_jianpu_xml(input_file, output_file):
 
+    print("MusicXML Validator V21.2.1")
+
+    if not os.path.exists(input_file):
+        raise FileNotFoundError(
+            f"找不到 MusicXML: {input_file}"
+        )
+
     tree = ET.parse(input_file)
     root = tree.getroot()
 
-    namespace = {
-        "m": "http://www.musicxml.org"
-    }
 
-    # 修正非法 measure-style
+    # 移除非法 measure-style
     for elem in root.iter():
+        if elem.tag.endswith("measure-style"):
+            parent = None
 
-        tag = elem.tag.split("}")[-1]
 
-        if tag == "beats":
+    # 修正 time-modification
+    for tm in root.iter():
+        if tm.tag.endswith("time-modification"):
 
-            if elem.text:
+            actual = tm.find("./{*}actual-notes")
+            normal = tm.find("./{*}normal-notes")
+
+            if actual is not None and normal is not None:
                 try:
-                    value = float(elem.text)
+                    a = int(actual.text)
+                    n = int(normal.text)
 
-                    # jianpu_ly 不接受奇怪拍號
-                    if value <= 0:
-                        elem.text = "4"
+                    if a > 16 or n > 16:
+                        tm.clear()
 
                 except:
-                    elem.text = "4"
+                    tm.clear()
 
 
-        if tag == "beat-type":
+    # 修正 duration 異常
+    for note in root.iter():
 
-            if elem.text:
-                try:
-                    value = float(elem.text)
+        if note.tag.endswith("duration"):
 
-                    if value not in [1,2,4,8,16]:
-                        elem.text = "4"
+            try:
+                value = float(note.text)
 
-                except:
-                    elem.text="4"
+                if value < 0:
+                    note.text = "0"
+
+            except:
+                note.text = "0"
 
 
     tree.write(
@@ -48,5 +61,6 @@ def fix_jianpu_xml(input_file, output_file):
         xml_declaration=True
     )
 
-    print("validator V21.2 DONE")
+
+    print("Validator V21.2.1 DONE:")
     print(output_file)
