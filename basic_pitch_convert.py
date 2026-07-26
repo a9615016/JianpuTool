@@ -1,6 +1,7 @@
-print("BASIC PITCH VERSION FIX V2")
 import sys
 import os
+
+print("BASIC PITCH VERSION FIX V3")
 
 from basic_pitch.inference import (
     predict_and_save,
@@ -39,16 +40,19 @@ print("Predicting MIDI...")
 predict_and_save(
     [input_audio],
     output_dir,
-    model,
-    save_midi=True,
-    sonify_midi=False,
-    save_model_outputs=False,
-    save_notes=False
+    True,       # save_midi
+    False,      # sonify_midi
+    False,      # save_model_outputs
+    False,      # save_notes
+    model
 )
 
 
-# 找 MIDI
+print("Searching MIDI...")
+
+
 found = False
+
 
 for file in os.listdir(output_dir):
 
@@ -56,7 +60,8 @@ for file in os.listdir(output_dir):
 
         src = os.path.join(output_dir, file)
 
-        os.rename(src, output_midi)
+        if src != output_midi:
+            os.rename(src, output_midi)
 
         found = True
         break
