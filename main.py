@@ -9,15 +9,12 @@ from fastapi.responses import FileResponse
 app = FastAPI()
 
 
-
 @app.get("/")
 def home():
-
     return {
         "status": "JianpuTool running",
-        "version": "V23"
+        "version": "V21.4"
     }
-
 
 
 
@@ -26,7 +23,6 @@ def run_cmd(cmd):
     print("RUN:")
     print(" ".join(cmd))
 
-
     result = subprocess.run(
         cmd,
         stdout=subprocess.PIPE,
@@ -34,12 +30,9 @@ def run_cmd(cmd):
         text=True
     )
 
-
     print(result.stdout)
 
     return result
-
-
 
 
 
@@ -57,7 +50,6 @@ async def upload(file: UploadFile = File(...)):
         work_dir,
         exist_ok=True
     )
-
 
 
     # =====================
@@ -78,6 +70,7 @@ async def upload(file: UploadFile = File(...)):
     print("收到:")
     print(file.filename)
     print("================")
+    print("MP3保存完成")
 
 
 
@@ -85,7 +78,7 @@ async def upload(file: UploadFile = File(...)):
     # BasicPitch
     # =====================
 
-    midi_file = os.path.join(
+    midi_file=os.path.join(
         work_dir,
         "melody.mid"
     )
@@ -94,19 +87,20 @@ async def upload(file: UploadFile = File(...)):
     print("開始 BasicPitch")
 
 
-    r = run_cmd([
-        "python",
-        "basic_pitch_convert.py",
-        input_audio,
-        midi_file
-    ])
+    result=run_cmd(
+        [
+            "python",
+            "basic_pitch_convert.py",
+            input_audio,
+            midi_file
+        ]
+    )
 
 
-    if r.returncode != 0:
-
+    if result.returncode !=0:
         return {
             "error":"BasicPitch failed",
-            "log":r.stdout
+            "log":result.stdout
         }
 
 
@@ -116,7 +110,7 @@ async def upload(file: UploadFile = File(...)):
     # =====================
 
 
-    clean_midi = os.path.join(
+    clean_midi=os.path.join(
         work_dir,
         "melody_clean.mid"
     )
@@ -125,20 +119,20 @@ async def upload(file: UploadFile = File(...)):
     print("開始 MIDI Quantize")
 
 
-    r = run_cmd([
-        "python",
-        "midi_quantize.py",
-        midi_file,
-        clean_midi
-    ])
+    result=run_cmd(
+        [
+            "python",
+            "midi_quantize.py",
+            midi_file,
+            clean_midi
+        ]
+    )
 
 
-
-    if r.returncode != 0:
-
+    if result.returncode !=0:
         return {
             "error":"quantize failed",
-            "log":r.stdout
+            "log":result.stdout
         }
 
 
@@ -149,7 +143,7 @@ async def upload(file: UploadFile = File(...)):
     # =====================
 
 
-    musicxml = os.path.join(
+    musicxml=os.path.join(
         work_dir,
         "input.musicxml"
     )
@@ -158,32 +152,30 @@ async def upload(file: UploadFile = File(...)):
     print("MIDI轉MusicXML")
 
 
-    r = run_cmd([
-        "python",
-        "midi_to_musicxml.py",
-        clean_midi,
-        musicxml
-    ])
+    result=run_cmd(
+        [
+            "python",
+            "midi_to_musicxml.py",
+            clean_midi,
+            musicxml
+        ]
+    )
 
 
-
-    if r.returncode != 0:
-
+    if result.returncode !=0:
         return {
             "error":"musicxml failed",
-            "log":r.stdout
+            "log":result.stdout
         }
 
 
 
-
-
     # =====================
-    # Clean XML
+    # Clean MusicXML
     # =====================
 
 
-    clean_xml = os.path.join(
+    clean_xml=os.path.join(
         work_dir,
         "clean.musicxml"
     )
@@ -192,31 +184,44 @@ async def upload(file: UploadFile = File(...)):
     print("清理 MusicXML")
 
 
-    r = run_cmd([
-        "python",
-        "clean_musicxml.py",
-        musicxml,
-        clean_xml
-    ])
+    result=run_cmd(
+        [
+            "python",
+            "clean_musicxml.py",
+            musicxml,
+            clean_xml
+        ]
+    )
 
 
+    print(
+        "clean_xml exists:",
+        os.path.exists(clean_xml)
+    )
 
-    if r.returncode != 0:
+
+    if result.returncode !=0:
+        return {
+            "error":"clean_musicxml failed",
+            "log":result.stdout
+        }
+
+
+    if not os.path.exists(clean_xml):
 
         return {
-            "error":"clean xml failed",
-            "log":r.stdout
+            "error":"clean.musicxml not created",
+            "log":result.stdout
         }
 
 
 
-
     # =====================
-    # jianpu_ly
+    # Jianpu
     # =====================
 
 
-    ly_file = os.path.join(
+    ly_file=os.path.join(
         work_dir,
         "jianpu.ly"
     )
@@ -225,34 +230,26 @@ async def upload(file: UploadFile = File(...)):
     print("產生簡譜")
 
 
-
-    r = subprocess.run(
-
+    result=run_cmd(
         [
             "python",
             "-m",
             "jianpu_ly",
             clean_xml
-        ],
-
-        stdout=subprocess.PIPE,
-
-        stderr=subprocess.PIPE,
-
-        text=True
-
+        ]
     )
 
 
-
-    print("jianpu_ly STDOUT:")
-    print(r.stdout)
-
-
-    print("jianpu_ly STDERR:")
-    print(r.stderr)
+    print("jianpu return:",
+          result.returncode)
 
 
+    if result.returncode !=0:
+
+        return {
+            "error":"jianpu_ly failed",
+            "log":result.stdout
+        }
 
 
     with open(
@@ -261,105 +258,67 @@ async def upload(file: UploadFile = File(...)):
         encoding="utf-8"
     ) as f:
 
-        f.write(r.stdout)
+        f.write(result.stdout)
 
 
 
-    print("LY SIZE:")
-    print(os.path.getsize(ly_file))
-
-
-
-    if r.returncode != 0:
-
-        return {
-
-            "error":"jianpu_ly failed",
-
-            "log":r.stderr
-
-        }
-
-
-
-    if os.path.getsize(ly_file) == 0:
-
-        return {
-
-            "error":"jianpu.ly empty",
-
-            "log":r.stderr
-
-        }
-
-
-
-
-    # =====================
-    # LilyPond
-    # =====================
-
-
-    print("開始 LilyPond")
-
-
-
-    r = run_cmd([
-
-        "lilypond",
-
-        "-o",
-
-        work_dir,
-
-        ly_file
-
-    ])
-
-
-
-
-    pdf_file = os.path.join(
-
-        work_dir,
-
-        "jianpu.pdf"
-
+    print(
+        "LY SIZE:",
+        os.path.getsize(ly_file)
     )
 
 
 
+    if os.path.getsize(ly_file)==0:
 
-    print("CHECK PDF:")
-    print(pdf_file)
+        return {
+            "error":"empty ly file"
+        }
 
+
+
+    # =====================
+    # LilyPond PDF
+    # =====================
+
+
+    print("產生PDF")
+
+
+    result=run_cmd(
+        [
+            "lilypond",
+            "-o",
+            work_dir,
+            ly_file
+        ]
+    )
+
+
+    pdf_file=os.path.join(
+        work_dir,
+        "jianpu.pdf"
+    )
+
+
+    print(
+        "PDF exists:",
+        os.path.exists(pdf_file)
+    )
 
 
 
     if not os.path.exists(pdf_file):
 
         return {
-
             "error":"PDF failed",
-
-            "log":r.stdout
-
+            "log":result.stdout
         }
 
 
 
-
-    print("PDF SUCCESS")
-
-
-
-
     return FileResponse(
-
         pdf_file,
-
         media_type="application/pdf",
-
         filename="jianpu.pdf"
-
     )
