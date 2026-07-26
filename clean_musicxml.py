@@ -1,193 +1,238 @@
+# clean_musicxml_final.py
+# FINAL VERSION
+# MusicXML -> jianpu_ly 修正版
+
 import sys
 import xml.etree.ElementTree as ET
-import copy
 
 
-print("CLEAN MUSICXML V7")
+def clean_musicxml(input_file, output_file):
+
+    print("CLEAN MUSICXML FINAL")
+
+    print("input:")
+    print(input_file)
+
+    print("output:")
+    print(output_file)
 
 
-if len(sys.argv) < 3:
-    print("usage: python clean_musicxml_v7.py input.musicxml output.musicxml")
-    sys.exit(1)
+    tree = ET.parse(input_file)
+    root = tree.getroot()
+
+    ns = ""
+
+    if root.tag.startswith("{"):
+        ns = root.tag.split("}")[0] + "}"
 
 
-input_file = sys.argv[1]
-output_file = sys.argv[2]
+    print("讀取 MusicXML")
 
 
-print("input:")
-print(input_file)
+    # divisions
+    divisions = root.find(
+        ".//" + ns + "divisions"
+    )
 
-print("output:")
-print(output_file)
-
-
-tree = ET.parse(input_file)
-root = tree.getroot()
-
-
-ns = ""
-if root.tag.startswith("{"):
-    ns = root.tag.split("}")[0] + "}"
+    if divisions is None:
+        div_value = 16
+    else:
+        div_value = int(divisions.text)
 
 
-def tag(name):
-    return ns + name
-
-
-# -------------------------
-# divisions
-# -------------------------
-
-divisions = 16
-
-for d in root.iter(tag("divisions")):
-    d.text = str(divisions)
-
-
-BAR_LENGTH = divisions * 4   # 4/4 = 64
-
-
-print("BAR LENGTH:", BAR_LENGTH)
+    print("divisions:", div_value)
 
 
 
-# -------------------------
-# 清理 note
-# -------------------------
+    # =========================
+    # 移除 backup / forward
+    # =========================
 
-for measure in root.iter(tag("measure")):
+    for elem in root.iter():
 
-    notes = list(measure.findall(tag("note")))
+        remove = []
 
-    if not notes:
-        continue
+        for child in list(elem):
 
+            tag = child.tag.replace(ns, "")
 
-    current = 0
-    new_notes = []
-
-
-    for note in notes:
-
-        duration_node = note.find(tag("duration"))
-
-        if duration_node is None:
-            continue
+            if tag in [
+                "backup",
+                "forward"
+            ]:
+                remove.append(child)
 
 
-        try:
-            duration = int(duration_node.text)
-
-        except:
-            duration = divisions
+        for r in remove:
+            elem.remove(r)
 
 
-        # 移除 chord
-        chord = note.find(tag("chord"))
+
+    print("remove backup forward")
+
+
+
+    # =========================
+    # 移除 chord
+    # =========================
+
+    for note in root.iter(ns + "note"):
+
+        chord = note.find(ns + "chord")
+
         if chord is not None:
             note.remove(chord)
 
 
 
-        # 防止超過小節
-        remain = BAR_LENGTH - current
-
-
-        if remain <= 0:
-            break
-
-
-        if duration > remain:
-            duration = remain
-
-
-        duration_node.text = str(duration)
-
-
-        new_notes.append(note)
-
-
-        current += duration
+    print("remove chords")
 
 
 
-    # -------------------------
-    # 補 rest
-    # -------------------------
+    # =========================
+    # 只留第一個 voice
+    # =========================
 
-    if current < BAR_LENGTH:
+    for measure in root.iter(ns + "measure"):
 
-        rest_duration = BAR_LENGTH - current
+        voice_found = False
+
+        remove_notes = []
 
 
-        rest = ET.Element(tag("note"))
+        for note in measure.findall(
+            ns + "note"
+        ):
 
-        rest_tag = ET.SubElement(
-            rest,
-            tag("rest")
+            voice = note.find(
+                ns + "voice"
+            )
+
+
+            if voice is not None:
+
+                if not voice_found:
+
+                    if voice.text != "1":
+                        voice.text = "1"
+
+                    voice_found = True
+
+
+                else:
+
+                    remove_notes.append(note)
+
+
+
+        for n in remove_notes:
+            measure.remove(n)
+
+
+
+    print("keep voice 1")
+
+
+
+    # =========================
+    # 修正 duration
+    # =========================
+
+    for note in root.iter(ns+"note"):
+
+        duration = note.find(
+            ns+"duration"
         )
 
+        if duration is not None:
 
-        dur = ET.SubElement(
-            rest,
-            tag("duration")
+            value = int(duration.text)
+
+
+            # 防止過長音符
+
+            if value > div_value*4:
+
+                duration.text = str(
+                    div_value*4
+                )
+
+
+
+    print("fix duration")
+
+
+
+    # =========================
+    # 移除複雜標記
+    # =========================
+
+    remove_tags = [
+        "notations",
+        "articulations",
+        "ornaments",
+        "technical",
+        "tie",
+        "lyric"
+    ]
+
+
+    for tag in remove_tags:
+
+        for elem in root.iter(
+            ns+tag
+        ):
+
+            parent = None
+
+            for p in root.iter():
+
+                if elem in list(p):
+
+                    parent=p
+                    break
+
+
+            if parent is not None:
+
+                parent.remove(elem)
+
+
+
+    print("remove extra tags")
+
+
+
+    # =========================
+    # 寫入
+    # =========================
+
+
+    tree.write(
+        output_file,
+        encoding="utf-8",
+        xml_declaration=True
+    )
+
+
+    print("完成:")
+    print(output_file)
+
+
+
+if __name__ == "__main__":
+
+
+    if len(sys.argv)<3:
+
+        print(
+            "python clean_musicxml_final.py input.musicxml output.musicxml"
         )
 
-        dur.text = str(rest_duration)
+        sys.exit()
 
 
-        voice = ET.SubElement(
-            rest,
-            tag("voice")
-        )
-
-        voice.text = "1"
-
-
-        new_notes.append(rest)
-
-
-    # -------------------------
-    # 重建 measure
-    # -------------------------
-
-    for n in notes:
-        measure.remove(n)
-
-
-    for n in new_notes:
-        measure.append(n)
-
-
-
-# -------------------------
-# 移除多餘聲部
-# -------------------------
-
-for voice in root.iter(tag("voice")):
-    voice.text = "1"
-
-
-
-# -------------------------
-# 移除 tie
-# -------------------------
-
-for tie in list(root.iter(tag("tie"))):
-    parent = None
-
-
-# -------------------------
-# 寫出
-# -------------------------
-
-tree.write(
-    output_file,
-    encoding="utf-8",
-    xml_declaration=True
-)
-
-
-print("完成:")
-print(output_file)
+    clean_musicxml(
+        sys.argv[1],
+        sys.argv[2]
+    )
