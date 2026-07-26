@@ -1,255 +1,268 @@
 import sys
 import os
 import xml.etree.ElementTree as ET
+from fractions import Fraction
 
 
-NS = {
+print("CLEAN VERSION 20260726 V7")
+
+
+if len(sys.argv) < 2:
+    print("usage: python clean_musicxml.py input.musicxml output.musicxml")
+    sys.exit(1)
+
+
+input_file = sys.argv[1]
+
+if len(sys.argv) >= 3:
+    output_file = sys.argv[2]
+else:
+    output_file = input_file.replace(
+        ".musicxml",
+        "_clean.musicxml"
+    )
+
+
+print("input:", input_file)
+
+
+tree = ET.parse(input_file)
+root = tree.getroot()
+
+
+# MusicXML namespace
+ns = {
     "m": "http://www.musicxml.org/ns/musicxml"
 }
 
 
-def remove_namespace(root):
-    for elem in root.iter():
-        if "}" in elem.tag:
-            elem.tag = elem.tag.split("}", 1)[1]
+# =========================
+# remove voices
+# =========================
+
+print("remove voices")
+
+for voice in root.findall(".//m:voice", ns):
+    parent = None
+    for p in root.iter():
+        if voice in list(p):
+            parent = p
+            break
+
+    if parent is not None:
+        parent.remove(voice)
 
 
-def remove_voices(root):
 
-    print("remove voices")
+# =========================
+# remove chords
+# =========================
 
-    for elem in root.iter("voice"):
-        elem.text = "1"
+print("remove chords")
 
+for chord in root.findall(".//m:chord", ns):
+    parent = None
 
-def remove_chords(root):
+    for p in root.iter():
+        if chord in list(p):
+            parent = p
+            break
 
-    print("remove chords")
-
-    for note in root.iter("note"):
-
-        for child in list(note):
-
-            if child.tag == "chord":
-                note.remove(child)
-
-
-def remove_grace(root):
-
-    print("remove grace")
-
-    for note in root.iter("note"):
-
-        for child in list(note):
-
-            if child.tag == "grace":
-                note.remove(child)
+    if parent is not None:
+        parent.remove(chord)
 
 
-def fix_duration(root):
 
-    print("fix duration")
+# =========================
+# remove grace
+# =========================
 
-    mapping = {
+print("remove grace")
 
-        "128th": "16th",
-        "64th": "16th",
-        "32nd": "16th"
+for grace in root.findall(".//m:grace", ns):
+    parent = None
 
-    }
+    for p in root.iter():
+        if grace in list(p):
+            parent = p
+            break
 
-    for elem in root.iter("type"):
-
-        if elem.text in mapping:
-
-            print(
-                "duration:",
-                elem.text,
-                "->",
-                mapping[elem.text]
-            )
-
-            elem.text = mapping[elem.text]
+    if parent is not None:
+        parent.remove(grace)
 
 
-def remove_tuplets(root):
 
-    print("remove tuplets")
+# =========================
+# fix note durations
+# =========================
 
-    for elem in list(root.iter("time-modification")):
-
-        parent = None
-
-        for p in root.iter():
-
-            if elem in list(p):
-                parent = p
-                break
-
-        if parent:
-            parent.remove(elem)
+print("fix duration")
 
 
-def rebuild_measures(root):
+for note in root.findall(".//m:note", ns):
 
-    print("rebuild measures")
+    duration = note.find("m:duration", ns)
+    typ = note.find("m:type", ns)
 
-    measures = root.findall(".//measure")
 
-    for m in measures:
+    if typ is not None:
 
-        for note in m.findall("note"):
+        value = typ.text
 
-            duration = note.find("duration")
+
+        # 禁止128分音符
+        if value == "128th":
+            print("convert 128th -> 64th")
+
+            typ.text = "64th"
 
             if duration is not None:
-
-                try:
-
-                    value = int(duration.text)
-
-                    # 最低音符長
-                    if value < 1:
-                        duration.text = "1"
-
-                except:
-
-                    pass
+                d = int(duration.text)
+                duration.text = str(max(1, d * 2))
 
 
+        # 64以上保持
+        elif value == "256th":
+            print("convert 256th -> 64th")
 
-def fix_bars(root):
+            typ.text = "64th"
 
-    print("fix bars")
-
-    for measure in root.iter("measure"):
-
-        duration_sum = 0
-
-        for d in measure.iter("duration"):
-
-            try:
-                duration_sum += int(d.text)
-            except:
-                pass
-
-
-        # 防止超拍
-        if duration_sum > 64:
-
-            print(
-                "compress measure:",
-                measure.attrib.get("number"),
-                duration_sum
-            )
-
-            extra = duration_sum - 64
-
-            for d in measure.iter("duration"):
-
-                try:
-
-                    value = int(d.text)
-
-                    if value > extra:
-
-                        d.text = str(value-extra)
-                        break
-
-                except:
-                    pass
+            if duration is not None:
+                d = int(duration.text)
+                duration.text = str(max(1, d * 4))
 
 
 
-def final_cleanup(root):
+# =========================
+# remove tuplets
+# =========================
 
-    print("final cleanup")
-
-    # 移除空標籤
-
-    for parent in root.iter():
-
-        for child in list(parent):
-
-            if child.text is None and len(child)==0:
-
-                parent.remove(child)
+print("remove tuplets")
 
 
+for tuplet in root.findall(".//m:tuplet", ns):
 
-def clean_musicxml(input_file, output_file):
+    parent=None
 
-    print("CLEAN VERSION 20260726 V7 FINAL")
+    for p in root.iter():
+        if tuplet in list(p):
+            parent=p
+            break
 
-    print("input:", input_file)
-
-
-    tree = ET.parse(input_file)
-
-    root = tree.getroot()
-
-
-    remove_namespace(root)
-
-
-    remove_voices(root)
-
-    remove_chords(root)
-
-    remove_grace(root)
-
-    fix_duration(root)
-
-    remove_tuplets(root)
-
-    rebuild_measures(root)
-
-    fix_bars(root)
-
-    final_cleanup(root)
+    if parent is not None:
+        parent.remove(tuplet)
 
 
 
-    tree.write(
-        output_file,
-        encoding="utf-8",
-        xml_declaration=True
+# =========================
+# rebuild measure duration
+# =========================
+
+print("rebuild measures")
+
+
+divisions = 16
+
+
+for measure in root.findall(".//m:measure", ns):
+
+    notes = measure.findall(
+        ".//m:note",
+        ns
     )
 
 
-    print("write")
+    total = 0
 
-    print("done:", output_file)
+    for note in notes:
 
-
-
-if __name__ == "__main__":
-
-    if len(sys.argv) < 2:
-
-        print(
-            "python clean_musicxml.py input.musicxml [output.musicxml]"
+        duration = note.find(
+            "m:duration",
+            ns
         )
 
-        sys.exit()
+        if duration is not None:
 
-
-    input_file = sys.argv[1]
-
-
-    if len(sys.argv)>=3:
-
-        output_file=sys.argv[2]
-
-    else:
-
-        base=os.path.splitext(input_file)[0]
-
-        output_file=base+"_clean.musicxml"
+            total += int(duration.text)
 
 
 
-    clean_musicxml(
-        input_file,
-        output_file
-    )
+    # 4/4 = 64 ticks
+    target = 64
+
+
+    if total > target:
+
+        print(
+            "fix measure overflow",
+            measure.attrib.get("number"),
+            total
+        )
+
+
+        overflow = total - target
+
+
+        for note in reversed(notes):
+
+            duration = note.find(
+                "m:duration",
+                ns
+            )
+
+            if duration is None:
+                continue
+
+
+            d=int(duration.text)
+
+
+            if d > overflow:
+
+                duration.text=str(
+                    d-overflow
+                )
+
+                break
+
+            else:
+
+                duration.text="1"
+
+                overflow-=d
+
+
+
+
+# =========================
+# final cleanup
+# =========================
+
+print("final cleanup")
+
+
+for elem in root.iter():
+
+    if elem.text:
+
+        elem.text=elem.text.strip()
+
+
+
+# =========================
+# write
+# =========================
+
+print("write")
+
+tree.write(
+    output_file,
+    encoding="utf-8",
+    xml_declaration=True
+)
+
+
+print(
+    "done:",
+    output_file
+)
