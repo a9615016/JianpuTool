@@ -1,13 +1,13 @@
 import sys
-import music21
-from music21 import note, chord, stream, meter
+import xml.etree.ElementTree as ET
+import copy
 
 
 print("CLEAN MUSICXML V4")
 
 
 if len(sys.argv) < 3:
-    print("usage:")
+    print("Usage:")
     print("python clean_musicxml_v4.py input.musicxml output.musicxml")
     sys.exit(1)
 
@@ -23,188 +23,224 @@ print("output:")
 print(output_file)
 
 
+tree = ET.parse(input_file)
+root = tree.getroot()
+
+
+ns = {
+    "m": "http://www.musicxml.org/ns/musicxml"
+}
+
+
+# 處理 namespace
+for elem in root.iter():
+    if elem.tag.startswith("{"):
+        elem.tag = elem.tag.split("}",1)[1]
+
+
 print("讀取 MusicXML")
 
-score = music21.converter.parse(input_file)
+
+# divisions
+divisions = 16
 
 
-print("開始清理")
+for d in root.iter("divisions"):
+    divisions = int(d.text)
+    break
 
 
-# ==========================
-# 移除多聲部
-# ==========================
+print("divisions:", divisions)
 
-for part in score.parts:
 
-    new_part = stream.Part()
 
-    # 保留拍號
-    ts = part.recurse().getElementsByClass(
-        meter.TimeSignature
+# 找第一個 part
+part = root.find(".//part")
+
+if part is None:
+    print("No part")
+    sys.exit(1)
+
+
+
+print("開始整理 notes")
+
+
+notes = []
+
+
+for measure in part.findall("measure"):
+
+    for child in list(measure):
+
+        if child.tag == "note":
+
+            # 移除 chord
+            chord = child.find("chord")
+            if chord is not None:
+                continue
+
+
+            duration = child.find("duration")
+
+            if duration is None:
+                continue
+
+
+            try:
+                dur = int(duration.text)
+            except:
+                continue
+
+
+            # 移除太短或異常
+            if dur <= 0:
+                continue
+
+
+            notes.append(copy.deepcopy(child))
+
+
+
+print("notes:", len(notes))
+
+
+
+print("重新建立小節")
+
+
+# 清空原 measures
+
+for m in part.findall("measure"):
+    part.remove(m)
+
+
+
+measure_no = 1
+
+current = 0
+
+
+measure = ET.Element(
+    "measure",
+    {"number":str(measure_no)}
+)
+
+
+def add_measure():
+
+    global measure_no, measure
+
+    part.append(measure)
+
+    measure_no += 1
+
+    measure = ET.Element(
+        "measure",
+        {"number":str(measure_no)}
     )
 
-    for t in ts:
-        new_part.insert(0, t)
 
 
-    # ======================
-    # 單音旋律
-    # ======================
-
-    notes = []
-
-    for n in part.flatten().notes:
-
-        if isinstance(n, chord.Chord):
-
-            # chord取最高音
-            nn = n.sortAscending().notes[-1]
-
-            new_note = note.Note(
-                nn.pitch
-            )
-
-            new_note.duration = n.duration
-
-            notes.append(new_note)
+for note in notes:
 
 
-        elif isinstance(n, note.Note):
+    duration_node = note.find("duration")
 
-            notes.append(n)
-
-
-    print(
-        "notes:",
-        len(notes)
-    )
+    dur = int(duration_node.text)
 
 
-    # ======================
-    # 建立 4/4 measure
-    # ======================
 
-    measure_num = 1
-
-    m = stream.Measure(
-        number=measure_num
-    )
-
-    current = 0
+    # 超過小節拆開
+    while dur > 0:
 
 
-    LIMIT = 4.0
+        remain = 64 - current
 
 
-    for n in notes:
-
-        dur = n.duration.quarterLength
+        if dur <= remain:
 
 
-        # 避免0長度
-        if dur <= 0:
-            continue
+            new_note = copy.deepcopy(note)
 
+            new_note.find("duration").text = str(dur)
 
-        # 超過小節
-        if current + dur > LIMIT:
+            measure.append(new_note)
 
+            current += dur
 
-            remain = LIMIT-current
+            dur = 0
 
-
-            if remain > 0:
-
-                n2 = n.clone()
-
-                n2.duration.quarterLength = remain
-
-                m.append(n2)
-
-
-            new_part.append(m)
-
-
-            measure_num += 1
-
-            m = stream.Measure(
-                number=measure_num
-            )
-
-            current = 0
-
-
-            # 剩餘部分放下一小節
-
-            left = dur-remain
-
-
-            if left > 0:
-
-                n3 = n.clone()
-
-                n3.duration.quarterLength = left
-
-                m.append(n3)
-
-                current += left
 
 
         else:
 
-            m.append(n)
 
-            current += dur
+            # 前半段
 
+            part_note = copy.deepcopy(note)
 
+            part_note.find("duration").text = str(remain)
 
-    if len(m.notes)>0:
-        new_part.append(m)
-
-
-    part.clear()
-
-    for e in new_part:
-        part.append(e)
+            measure.append(part_note)
 
 
+            dur -= remain
 
-print("重新整理小節")
+
+            current = 64
 
 
-# ==========================
-# 強制4/4
-# ==========================
 
-for p in score.parts:
+        if current >= 64:
 
-    for m in p.getElementsByClass(
-        stream.Measure
-    ):
 
-        m.insert(
-            0,
-            meter.TimeSignature("4/4")
-        )
+            add_measure()
+
+            current = 0
+
+
+
+# 最後一小節
+
+if len(measure):
+
+    # 補休止符
+
+    remain = 64-current
+
+    if remain > 0:
+
+
+        rest = ET.Element("note")
+
+
+        ET.SubElement(rest,"rest")
+
+
+        ET.SubElement(
+            rest,
+            "duration"
+        ).text=str(remain)
+
+
+        measure.append(rest)
+
+
+
+    add_measure()
+
 
 
 print("寫入檔案")
 
 
-score.write(
-    "musicxml",
-    fp=output_file
+tree.write(
+    output_file,
+    encoding="utf-8",
+    xml_declaration=True
 )
 
 
 print("完成:")
 print(output_file)
-
-
-import os
-
-print(
-    "SIZE:",
-    os.path.getsize(output_file)
-)
