@@ -1,33 +1,45 @@
-# ==============================
-# CLEAN MUSICXML V23.1
-# FINAL DURATION LIMIT
-# ==============================
-
-from music21 import converter, meter
 import sys
+import music21
+from music21 import stream, note, chord, duration
+
+
+print("================")
+print("CLEAN MUSICXML V23.2 FINAL INDENT + DURATION SAFE")
+print("================")
+
+
+def remove_voices(score):
+    print("remove voices")
+    for part in score.parts:
+        for el in list(part.recurse()):
+            if hasattr(el, "voice"):
+                try:
+                    el.voice = None
+                except:
+                    pass
+
+
+def remove_chords(score):
+    print("remove chords")
+    for part in score.parts:
+        for c in list(part.recurse().getElementsByClass("Chord")):
+            n = note.Note(c.root())
+            n.duration = c.duration
+            part.replace(c, n)
 
 
 def remove_bad_duration(score):
+    print("duration safe")
 
-    print("FINAL DURATION LIMIT")
+    for n in score.recurse().notesAndRests:
 
-    for note in score.recurse().notes:
+        q = n.duration.quarterLength
 
-        # jianpu_ly 不支援 128th
-        if note.duration.type == "128th":
+        # 太短全部升級
+        if q < 0.25:
+            print("fix duration:", q)
 
-            print(
-                "convert 128th -> 64th"
-            )
-
-            note.duration.type = "64th"
-
-
-        # 避免過短音符
-        if note.duration.quarterLength < 0.25:
-
-            note.duration.quarterLength = 0.25
-
+            n.duration = duration.Duration(0.25)
 
 
 def reset_beams(score):
@@ -37,76 +49,38 @@ def reset_beams(score):
     for n in score.recurse().notes:
 
         try:
-            n.beams = []
+            n.beams = None
         except:
             pass
 
 
 
-def clean_musicxml(input_file, output_file):
-
-    print("================")
-    print("CLEAN MUSICXML V23.1 FINAL DURATION LIMIT")
-    print("================")
-
-
-    print("read")
-
-    score = converter.parse(input_file)
-
-
-
-    print("remove voices")
-
-    for part in score.parts:
-
-        for obj in part.recurse():
-
-            if hasattr(obj, "voices"):
-
-                try:
-                    obj.voices = []
-                except:
-                    pass
-
-
-
-    print("remove chords")
-
-    for part in score.parts:
-
-        chords = list(
-            part.recurse().getElementsByClass("Chord")
-        )
-
-        for chord in chords:
-
-            for n in chord.notes:
-
-                part.insert(
-                    chord.offset,
-                    n
-                )
-
-            part.remove(chord)
-
-
-
-    reset_beams(score)
-
-
+def quantize(score):
 
     print("quantize")
 
-    score.quantize(
-        quarterLengthDivisors=[
+    for n in score.recurse().notesAndRests:
+
+        q = n.duration.quarterLength
+
+        allowed=[
             4,
-            8,
-            16
+            2,
+            1,
+            0.5,
+            0.25
         ]
-    )
+
+        closest=min(
+            allowed,
+            key=lambda x:abs(x-q)
+        )
+
+        n.duration.quarterLength=closest
 
 
+
+def force_44(score):
 
     print("force 4/4")
 
@@ -114,55 +88,12 @@ def clean_musicxml(input_file, output_file):
 
         part.insert(
             0,
-            meter.TimeSignature("4/4")
+            music21.meter.TimeSignature("4/4")
         )
 
 
 
-    print("rebuild measures")
-
-    score.makeMeasures(
-        inPlace=True
-    )
-
-
-
-    print("FINAL NOTE SPLIT")
-    print("FINAL REMOVE 128TH SAFE")
-
-
-def remove_128th(score):
-
-    for part in score.parts:
-
-        for n in part.recurse().notesAndRests:
-
-            try:
-                if n.duration.type == "128th":
-
-                    print(
-                        "convert 128th -> 64th:",
-                        n
-                    )
-
-                    n.duration.type = "64th"
-
-                    # 移除 dotted 造成再次變短
-                    n.duration.dots = 0
-
-            except Exception:
-                pass
-
-
-remove_128th(score)
-
-    # 保留 V23 的 note split
-
-
-
-    remove_bad_duration(score)
-
-
+def rebuild(score):
 
     print("rebuild measures")
 
@@ -171,43 +102,68 @@ remove_128th(score)
     )
 
 
-
-    reset_beams(score)
-
-
+def check(score):
 
     print("check measures")
 
-    for i,m in enumerate(
-        score.parts[0]
-        .getElementsByClass("Measure")
-    ):
+    for i,m in enumerate(score.recurse().getElementsByClass("Measure")):
+
+        length=m.barDuration.quarterLength
 
         print(
             "Measure",
             i+1,
-            m.duration.quarterLength
+            length
         )
 
+
+def clean_musicxml(inp,out):
+
+    print("read")
+
+    score=music21.converter.parse(inp)
+
+
+    remove_voices(score)
+
+    remove_chords(score)
+
+    reset_beams(score)
+
+    quantize(score)
+
+    remove_bad_duration(score)
+
+    force_44(score)
+
+    rebuild(score)
+
+    reset_beams(score)
+
+    check(score)
 
 
     print("write")
 
     score.write(
         "musicxml",
-        fp=output_file
+        fp=out
     )
 
 
     print()
-    print(
-        "DONE",
-        output_file
-    )
+    print("DONE",out)
 
 
 
-if __name__ == "__main__":
+if __name__=="__main__":
+
+    if len(sys.argv)<3:
+        print(
+            "usage: python clean_musicxml.py input.musicxml output.musicxml"
+        )
+        sys.exit()
+
 
     clean_musicxml(
         sys.argv[1],
