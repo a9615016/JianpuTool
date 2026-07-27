@@ -266,7 +266,7 @@ async def upload(file: UploadFile = File(...)):
             "python",
             "-m",
             "jianpu_ly",
-            clean
+            "clean.musicxml"
         ],
         cwd=work
     )
@@ -276,7 +276,7 @@ async def upload(file: UploadFile = File(...)):
 
     generated = os.path.join(
         work,
-        "clean.ly"
+        "jianpu.ly"
     )
 
 
