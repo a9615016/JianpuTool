@@ -1,5 +1,4 @@
 import sys
-import mido
 from mido import MidiFile, MidiTrack, Message
 
 
@@ -9,287 +8,514 @@ print("JIANPU MELODY MODE")
 print("======================")
 
 
-# 16分音符量化
-GRID = 120
-
-
-def quantize_tick(tick):
-
-    return round(
-        tick / GRID
-    ) * GRID
-
-
-
-def clean_midi(
-    input_file,
-    output_file
-):
-
-
-    print("READ MIDI")
-    print(input_file)
-
-
-    mid = MidiFile(
-        input_file
-    )
-
-
-    ticks = mid.ticks_per_beat
-
-
+if len(sys.argv) < 3:
     print(
-        "ticks:",
-        ticks
+        "usage: python midi_cleaner.py input.mid output.mid"
     )
-
-
-    events = []
-
-
-    # 收集 note
-
-    for track in mid.tracks:
-
-
-        abs_time = 0
-
-
-        active = {}
-
-
-        for msg in track:
-
-
-            abs_time += msg.time
+    sys.exit(1)
 
 
 
-            if msg.type == "note_on" and msg.velocity > 0:
+input_file = sys.argv[1]
+output_file = sys.argv[2]
 
 
-                active[msg.note] = (
-                    abs_time,
-                    msg.velocity
+
+mid = MidiFile(input_file)
+
+
+
+print(
+    "ticks:",
+    mid.ticks_per_beat
+)
+
+
+
+notes = []
+
+
+
+# ==========================
+# 收集 note
+# ==========================
+
+for track in mid.tracks:
+
+    current_time = 0
+
+    active = {}
+
+
+    for msg in track:
+
+
+        current_time += msg.time
+
+
+        if msg.type == "note_on" and msg.velocity > 0:
+
+            active[msg.note] = current_time
+
+
+
+        elif msg.type in [
+            "note_off"
+        ] or (
+            msg.type == "note_on"
+            and msg.velocity == 0
+        ):
+
+
+            if msg.note in active:
+
+                start = active.pop(
+                    msg.note
+                )
+
+
+                duration = (
+                    current_time-start
+                )
+
+
+                notes.append(
+                    [
+                        start,
+                        duration,
+                        msg.note,
+                        msg.velocity
+                    ]
                 )
 
 
 
-            elif (
-                msg.type == "note_off"
-                or
-                (
-                    msg.type=="note_on"
-                    and msg.velocity==0
-                )
-            ):
-
-
-                if msg.note in active:
-
-
-                    start, vel = active.pop(
-                        msg.note
-                    )
-
-
-                    end = abs_time
-
-
-                    events.append(
-                        {
-                            "note":msg.note,
-                            "start":start,
-                            "end":end,
-                            "velocity":vel
-                        }
-                    )
+print(
+    "original notes:",
+    len(notes)
+)
 
 
 
-    print(
-        "original notes:",
-        len(events)
-    )
+# ==========================
+# 清理
+# ==========================
+
+
+clean = []
 
 
 
-    # -----------------------
-    # 修正 duration
-    # -----------------------
-
-    cleaned=[]
+last_note = None
 
 
-    for e in events:
+
+for n in sorted(notes):
 
 
-        length = (
-            e["end"]
-            -
-            e["start"]
-        )
+    start, duration, pitch, vel = n
 
 
-        # 太短刪掉
 
-        if length < 30:
+    # 太短刪除
+    if duration < 20:
+        continue
 
+
+
+    # 限制音域
+    if pitch < 36:
+        continue
+
+
+    if pitch > 96:
+        continue
+
+
+
+    # 同時間多音
+    # 保留最高音旋律
+    if last_note:
+
+        if (
+            start == last_note[0]
+            and pitch != max(
+                pitch,
+                last_note[2]
+            )
+        ):
             continue
 
 
 
-        # quantize
+    clean.append(n)
 
-        e["start"] = quantize_tick(
-            e["start"]
-        )
-
-        e["end"] = quantize_tick(
-            e["end"]
-        )
-
-
-        if e["end"] <= e["start"]:
-
-            e["end"] = (
-                e["start"]
-                +
-                GRID
-            )
-
-
-        cleaned.append(e)
+    last_note = n
 
 
 
-    # -----------------------
-    # 單旋律化
-    # -----------------------
 
-    cleaned.sort(
-        key=lambda x:x["start"]
-    )
-
-
-    melody=[]
-
-
-    last_end=0
-
-
-    for e in cleaned:
-
-
-        # 去除重疊
-
-        if e["start"] < last_end:
-
-
-            if e["note"] != melody[-1]["note"]:
-
-                continue
+print(
+    "clean notes:",
+    len(clean)
+)
 
 
 
-        melody.append(e)
+# ==========================
+# 建立新 MIDI
+# ==========================
 
 
-        last_end=e["end"]
+out = MidiFile(
+    type=0,
+    ticks_per_beat=mid.ticks_per_beat
+)
 
 
+track = MidiTrack()
 
-    print(
-        "clean notes:",
-        len(melody)
-    )
-
-
-
-    # -----------------------
-    # 建立 MIDI
-    # -----------------------
-
-    out = MidiFile(
-        ticks_per_beat=ticks
-    )
-
-
-    track = MidiTrack()
-
-
-    out.tracks.append(
-        track
-    )
+out.tracks.append(track)
 
 
 
-    current=0
-
-
-    for e in melody:
-
-
-        start=e["start"]
-
-        end=e["end"]
+events = []
 
 
 
-        track.append(
+for start,duration,pitch,vel in clean:
+
+
+    events.append(
+        (
+            start,
             Message(
                 "note_on",
-                note=e["note"],
-                velocity=e["velocity"],
-                time=start-current
+                note=pitch,
+                velocity=vel,
+                time=0
             )
         )
+    )
 
 
-        track.append(
+    events.append(
+        (
+            start+duration,
             Message(
                 "note_off",
-                note=e["note"],
+                note=pitch,
                 velocity=0,
-                time=end-start
+                time=0
             )
         )
-
-
-        current=end
-
-
-
-    out.save(
-        output_file
     )
 
 
+
+events.sort(
+    key=lambda x:x[0]
+)
+
+
+
+last_time = 0
+
+
+
+for t,msg in events:
+
+
+    msg.time = t-last_time
+
+    last_time=t
+
+    track.append(msg)
+
+
+
+track.append(
+    Message(
+        "note_off",
+        note=0,
+        velocity=0,
+        time=0
+    )
+)
+
+
+
+out.save(
+    output_file
+)
+
+
+
+print(
+    "DONE:"
+)
+
+
+print(
+    output_file
+)import sys
+from mido import MidiFile, MidiTrack, Message
+
+
+print("======================")
+print("MIDI CLEANER V29")
+print("JIANPU MELODY MODE")
+print("======================")
+
+
+if len(sys.argv) < 3:
     print(
-        "DONE:"
+        "usage: python midi_cleaner.py input.mid output.mid"
     )
-
-    print(
-        output_file
-    )
+    sys.exit(1)
 
 
 
-if __name__=="__main__":
+input_file = sys.argv[1]
+output_file = sys.argv[2]
 
 
-    if len(sys.argv)<3:
 
-        print(
-            "python midi_cleaner.py input.mid output.mid"
+mid = MidiFile(input_file)
+
+
+
+print(
+    "ticks:",
+    mid.ticks_per_beat
+)
+
+
+
+notes = []
+
+
+
+# ==========================
+# 收集 note
+# ==========================
+
+for track in mid.tracks:
+
+    current_time = 0
+
+    active = {}
+
+
+    for msg in track:
+
+
+        current_time += msg.time
+
+
+        if msg.type == "note_on" and msg.velocity > 0:
+
+            active[msg.note] = current_time
+
+
+
+        elif msg.type in [
+            "note_off"
+        ] or (
+            msg.type == "note_on"
+            and msg.velocity == 0
+        ):
+
+
+            if msg.note in active:
+
+                start = active.pop(
+                    msg.note
+                )
+
+
+                duration = (
+                    current_time-start
+                )
+
+
+                notes.append(
+                    [
+                        start,
+                        duration,
+                        msg.note,
+                        msg.velocity
+                    ]
+                )
+
+
+
+print(
+    "original notes:",
+    len(notes)
+)
+
+
+
+# ==========================
+# 清理
+# ==========================
+
+
+clean = []
+
+
+
+last_note = None
+
+
+
+for n in sorted(notes):
+
+
+    start, duration, pitch, vel = n
+
+
+
+    # 太短刪除
+    if duration < 20:
+        continue
+
+
+
+    # 限制音域
+    if pitch < 36:
+        continue
+
+
+    if pitch > 96:
+        continue
+
+
+
+    # 同時間多音
+    # 保留最高音旋律
+    if last_note:
+
+        if (
+            start == last_note[0]
+            and pitch != max(
+                pitch,
+                last_note[2]
+            )
+        ):
+            continue
+
+
+
+    clean.append(n)
+
+    last_note = n
+
+
+
+
+print(
+    "clean notes:",
+    len(clean)
+)
+
+
+
+# ==========================
+# 建立新 MIDI
+# ==========================
+
+
+out = MidiFile(
+    type=0,
+    ticks_per_beat=mid.ticks_per_beat
+)
+
+
+track = MidiTrack()
+
+out.tracks.append(track)
+
+
+
+events = []
+
+
+
+for start,duration,pitch,vel in clean:
+
+
+    events.append(
+        (
+            start,
+            Message(
+                "note_on",
+                note=pitch,
+                velocity=vel,
+                time=0
+            )
         )
-
-        sys.exit()
-
-
-
-    clean_midi(
-        sys.argv[1],
-        sys.argv[2]
     )
+
+
+    events.append(
+        (
+            start+duration,
+            Message(
+                "note_off",
+                note=pitch,
+                velocity=0,
+                time=0
+            )
+        )
+    )
+
+
+
+events.sort(
+    key=lambda x:x[0]
+)
+
+
+
+last_time = 0
+
+
+
+for t,msg in events:
+
+
+    msg.time = t-last_time
+
+    last_time=t
+
+    track.append(msg)
+
+
+
+track.append(
+    Message(
+        "note_off",
+        note=0,
+        velocity=0,
+        time=0
+    )
+)
+
+
+
+out.save(
+    output_file
+)
+
+
+
+print(
+    "DONE:"
+)
+
+
+print(
+    output_file
+)
