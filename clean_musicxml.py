@@ -1,125 +1,163 @@
+import music21
 import sys
-from music21 import converter, stream, note, chord, meter, bar
 
 
-VERSION = "CLEAN MUSICXML V22.4"
+DIVISIONS = 16
+BEAT = 4
+MEASURE_LENGTH = DIVISIONS * BEAT
 
 
-def split_crossing_notes(score, ticks_per_measure=64):
+def fix_measure_duration(measure):
 
-    print("split crossing notes")
+    total = 0
 
-    for part in score.parts:
-
-        new_part = stream.Part()
-
-        current_tick = 0
-
-        for element in part.flatten().notesAndRests:
-
-            if isinstance(element, note.Note):
-
-                dur = element.duration.quarterLength
-
-                start = current_tick
-                end = current_tick + dur * 16
-
-                while end > ticks_per_measure:
-
-                    remain = ticks_per_measure - start
-
-                    if remain > 0:
-
-                        n = note.Note(element.pitch)
-                        n.duration.quarterLength = remain / 16
-                        new_part.append(n)
-
-                    element.duration.quarterLength = (
-                        (end - ticks_per_measure) / 16
-                    )
-
-                    start = 0
-                    end = element.duration.quarterLength * 16
-
-                    current_tick = 0
-
-                new_part.append(element)
-
-            elif isinstance(element, chord.Chord):
-
-                # chord 改成最高音
-                n = note.Note(element.pitches[-1])
-                n.duration.quarterLength = element.duration.quarterLength
-                new_part.append(n)
-
-            else:
-                new_part.append(element)
+    for n in list(measure.notesAndRests):
+        total += n.duration.quarterLength * DIVISIONS
 
 
-            current_tick += element.duration.quarterLength * 16
+    # 超過小節長度
+    while total > MEASURE_LENGTH:
+
+        for n in list(measure.notesAndRests):
+
+            if n.isNote and n.duration.quarterLength > 0.25:
+
+                old = n.duration.quarterLength
+
+                half = old / 2
+
+                n.duration.quarterLength = half
+
+                new_note = n.clone()
+                new_note.duration.quarterLength = half
+
+                measure.insert(
+                    n.offset + half,
+                    new_note
+                )
+
+                total = sum(
+                    x.duration.quarterLength * DIVISIONS
+                    for x in measure.notesAndRests
+                )
+
+                break
 
 
-        part.coreElementsChanged()
-        part.replace(part.elements, new_part.elements)
+    # 不足補休止符
+    total = sum(
+        x.duration.quarterLength * DIVISIONS
+        for x in measure.notesAndRests
+    )
+
+    if total < MEASURE_LENGTH:
+
+        rest = music21.note.Rest()
+
+        rest.duration.quarterLength = (
+            MEASURE_LENGTH - total
+        ) / DIVISIONS
+
+        measure.append(rest)
 
 
 
 def clean_musicxml(input_file, output_file):
 
     print("================")
-    print(VERSION)
+    print("CLEAN MUSICXML V22.5")
     print("================")
-
-    print("input:", input_file)
 
     print("read")
 
-    score = converter.parse(input_file)
+    score = music21.converter.parse(input_file)
 
 
     print("remove voices")
 
     for part in score.parts:
-        for v in part.voices:
-            part.remove(v)
+        for measure in part.getElementsByClass(
+            music21.stream.Measure
+        ):
+            measure.voices = []
 
 
     print("remove chords")
 
-    for part in score.parts:
+    for chord in score.recurse().getElementsByClass(
+        music21.chord.Chord
+    ):
 
-        for c in list(part.recurse().getElementsByClass(chord.Chord)):
+        notes = chord.notes
 
-            n = note.Note(c.pitches[-1])
-            n.duration = c.duration
-            c.activeSite.replace(c, n)
+        for n in notes:
+            chord.activeSite.insert(
+                chord.offset,
+                n
+            )
+
+        chord.activeSite.remove(chord)
 
 
     print("quantize")
 
-    for n in score.recurse().notes:
-
-        q = round(n.duration.quarterLength * 4) / 4
-        n.duration.quarterLength = max(q,0.25)
-
+    score.quantize(
+        quarterLengthDivisors=[
+            4,8,16
+        ]
+    )
 
 
     print("force 4/4")
 
-    score.insert(
-        0,
-        meter.TimeSignature("4/4")
-    )
+    for part in score.parts:
+
+        part.insert(
+            0,
+            music21.meter.TimeSignature("4/4")
+        )
 
 
     print("rebuild measures")
 
-    score.makeMeasures(
-        inPlace=True
-    )
+    score.makeMeasures()
 
 
-    split_crossing_notes(score)
+    print("split crossing notes")
+
+    for part in score.parts:
+
+        for measure in part.getElementsByClass(
+            music21.stream.Measure
+        ):
+
+            for n in list(measure.notes):
+
+                if n.duration.quarterLength > 4:
+
+                    pieces = n.splitAtQuarterLength(
+                        4
+                    )
+
+                    for p in pieces:
+                        measure.insert(
+                            n.offset,
+                            p
+                        )
+
+                    measure.remove(n)
+
+
+
+    print("FIX measure duration 64")
+
+    for part in score.parts:
+
+        for m in part.getElementsByClass(
+            music21.stream.Measure
+        ):
+
+            fix_measure_duration(m)
 
 
     print("write")
@@ -136,13 +174,6 @@ def clean_musicxml(input_file, output_file):
 
 
 if __name__ == "__main__":
-
-    if len(sys.argv) < 3:
-        print(
-            "python clean_musicxml.py input.musicxml output.musicxml"
-        )
-        sys.exit(1)
-
 
     clean_musicxml(
         sys.argv[1],
