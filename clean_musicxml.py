@@ -1,45 +1,69 @@
-from music21 import converter, stream, meter, note, chord, tie
+from music21 import converter, stream, note, chord, meter
 import sys
 
 
-VERSION = "CLEAN MUSICXML V23.7.1 FINAL MEASURE SPLIT SAFE"
+VERSION = "CLEAN MUSICXML V23.7 FIX STREAMITERATOR"
 
 
-def remove_bad_elements(score):
+def remove_voices(score):
 
     print("remove voices")
 
     for part in score.parts:
 
-        for v in list(part.voices):
-            try:
-                part.remove(v)
-            except:
-                pass
+        voices = list(
+            part.getElementsByClass("Voice")
+        )
 
+        for v in voices:
+            part.remove(v)
+
+
+
+def remove_chords(score):
 
     print("remove chords")
 
-    for c in score.recurse().getElementsByClass(chord.Chord):
-        try:
-            n = c.notes[0]
-            c.activeSite.replace(c, n)
-        except:
-            pass
+    for part in score.parts:
 
+        chords = list(
+            part.recurse().getElementsByClass("Chord")
+        )
+
+        for c in chords:
+
+            n = note.Note(
+                c.pitches[-1]
+            )
+
+            n.duration = c.duration
+
+            c.activeSite.replace(
+                c,
+                n
+            )
+
+
+
+def remove_beams(score):
 
     print("remove beams")
 
     for n in score.recurse().notes:
+
         try:
             n.beams = None
         except:
             pass
 
 
+
+def remove_ties(score):
+
     print("remove ties")
 
     for n in score.recurse().notes:
+
         try:
             n.tie = None
         except:
@@ -47,15 +71,30 @@ def remove_bad_elements(score):
 
 
 
-def force_time_signature(score):
+def force_four_four(score):
 
     print("force 4/4")
 
+    ts = meter.TimeSignature("4/4")
+
     for part in score.parts:
 
-        ts = meter.TimeSignature("4/4")
+        part.insert(
+            0,
+            ts
+        )
 
-        part.insert(0, ts)
+
+
+def split_long_notes(score):
+
+    print("split long notes")
+
+    for n in score.recurse().notes:
+
+        if n.duration.quarterLength > 4:
+
+            n.duration.quarterLength = 4
 
 
 
@@ -65,99 +104,85 @@ def split_long_measures(score):
 
     for part in score.parts:
 
-        old_measures = list(
-            part.getElementsByClass(stream.Measure)
+        # 重要：轉 list，避免 StreamIterator
+        measures = list(
+            part.getElementsByClass("Measure")
         )
 
-        new_measures = []
 
+        for m in measures:
 
-        for measure in old_measures:
-
-            ql = measure.duration.quarterLength
+            ql = m.duration.quarterLength
 
             print(
                 "Measure",
-                measure.number,
+                m.number,
                 ql
             )
 
 
+            # 正常小節跳過
             if ql <= 4:
-                new_measures.append(measure)
                 continue
 
 
             print(
-                "split measure",
-                measure.number
+                "split long measure:",
+                m.number
             )
 
 
-            current = stream.Measure(
-                number=measure.number
+            notes = list(
+                m.notesAndRests
             )
 
-            total = 0
+
+            # 建立新小節
+            new_measure = stream.Measure(
+                number=str(m.number) + ".5"
+            )
 
 
-            for element in measure.notesAndRests:
+            for n in notes:
 
-                length = element.duration.quarterLength
+                if n.offset >= 4:
 
+                    n.offset -= 4
 
-                if total + length > 4:
-
-                    new_measures.append(current)
-
-                    current = stream.Measure(
-                        number=measure.number
+                    new_measure.insert(
+                        n.offset,
+                        n
                     )
 
-                    total = 0
+
+            # 正確移除 Music21Object
+            part.remove(
+                m
+            )
 
 
-                current.append(element)
-
-                total += length
-
-
-                if total == 4:
-
-                    new_measures.append(current)
-
-                    current = stream.Measure(
-                        number=measure.number
-                    )
-
-                    total = 0
+            # 放回原小節
+            part.insert(
+                m.offset,
+                m
+            )
 
 
+            if len(
+                list(new_measure.notesAndRests)
+            ) > 0:
 
-            if len(current.notesAndRests) > 0:
-                new_measures.append(current)
-
-
-
-        # 清除舊 measures
-        for m in old_measures:
-
-            try:
-                part.remove(m)
-
-            except Exception:
-                pass
+                part.insert(
+                    m.offset + 4,
+                    new_measure
+                )
 
 
 
-        # 放回新 measures
-        for m in new_measures:
-
-            part.append(m)
-
-
-
-def clean_musicxml(input_file, output_file):
+def clean_musicxml(
+        input_file,
+        output_file
+):
 
     print("================")
     print(VERSION)
@@ -166,24 +191,47 @@ def clean_musicxml(input_file, output_file):
 
     print("read")
 
-    score = converter.parse(input_file)
+
+    score = converter.parse(
+        input_file
+    )
 
 
-    remove_bad_elements(score)
+    remove_voices(score)
 
+    remove_chords(score)
 
-    force_time_signature(score)
+    remove_beams(score)
+
+    remove_ties(score)
+
+    force_four_four(score)
 
 
     split_long_measures(score)
 
+    split_long_notes(score)
 
-    print("clear notation cache")
 
-    try:
-        score.streamStatus.clear()
-    except:
-        pass
+    remove_beams(score)
+
+    remove_ties(score)
+
+
+    print("check measures")
+
+
+    for part in score.parts:
+
+        for m in list(
+            part.getElementsByClass("Measure")
+        ):
+
+            print(
+                "Measure",
+                m.number,
+                m.duration.quarterLength
+            )
 
 
     print("FINAL WRITE")
@@ -195,7 +243,6 @@ def clean_musicxml(input_file, output_file):
     )
 
 
-    print()
     print("DONE")
     print(output_file)
 
@@ -203,13 +250,14 @@ def clean_musicxml(input_file, output_file):
 
 if __name__ == "__main__":
 
+
     if len(sys.argv) < 3:
 
         print(
             "python clean_musicxml.py input.musicxml output.musicxml"
         )
 
-        sys.exit()
+        sys.exit(1)
 
 
     clean_musicxml(
