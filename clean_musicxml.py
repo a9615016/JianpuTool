@@ -128,6 +128,33 @@ def clean_musicxml(input_file, output_file):
 
 
     print("FINAL NOTE SPLIT")
+    print("FINAL REMOVE 128TH SAFE")
+
+
+def remove_128th(score):
+
+    for part in score.parts:
+
+        for n in part.recurse().notesAndRests:
+
+            try:
+                if n.duration.type == "128th":
+
+                    print(
+                        "convert 128th -> 64th:",
+                        n
+                    )
+
+                    n.duration.type = "64th"
+
+                    # 移除 dotted 造成再次變短
+                    n.duration.dots = 0
+
+            except Exception:
+                pass
+
+
+remove_128th(score)
 
     # 保留 V23 的 note split
 
