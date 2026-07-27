@@ -1,91 +1,152 @@
 import os
 import uuid
-import subprocess
 import shutil
-
+import subprocess
 from fastapi import FastAPI, UploadFile, File
 from fastapi.responses import HTMLResponse, FileResponse
 
-
-app = FastAPI(title="JianpuTool")
-
-
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
-OUTPUT_DIR = os.path.join(BASE_DIR, "outputs")
-os.makedirs(OUTPUT_DIR, exist_ok=True)
+from music21 import converter, meter
 
 
-@app.get("/", response_class=HTMLResponse)
+app = FastAPI()
+
+
+BASE_DIR = "outputs"
+os.makedirs(BASE_DIR, exist_ok=True)
+
+
+@app.get("/")
 def home():
 
-    return """
-    <html>
-    <head>
-    <title>JianpuTool</title>
-    </head>
+    return HTMLResponse(
+        """
+        <html>
+        <body>
 
-    <body>
+        <h2>JianpuTool v26</h2>
 
-    <h2>
-    JianpuTool 簡譜產生器
-    </h2>
+        <p>MP3 / MIDI / MusicXML → Jianpu PDF</p>
 
-    <p>
-    MP3 / WAV → MIDI → MusicXML → 數字簡譜 PDF
-    </p>
-
-
-    <form action="/upload" 
-          enctype="multipart/form-data"
-          method="post">
+        <form action="/upload"
+        method="post"
+        enctype="multipart/form-data">
 
         <input type="file" name="file">
 
-        <br><br>
-
         <button type="submit">
-        產生簡譜 PDF
+        Convert
         </button>
 
-    </form>
+        </form>
+
+        </body>
+        </html>
+        """
+    )
 
 
-    </body>
-    </html>
-    """
 
+# =========================
+# MusicXML 修正核心
+# =========================
+
+def fix_musicxml(src, dst):
+
+    print("開始修正 MusicXML")
+
+    score = converter.parse(src)
+
+
+    # 強制 4/4
+    for part in score.parts:
+
+        part.insert(
+            0,
+            meter.TimeSignature("4/4")
+        )
+
+
+    # 移除複雜節奏
+    for n in score.recurse().notesAndRests:
+
+
+        if hasattr(n, "duration"):
+
+            # 移除 tuplets
+            n.duration.tuplets = []
+
+
+            # 防止奇怪 duration
+            if n.duration.quarterLength > 4:
+                n.duration.quarterLength = 4
+
+
+
+    # 重新量化
+    score.quantize(
+        quarterLengthDivisors=[
+            1,
+            2,
+            4,
+            8,
+            16
+        ]
+    )
+
+
+    # 寫出新的 MusicXML
+
+    score.write(
+        "musicxml",
+        fp=dst
+    )
+
+
+    print(
+        "MusicXML 修正完成:",
+        dst
+    )
+
+
+
+
+
+# =========================
+# Upload
+# =========================
 
 
 @app.post("/upload")
-async def upload(file: UploadFile = File(...)):
+async def upload(
+        file: UploadFile = File(...)
+):
 
 
     job_id = str(uuid.uuid4())
 
-    work_dir = os.path.join(
-        OUTPUT_DIR,
+    work = os.path.join(
+        BASE_DIR,
         job_id
     )
 
-    os.makedirs(work_dir)
+    os.makedirs(work)
 
 
-
-    input_file = os.path.join(
-        work_dir,
+    input_file=os.path.join(
+        work,
         file.filename
     )
 
 
-    # 保存上傳檔案
-    with open(input_file, "wb") as f:
+    with open(
+        input_file,
+        "wb"
+    ) as f:
 
         shutil.copyfileobj(
             file.file,
             f
         )
-
 
 
     print("================")
@@ -95,33 +156,172 @@ async def upload(file: UploadFile = File(...)):
 
 
 
-    ext = os.path.splitext(file.filename)[1].lower()
+    try:
+
+
+        # --------------------
+        # 如果輸入 MusicXML
+        # --------------------
+
+        if file.filename.endswith(
+            ".musicxml"
+        ):
+
+            musicxml=input_file
 
 
 
-    midi_file = os.path.join(
-        work_dir,
-        "melody.mid"
-    )
+        # --------------------
+        # MIDI
+        # --------------------
+
+        elif file.filename.endswith(
+            ".mid"
+        ):
+
+            musicxml=os.path.join(
+                work,
+                "input.musicxml"
+            )
+
+
+            subprocess.run(
+                [
+                    "python",
+                    "midi_to_musicxml.py",
+                    input_file,
+                    musicxml
+                ],
+                check=True
+            )
+
+
+        # --------------------
+        # MP3
+        # --------------------
+
+        else:
+
+
+            midi=os.path.join(
+                work,
+                "melody.mid"
+            )
+
+
+            subprocess.run(
+                [
+                    "python",
+                    "basicpitch_convert.py",
+                    input_file,
+                    midi
+                ],
+                check=True
+            )
+
+
+            musicxml=os.path.join(
+                work,
+                "input.musicxml"
+            )
+
+
+            subprocess.run(
+                [
+                    "python",
+                    "midi_to_musicxml.py",
+                    midi,
+                    musicxml
+                ],
+                check=True
+            )
 
 
 
-    # ==========================
-    # MP3/WAV → MIDI
-    # ==========================
+        # =====================
+        # 關鍵修正
+        # =====================
 
-    if ext in [".mp3", ".wav"]:
+        fixed=os.path.join(
+            work,
+            "fixed.musicxml"
+        )
 
 
-        print("開始 BasicPitch")
+        fix_musicxml(
+            musicxml,
+            fixed
+        )
 
 
-        result = subprocess.run(
+
+        # =====================
+        # jianpu_ly
+        # =====================
+
+
+        ly=os.path.join(
+            work,
+            "score.ly"
+        )
+
+
+        print(
+            "開始 jianpu_ly"
+        )
+
+
+        with open(
+            ly,
+            "w",
+            encoding="utf-8"
+        ) as out:
+
+
+            result=subprocess.run(
+                [
+                    "python",
+                    "-m",
+                    "jianpu_ly",
+                    fixed
+                ],
+                stdout=out,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+
+
+        if result.returncode !=0:
+
+            return {
+                "error":
+                "jianpu_ly failed",
+                "log":
+                result.stderr
+            }
+
+
+
+
+        # =====================
+        # LilyPond
+        # =====================
+
+
+        print(
+            "開始 LilyPond"
+        )
+
+
+        result=subprocess.run(
             [
-                "python",
-                "basicpitch_convert.py",
-                input_file,
-                midi_file
+                "lilypond",
+                "-o",
+                os.path.join(
+                    work,
+                    "jianpu"
+                ),
+                ly
             ],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -129,178 +329,40 @@ async def upload(file: UploadFile = File(...)):
         )
 
 
-        print(result.stdout)
+        print(
+            result.stdout
+        )
 
 
-        if result.returncode != 0:
+        pdf=os.path.join(
+            work,
+            "jianpu.pdf"
+        )
+
+
+        if not os.path.exists(pdf):
 
             return {
                 "error":
+                "PDF產生失敗",
+                "log":
                 result.stdout
             }
 
 
 
-    elif ext == ".mid":
-
-        midi_file = input_file
-
-
-    else:
-
-        return {
-            "error":
-            "只支援 MP3 WAV MIDI"
-        }
-
-
-
-    # ==========================
-    # MIDI → MusicXML
-    # ==========================
-
-    musicxml = os.path.join(
-        work_dir,
-        "score.musicxml"
-    )
-
-
-    print("MIDI轉MusicXML")
-
-
-    result = subprocess.run(
-        [
-            "python",
-            "midi_to_musicxml.py",
-            midi_file,
-            musicxml
-        ],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True
-    )
-
-
-    print(result.stdout)
-
-
-
-    if result.returncode != 0:
-
-        return {
-            "error":
-            result.stdout
-        }
-
-
-
-    # ==========================
-    # MusicXML 清理
-    # ==========================
-
-    clean_xml = os.path.join(
-        work_dir,
-        "clean.musicxml"
-    )
-
-
-    print("清理 MusicXML")
-
-
-    result = subprocess.run(
-        [
-            "python",
-            "clean_musicxml.py",
-            musicxml,
-            clean_xml
-        ],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True
-    )
-
-
-    print(result.stdout)
-
-
-
-    # ==========================
-    # MusicXML → Jianpu LY
-    # ==========================
-
-    ly_file = os.path.join(
-        work_dir,
-        "jianpu.ly"
-    )
-
-
-    print("jianpu_ly")
-
-
-    with open(ly_file, "w", encoding="utf-8") as f:
-
-        subprocess.run(
-            [
-                "python",
-                "-m",
-                "jianpu_ly",
-                clean_xml
-            ],
-            stdout=f,
-            stderr=subprocess.STDOUT
+        return FileResponse(
+            pdf,
+            media_type="application/pdf",
+            filename="jianpu.pdf"
         )
 
 
 
-    # ==========================
-    # LilyPond PDF
-    # ==========================
+    except Exception as e:
 
-
-    print("LilyPond")
-
-
-    subprocess.run(
-        [
-            "lilypond",
-            "-o",
-            work_dir,
-            ly_file
-        ],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True
-    )
-
-
-
-    pdf_file = os.path.join(
-        work_dir,
-        "jianpu.pdf"
-    )
-
-
-
-    if not os.path.exists(pdf_file):
 
         return {
-
             "error":
-            "PDF產生失敗",
-
-            "folder":
-            work_dir
-
+            str(e)
         }
-
-
-
-    return FileResponse(
-
-        pdf_file,
-
-        media_type="application/pdf",
-
-        filename="jianpu.pdf"
-
-    )
