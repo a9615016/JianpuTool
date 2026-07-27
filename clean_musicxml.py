@@ -1,9 +1,56 @@
 import sys
-import music21
-from music21 import stream, note, chord, meter
+from music21 import converter, stream, note, chord, meter, tempo
 
 
-VERSION = "CLEAN MUSICXML V22.1"
+VERSION = "CLEAN MUSICXML V22.2"
+
+
+def fix_overflow_measures(score):
+    """
+    修正 4/4 小節超拍問題
+    music21 quarterLength:
+    4/4 一小節 = 4.0
+    """
+
+    print("fix overflow measures")
+
+    for part in score.parts:
+
+        for measure in part.getElementsByClass(stream.Measure):
+
+            total = 0
+
+            elements = list(measure.notesAndRests)
+
+            for element in elements:
+
+                total += element.quarterLength
+
+                # 超過 4 拍
+                if total > 4:
+
+                    overflow = total - 4
+
+                    print(
+                        "trim:",
+                        element,
+                        "overflow:",
+                        overflow
+                    )
+
+                    new_length = element.quarterLength - overflow
+
+                    if new_length > 0:
+                        element.quarterLength = new_length
+
+                    else:
+                        element.quarterLength = 0.25
+
+                    total = 4
+
+
+    return score
+
 
 
 def clean_musicxml(input_file, output_file):
@@ -14,174 +61,82 @@ def clean_musicxml(input_file, output_file):
 
     print("input:", input_file)
 
-    score = music21.converter.parse(input_file)
-
     print("read")
 
-    # remove voices
+    score = converter.parse(input_file)
+
+
     print("remove voices")
 
     for part in score.parts:
-        for el in part.recurse():
-            if hasattr(el, "voice"):
-                el.voice = None
+        for n in part.recurse():
+
+            if hasattr(n, "voice"):
+                n.voice = None
 
 
-    # remove chords
+
     print("remove chords")
 
-    for part in score.parts:
-        for c in list(part.recurse().getElementsByClass('Chord')):
+    for c in score.recurse().getElementsByClass(chord.Chord):
+
+        if len(c.pitches) > 0:
+
             n = note.Note(c.pitches[0])
             n.duration = c.duration
-            c.replace(n)
+
+            c.activeSite.replace(c, n)
+
 
 
     print("quantize")
 
-    for part in score.parts:
-        for n in part.recurse().notes:
-            n.duration.quarterLength = round(
-                n.duration.quarterLength * 4
-            ) / 4
+    for n in score.recurse().notesAndRests:
+
+        q = n.quarterLength
+
+        allowed = [
+            0.25,
+            0.5,
+            1,
+            2,
+            4
+        ]
+
+        closest = min(
+            allowed,
+            key=lambda x: abs(x-q)
+        )
+
+        n.quarterLength = closest
+
 
 
     print("force 4/4")
 
     for part in score.parts:
-        part.insert(
-            0,
-            meter.TimeSignature("4/4")
-        )
+
+        for m in part.getElementsByClass(stream.Measure):
+
+            m.timeSignature = meter.TimeSignature("4/4")
+
 
 
     print("rebuild measures")
 
-    new_score = stream.Score()
-
-    for part in score.parts:
-
-        new_part = stream.Part()
-
-        current_measure = stream.Measure()
-        current_length = 0
-
-        for element in part.recurse().notesAndRests:
-
-            ql = element.duration.quarterLength
-
-            # 4/4 = 4 quarter notes
-            limit = 4
-
-            # 超過小節
-            if current_length + ql > limit:
-
-                remain = limit - current_length
-
-                # 還剩空間
-                if remain > 0:
-
-                    if isinstance(element, note.Note):
-                        n = note.Note(element.pitch)
-                    elif isinstance(element, chord.Chord):
-                        n = chord.Chord(element.pitches)
-                    else:
-                        n = note.Rest()
-
-                    n.duration.quarterLength = remain
-                    current_measure.append(n)
-
-
-                # 完成小節
-                new_part.append(current_measure)
-
-                current_measure = stream.Measure()
-
-                current_length = 0
-
-
-                # 剩餘音符放下一小節
-                remain_note = ql - remain
-
-                if remain_note > 0:
-
-                    if isinstance(element, note.Note):
-                        n = note.Note(element.pitch)
-                    elif isinstance(element, chord.Chord):
-                        n = chord.Chord(element.pitches)
-                    else:
-                        n = note.Rest()
-
-                    n.duration.quarterLength = remain_note
-
-                    current_measure.append(n)
-
-                    current_length = remain_note
-
-                continue
-
-
-            # 正常加入
-            current_measure.append(element)
-            current_length += ql
+    # 重新分小節
+    score = score.makeMeasures()
 
 
 
-        if current_measure.duration.quarterLength < 4:
+    # V22.2 新增
+    score = fix_overflow_measures(score)
 
-            rest = note.Rest()
-
-            rest.duration.quarterLength = (
-                4 - current_measure.duration.quarterLength
-            )
-
-            current_measure.append(rest)
-
-
-        new_part.append(current_measure)
-
-        new_score.append(new_part)
-
-
-    print("final measure fix")
-
-    # 最後檢查
-    for part in new_score.parts:
-
-        for m in part.getElementsByClass("Measure"):
-
-            total = m.duration.quarterLength
-
-            if total > 4:
-
-                print(
-                    "trim measure:",
-                    m.number,
-                    total
-                )
-
-                while m.duration.quarterLength > 4:
-
-                    last = m[-1]
-
-                    if last.duration.quarterLength > 0.25:
-
-                        last.duration.quarterLength -= 0.25
-
-                    else:
-                        m.pop(-1)
-
-
-            elif total < 4:
-
-                r = note.Rest()
-                r.duration.quarterLength = 4 - total
-                m.append(r)
 
 
     print("write")
 
-    new_score.write(
+    score.write(
         "musicxml",
         fp=output_file
     )
@@ -195,9 +150,11 @@ def clean_musicxml(input_file, output_file):
 if __name__ == "__main__":
 
     if len(sys.argv) < 3:
+
         print(
             "usage: python clean_musicxml.py input.musicxml output.musicxml"
         )
+
         sys.exit(1)
 
 
