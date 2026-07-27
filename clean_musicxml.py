@@ -1,301 +1,229 @@
 import sys
-import music21
-from music21 import note, chord, duration
+from music21 import converter, stream, note, chord, meter, duration
 
 
-print("================")
-print("CLEAN MUSICXML V23.2 FINAL INDENT + DURATION SAFE")
-print("================")
+VERSION = "CLEAN MUSICXML V23.3 FINAL BAR SAFE"
 
 
-# =========================
-# remove voices
-# =========================
-
-def remove_voices(score):
+def remove_bad_objects(score):
 
     print("remove voices")
-
-    for part in score.parts:
-
-        for n in part.recurse().notes:
-
-            try:
-                n.voice = None
-            except:
-                pass
-
-
-
-# =========================
-# remove chords
-# =========================
-
-def remove_chords(score):
-
     print("remove chords")
 
     for part in score.parts:
 
-        for c in list(part.recurse().getElementsByClass("Chord")):
+        remove_list = []
 
+        for el in part.recurse():
+
+            if isinstance(el, chord.Chord):
+                remove_list.append(el)
+
+            if isinstance(el, note.Note):
+
+                # remove tiny duration
+                if el.duration.quarterLength < 0.25:
+                    remove_list.append(el)
+
+        for el in remove_list:
             try:
-
-                n = note.Note(
-                    c.root()
-                )
-
-                n.duration = c.duration
-
-                c.activeSite.replace(
-                    c,
-                    n
-                )
-
-            except Exception as e:
-
-                print(
-                    "Chord skip:",
-                    e
-                )
+                el.activeSite.remove(el)
+            except Exception:
+                pass
 
 
 
-# =========================
-# beam safe reset
-# =========================
+def remove_beams(score):
 
-def reset_beams(score):
-
-    print("safe beam reset")
+    print("remove beams")
 
     for n in score.recurse().notes:
 
         try:
-            n.beams = None
-
-        except:
+            n.beams = []
+        except Exception:
             pass
 
 
 
-# =========================
-# quantize duration
-# =========================
+def fix_duration(score):
 
-def quantize(score):
-
-    print("quantize")
-
+    print("fix duration")
 
     allowed = [
-        4,
-        2,
-        1,
+        0.25,
         0.5,
-        0.25
+        1,
+        2,
+        4
     ]
 
+    for n in score.recurse().notes:
 
-    for n in score.recurse().notesAndRests:
+        q = float(n.duration.quarterLength)
 
-        try:
+        closest = min(
+            allowed,
+            key=lambda x: abs(x-q)
+        )
 
-            q = n.duration.quarterLength
-
-            closest = min(
-                allowed,
-                key=lambda x:abs(x-q)
-            )
-
-            n.duration.quarterLength = closest
-
-
-        except Exception as e:
-
-            print(
-                "quantize skip:",
-                e
-            )
+        n.duration = duration.Duration(closest)
 
 
 
-# =========================
-# FINAL REMOVE 128TH
-# =========================
-
-def remove_bad_duration(score):
-
-    print("duration safe")
-
-
-    for n in score.recurse().notesAndRests:
-
-
-        try:
-
-            q = n.duration.quarterLength
-
-
-            # jianpu_ly 不支援 128th
-            if q < 0.25:
-
-                print(
-                    "FIX SHORT:",
-                    q
-                )
-
-
-                n.duration = duration.Duration(
-                    0.25
-                )
-
-
-        except Exception as e:
-
-            print(
-                "duration skip:",
-                e
-            )
-
-
-
-# =========================
-# force 4/4
-# =========================
-
-def force_44(score):
+def force_meter(score):
 
     print("force 4/4")
 
+    for part in score.parts:
+
+        ts = part.recurse().getElementsByClass(
+            meter.TimeSignature
+        )
+
+        if len(ts)==0:
+            part.insert(
+                0,
+                meter.TimeSignature("4/4")
+            )
+
+
+
+def split_crossing_notes(score):
+
+    print("split crossing notes")
 
     for part in score.parts:
 
-        part.insert(
-            0,
-            music21.meter.TimeSignature("4/4")
+        measures = list(
+            part.getElementsByClass(
+                stream.Measure
+            )
         )
 
+        for m in measures:
+
+            pos = 0
+
+            for n in list(m.notesAndRests):
+
+                length = n.duration.quarterLength
+
+                if pos + length > 4:
+
+                    remain = 4-pos
+                    extra = length-remain
+
+                    if remain > 0:
+
+                        n.duration = duration.Duration(remain)
+
+                        new_note = n.__deepcopy__()
+
+                        new_note.duration = duration.Duration(extra)
+
+                        try:
+                            m.insert(
+                                n.offset+remain,
+                                new_note
+                            )
+                        except Exception:
+                            pass
+
+                pos += n.duration.quarterLength
 
 
-# =========================
-# rebuild measures
-# =========================
 
-def rebuild(score):
+def rebuild_measures(score):
 
     print("rebuild measures")
 
-    score.makeMeasures(
-        inPlace=True
-    )
-
-
-
-# =========================
-# check
-# =========================
-
-def check(score):
-
-    print("check measures")
-
-
-    for i,m in enumerate(
-        score.recurse()
-        .getElementsByClass("Measure")
-    ):
+    for part in score.parts:
 
         try:
-
-            print(
-                "Measure",
-                i+1,
-                m.barDuration.quarterLength
+            part.makeMeasures(
+                inPlace=True
             )
-
-        except:
-
+        except Exception:
             pass
 
 
 
-# =========================
-# main clean
-# =========================
+def final_bar_check(score):
 
-def clean_musicxml(
-        inp,
-        out
-):
+    print("final bar check")
+
+    for part in score.parts:
+
+        for m in part.getElementsByClass(
+            stream.Measure
+        ):
+
+            q = float(
+                m.duration.quarterLength
+            )
+
+            print(
+                "Measure",
+                m.number,
+                q
+            )
+
+
+
+def clean_musicxml(input_file, output_file):
+
+    print("================")
+    print(VERSION)
+    print("================")
 
     print("read")
 
-
-    score = music21.converter.parse(
-        inp
+    score = converter.parse(
+        input_file
     )
 
 
-    remove_voices(score)
+    remove_bad_objects(score)
 
+    remove_beams(score)
 
-    remove_chords(score)
+    fix_duration(score)
 
+    force_meter(score)
 
-    reset_beams(score)
+    rebuild_measures(score)
 
+    split_crossing_notes(score)
 
-    quantize(score)
+    fix_duration(score)
 
+    rebuild_measures(score)
 
-    print("FINAL NOTE SPLIT")
+    remove_beams(score)
 
-
-    # V23 保留
-
-
-    remove_bad_duration(score)
-
-
-    force_44(score)
-
-
-    rebuild(score)
-
-
-    reset_beams(score)
-
-
-    check(score)
+    final_bar_check(score)
 
 
     print("write")
 
-
     score.write(
         "musicxml",
-        fp=out
+        fp=output_file
     )
 
 
     print()
-
     print(
         "DONE",
-        out
+        output_file
     )
 
 
 
-# =========================
-# run
-# =========================
+if __name__=="__main__":
 
-if __name__ == "__main__":
-
-
-    if len(sys.argv) < 3:
+    if len(sys.argv)<3:
 
         print(
             "usage: python clean_musicxml.py input.musicxml output.musicxml"
