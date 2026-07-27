@@ -1,8 +1,7 @@
 import os
 import uuid
-import shutil
 import subprocess
-import xml.etree.ElementTree as ET
+import shutil
 
 from fastapi import FastAPI, UploadFile, File
 from fastapi.responses import HTMLResponse, FileResponse
@@ -11,10 +10,7 @@ from fastapi.responses import HTMLResponse, FileResponse
 app = FastAPI()
 
 
-BASE = "outputs"
-
-
-os.makedirs(BASE, exist_ok=True)
+BASE_DIR = os.getcwd()
 
 
 @app.get("/")
@@ -25,8 +21,8 @@ def home():
     <h2>JianpuTool 簡譜產生器</h2>
 
     <form action="/upload" method="post" enctype="multipart/form-data">
-    <input type="file" name="file">
-    <button type="submit">開始轉換</button>
+        <input type="file" name="file">
+        <button type="submit">開始轉換</button>
     </form>
 
     </body>
@@ -34,14 +30,12 @@ def home():
     """)
 
 
-
-def run_cmd(cmd, cwd=None):
+def run_cmd(cmd):
 
     print("RUN:", " ".join(cmd))
 
     result = subprocess.run(
         cmd,
-        cwd=cwd,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True
@@ -52,69 +46,31 @@ def run_cmd(cmd, cwd=None):
     return result
 
 
-
-# 修正 jianpu_ly 不接受的 duration
-def fix_musicxml_duration(xml_file):
-
-    print("修正 MusicXML duration")
-
-    tree = ET.parse(xml_file)
-    root = tree.getroot()
-
-
-    mapping = {
-        "9.75": "8",
-        "9": "8",
-        "7": "6",
-        "5": "4",
-        "3.5": "4"
-    }
-
-
-    for tag in root.iter():
-
-        if tag.tag.endswith("duration"):
-
-            if tag.text in mapping:
-                print(
-                    "duration:",
-                    tag.text,
-                    "->",
-                    mapping[tag.text]
-                )
-
-                tag.text = mapping[tag.text]
-
-
-    tree.write(
-        xml_file,
-        encoding="utf-8",
-        xml_declaration=True
-    )
-
-
-    return xml_file
-
-
-
 @app.post("/upload")
 async def upload(file: UploadFile = File(...)):
 
+    task_id = str(uuid.uuid4())
 
-    task = str(uuid.uuid4())
+    work_dir = os.path.abspath(
+        os.path.join("outputs", task_id)
+    )
 
-    work = os.path.join(BASE, task)
-
-    os.makedirs(work)
+    os.makedirs(work_dir, exist_ok=True)
 
 
     print("====================")
-    print("開始任務:", task)
+    print("開始任務:", task_id)
     print("收到:", file.filename)
 
 
+    # ----------------------
+    # MP3
+    # ----------------------
 
-    mp3 = os.path.join(work, file.filename)
+    mp3 = os.path.join(
+        work_dir,
+        file.filename
+    )
 
 
     with open(mp3,"wb") as f:
@@ -129,213 +85,208 @@ async def upload(file: UploadFile = File(...)):
 
 
 
-    # ==========================
+    # ----------------------
     # BasicPitch
-    # ==========================
-
-    print("開始 BasicPitch")
-
+    # ----------------------
 
     midi = os.path.join(
-        work,
+        work_dir,
         "melody.mid"
     )
 
 
-    result = run_cmd(
-        [
-            "python",
-            "basicpitch_convert.py",
-            mp3,
-            midi
-        ]
-    )
+    r = run_cmd([
+        "python",
+        "basicpitch_convert.py",
+        mp3,
+        midi
+    ])
 
 
     if not os.path.exists(midi):
 
         return {
-            "error":
-            "BasicPitch失敗",
-            "log":
-            result.stdout
+            "error":"BasicPitch失敗",
+            "log":r.stdout
         }
-
 
 
     print("MIDI完成")
 
 
 
-    # ==========================
+    # ----------------------
     # MIDI -> MusicXML
-    # ==========================
+    # ----------------------
 
-
-    print("開始 MIDI轉MusicXML")
-
-
-    musicxml = os.path.join(
-        work,
+    xml = os.path.join(
+        work_dir,
         "input.musicxml"
     )
 
 
-    result = run_cmd(
-        [
-            "python",
-            "midi_to_musicxml.py",
-            midi,
-            musicxml
-        ]
-    )
+    r = run_cmd([
+        "python",
+        "midi_to_musicxml.py",
+        midi,
+        xml
+    ])
 
 
-    if not os.path.exists(musicxml):
+    if not os.path.exists(xml):
 
         return {
-            "error":"MusicXML失敗",
-            "log":result.stdout
+            "error":"MusicXML失敗"
         }
-
 
 
     print("MusicXML完成")
 
 
 
-    # ==========================
-    # clean
-    # ==========================
+    # ----------------------
+    # clean musicxml
+    # ----------------------
 
-    print("開始清理 MusicXML")
-
-
-    clean = os.path.join(
-        work,
+    clean_xml = os.path.join(
+        work_dir,
         "clean.musicxml"
     )
 
 
-    result = run_cmd(
-        [
-            "python",
-            "clean_musicxml.py",
-            musicxml,
-            clean
-        ]
-    )
+    r = run_cmd([
+        "python",
+        "clean_musicxml.py",
+        xml,
+        clean_xml
+    ])
 
 
-    if not os.path.exists(clean):
+
+    if not os.path.exists(clean_xml):
 
         return {
-            "error":"clean失敗",
-            "log":result.stdout
+            "error":"clean.musicxml不存在",
+            "log":r.stdout
         }
 
 
     print("清理完成")
 
 
+    # ★★★ 修正重點 ★★★
 
-    # ==========================
-    # 新增修正
-    # ==========================
-
-    fix_musicxml_duration(clean)
+    clean_xml_abs = os.path.abspath(clean_xml)
 
 
+    print("CHECK jianpu input:")
+    print(clean_xml_abs)
 
-    # ==========================
+    if not os.path.exists(clean_xml_abs):
+
+        return {
+            "error":"找不到 clean.musicxml",
+            "path":clean_xml_abs
+        }
+
+
+
+    # ----------------------
     # jianpu_ly
-    # ==========================
-
+    # ----------------------
 
     print("開始 jianpu_ly")
 
 
-    ly = os.path.join(
-        work,
-        "jianpu.ly"
-    )
+    r = run_cmd([
+        "python",
+        "-m",
+        "jianpu_ly",
+        clean_xml_abs
+    ])
 
 
-    result = run_cmd(
-        [
-            "python",
-            "-m",
-            "jianpu_ly",
-            "clean.musicxml"
-        ],
-        cwd=work
-    )
-
-
-    # jianpu_ly 預設輸出檢查
-
-    generated = os.path.join(
-        work,
-        "jianpu.ly"
-    )
-
-
-    if os.path.exists(generated):
-
-        shutil.move(
-            generated,
-            ly
-        )
-
-
-    if not os.path.exists(ly):
+    if r.returncode != 0:
 
         return {
             "error":"jianpu_ly失敗",
-            "log":result.stdout
+            "log":r.stdout
         }
 
 
 
-    print("jianpu完成")
+    ly_file = None
+
+
+    for f in os.listdir(work_dir):
+
+        if f.endswith(".ly"):
+
+            ly_file = os.path.join(
+                work_dir,
+                f
+            )
+
+            break
 
 
 
-    # ==========================
-    # LilyPond
-    # ==========================
+    if ly_file is None:
 
+        return {
+            "error":"沒有產生 ly"
+        }
+
+
+
+    print("LY完成:")
+    print(ly_file)
+
+
+
+    # ----------------------
+    # LilyPond PDF
+    # ----------------------
 
     print("開始 LilyPond")
 
 
-    result = run_cmd(
-        [
-            "lilypond",
-            "-o",
-            "output",
-            ly
-        ],
-        cwd=work
-    )
+    r = run_cmd([
+        "lilypond",
+        "-o",
+        work_dir,
+        ly_file
+    ])
 
 
-    pdf = os.path.join(
-        work,
-        "output.pdf"
-    )
+
+    pdf = None
 
 
-    if not os.path.exists(pdf):
+    for f in os.listdir(work_dir):
+
+        if f.endswith(".pdf"):
+
+            pdf=os.path.join(
+                work_dir,
+                f
+            )
+
+            break
+
+
+
+    if pdf is None:
 
         return {
             "error":"PDF產生失敗",
-            "log":result.stdout
+            "log":r.stdout
         }
 
 
 
-    print("完成PDF")
+    print("PDF完成")
+    print(pdf)
 
 
 
