@@ -1,5 +1,4 @@
 from fastapi import FastAPI, UploadFile, File
-print("######## MAIN VERSION 20260727-1112 ########")
 from fastapi.responses import HTMLResponse
 import os
 import uuid
