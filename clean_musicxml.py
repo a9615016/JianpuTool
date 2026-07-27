@@ -1,9 +1,48 @@
 import sys
-import music21
-from music21 import note, stream
+from music21 import converter, stream, note, chord, meter, beam
 
 
-VERSION = "CLEAN MUSICXML V24.4 FINAL JIANPU TICK ALIGN"
+VERSION = "CLEAN MUSICXML V25 FINAL TICK LOCK"
+
+
+TICK_MAP = [
+    (4.0, 64),   # whole
+    (2.0, 32),   # half
+    (1.0, 16),   # quarter
+    (0.5, 8),    # eighth
+    (0.25, 4),   # sixteenth
+]
+
+
+def quantize_duration(q):
+    """
+    quarterLength -> tick lock
+    divisions=16
+    """
+
+    ticks = round(q * 16)
+
+    candidates = [
+        64,
+        48,
+        32,
+        24,
+        16,
+        12,
+        8,
+        6,
+        4,
+        2,
+        1
+    ]
+
+    best = min(
+        candidates,
+        key=lambda x: abs(x - ticks)
+    )
+
+    return best / 16
+
 
 
 def remove_bad_elements(score):
@@ -12,84 +51,72 @@ def remove_bad_elements(score):
 
     for part in score.parts:
 
-        for el in list(part.recurse()):
-            if isinstance(el, stream.Voice):
-                try:
-                    el.remove(el.notes)
-                except:
-                    pass
+        for v in list(part.voices):
+
+            try:
+                part.remove(v)
+            except:
+                pass
 
 
     print("remove chords")
 
-    for part in score.parts:
-        for c in list(part.recurse().getElementsByClass("Chord")):
-            n = note.Note(
-                c.pitches[-1],
-                quarterLength=c.duration.quarterLength
-            )
-            c.activeSite.replace(c, n)
+    for c in score.recurse().getElementsByClass(chord.Chord):
 
+        n = note.Note(
+            c.root()
+        )
+
+        n.duration = c.duration
+
+        c.activeSite.replace(
+            c,
+            n
+        )
 
 
     print("remove beams")
 
-    for n in score.recurse().notes:
+    for b in score.recurse().getElementsByClass(
+        beam.Beams
+    ):
         try:
-            n.beams = music21.beam.Beams()
+            b.clear()
         except:
             pass
 
 
 
-    print("remove ties")
-
-    for n in score.recurse().notes:
-        try:
-            n.tie = None
-        except:
-            pass
-
-
-
-def force_time(score):
+def force_4_4(score):
 
     print("force 4/4")
 
     for part in score.parts:
 
-        for m in part.getElementsByClass("Measure"):
-
-            m.timeSignature = music21.meter.TimeSignature("4/4")
-
-
-
-def quantize_duration(score):
-
-    print("duration quantize")
-
-    values = [
-        0.25,
-        0.5,
-        1,
-        2,
-        4
-    ]
-
-    for n in score.recurse().notesAndRests:
-
-        q = n.duration.quarterLength
-
-        nearest = min(
-            values,
-            key=lambda x: abs(x-q)
+        part.insert(
+            0,
+            meter.TimeSignature("4/4")
         )
 
-        n.duration.quarterLength = nearest
+
+
+def tick_lock(score):
+
+    print("TICK LOCK")
+
+    for n in score.recurse().notes:
+
+        old = n.duration.quarterLength
+
+        new = quantize_duration(
+            old
+        )
+
+        n.duration.quarterLength = new
 
 
 
-def rebuild_measure(score):
+def rebuild_measures(score):
 
     print("rebuild measures")
 
@@ -101,169 +128,51 @@ def rebuild_measure(score):
 
 
 
-def split_cross_measure_notes(score):
+def check_bars(score):
 
-    print("split cross measure notes")
+    print("FINAL BAR CHECK")
+
+    for part in score.parts:
+
+        for i,m in enumerate(part.getElementsByClass("Measure"),1):
+
+            length = round(
+                m.duration.quarterLength,
+                4
+            )
+
+            print(
+                "Measure",
+                i,
+                length
+            )
+
+            if length > 4.0001:
+
+                print(
+                    "WARNING BAR OVER"
+                )
+
+
+
+def set_divisions(score):
+
+    print("set divisions 16")
+
+    score.metadata = score.metadata
 
     for part in score.parts:
 
         for m in part.getElementsByClass("Measure"):
 
-            if m.duration.quarterLength > 4:
+            m.editorial.divisions = 16
 
-                excess = (
-                    m.duration.quarterLength - 4
-                )
 
-                for n in reversed(
-                    list(m.notesAndRests)
-                ):
 
-                    if excess <= 0:
-                        break
-
-                    if n.duration.quarterLength <= excess:
-
-                        excess -= n.duration.quarterLength
-                        n.duration.quarterLength = 0
-
-                    else:
-
-                        n.duration.quarterLength -= excess
-                        excess = 0
-
-
-
-def fill_empty_measure(score):
-
-    print("fill measure rest")
-
-    for part in score.parts:
-
-        for m in part.getElementsByClass("Measure"):
-
-            length = m.duration.quarterLength
-
-            if length < 4:
-
-                r = note.Rest(
-                    quarterLength=4-length
-                )
-
-                m.append(r)
-
-
-
-def jianpu_tick_align(score):
-
-    print("jianpu_ly final tick align")
-
-
-    for part in score.parts:
-
-
-        for m in part.getElementsByClass("Measure"):
-
-
-            total = m.duration.quarterLength
-
-
-            target = 4.0
-
-
-            # 超過小節
-            if total > target:
-
-
-                overflow = total-target
-
-
-                notes = list(
-                    m.notesAndRests
-                )
-
-
-                for n in reversed(notes):
-
-
-                    if overflow <= 0:
-                        break
-
-
-                    length = n.duration.quarterLength
-
-
-                    if length <= overflow:
-
-                        n.duration.quarterLength = 0
-
-                        overflow -= length
-
-
-                    else:
-
-                        n.duration.quarterLength = (
-                            length-overflow
-                        )
-
-                        overflow = 0
-
-
-
-            # 不足補 Rest
-
-            elif total < target:
-
-
-                r = note.Rest(
-                    quarterLength=target-total
-                )
-
-                m.append(r)
-
-
-
-def final_check(score):
-
-    print("FINAL CHECK")
-
-
-    ok=True
-
-
-    for i,m in enumerate(
-        score.parts[0].getElementsByClass("Measure"),
-        1
-    ):
-
-
-        length=m.duration.quarterLength
-
-
-        print(
-            "Measure",
-            i,
-            length
-        )
-
-
-        if abs(length-4)>0.001:
-
-            ok=False
-
-
-
-    if ok:
-
-        print("ALL MEASURES SAFE")
-
-    else:
-
-        print("WARNING MEASURE ERROR")
-
-
-
-def clean_musicxml(input_file, output_file):
+def clean_musicxml(
+    input_file,
+    output_file
+):
 
     print("================")
     print(VERSION)
@@ -272,8 +181,7 @@ def clean_musicxml(input_file, output_file):
 
     print("read")
 
-
-    score = music21.converter.parse(
+    score = converter.parse(
         input_file
     )
 
@@ -281,37 +189,19 @@ def clean_musicxml(input_file, output_file):
     remove_bad_elements(score)
 
 
-    force_time(score)
+    force_4_4(score)
 
 
-    quantize_duration(score)
+    tick_lock(score)
 
 
-    rebuild_measure(score)
+    rebuild_measures(score)
 
 
-    split_cross_measure_notes(score)
+    set_divisions(score)
 
 
-    rebuild_measure(score)
-
-
-    fill_empty_measure(score)
-
-
-    rebuild_measure(score)
-
-
-    jianpu_tick_align(score)
-
-
-    print("clear notation cache")
-
-
-    score.stripTies()
-
-
-    final_check(score)
+    check_bars(score)
 
 
     print("FINAL WRITE")
@@ -328,17 +218,15 @@ def clean_musicxml(input_file, output_file):
 
 
 
-if __name__=="__main__":
+if __name__ == "__main__":
 
-
-    if len(sys.argv)<3:
+    if len(sys.argv) < 3:
 
         print(
             "python clean_musicxml.py input.musicxml output.musicxml"
         )
 
-        sys.exit(1)
-
+        sys.exit()
 
 
     clean_musicxml(
