@@ -1,42 +1,31 @@
+from music21 import converter, stream, note, chord, beam
 import sys
-from music21 import converter
-from music21 import stream
-from music21 import note
-from music21 import chord
-from music21 import meter
-from music21 import duration
+import os
 
 
-VERSION = "CLEAN MUSICXML V23.3.1 FINAL JIANPU SAFE"
+VERSION = "CLEAN MUSICXML V23.3.2 FINAL BEAM OBJECT SAFE"
 
 
-def remove_bad(score):
-
-    print("remove voices")
-    print("remove chords")
-
-    for part in score.parts:
-
-        for el in list(part.recurse()):
-
-            if isinstance(el, chord.Chord):
-                try:
-                    el.activeSite.remove(el)
-                except:
-                    pass
-
-
-def remove_beam_tie(score):
+def safe_remove_beams(score):
 
     print("remove beams")
-    print("remove ties")
 
     for n in score.recurse().notes:
 
         try:
-            n.beams = []
-        except:
+            # 正確清除 beams
+            n.beams = None
+
+        except Exception:
             pass
+
+
+
+def safe_remove_ties(score):
+
+    print("remove ties")
+
+    for n in score.recurse().notes:
 
         try:
             n.tie = None
@@ -44,14 +33,38 @@ def remove_beam_tie(score):
             pass
 
 
-def remove_dots(score):
 
-    print("remove dots")
+def remove_chords(score):
 
-    for n in score.recurse().notes:
+    print("remove chords")
+
+    for c in list(score.recurse().getElementsByClass(chord.Chord)):
 
         try:
-            n.duration.dots = 0
+            highest = c.closedPosition()
+
+            if highest:
+                n = note.Note(
+                    highest[0].pitch
+                )
+                n.duration = c.duration
+
+                c.activeSite.replace(c, n)
+
+        except:
+            pass
+
+
+
+def remove_voices(score):
+
+    print("remove voices")
+
+    for v in score.recurse().getElementsByClass("Voice"):
+
+        try:
+            v.activeSite.remove(v)
+
         except:
             pass
 
@@ -61,55 +74,59 @@ def duration_safe(score):
 
     print("duration safe")
 
-    allowed = [
-        0.25,
-        0.5,
-        1,
-        2,
-        4
-    ]
-
     for n in score.recurse().notes:
 
-        q = float(n.duration.quarterLength)
+        try:
 
-        best = min(
-            allowed,
-            key=lambda x: abs(x-q)
-        )
+            if n.duration.quarterLength <= 0:
+                n.duration.quarterLength = 1
 
-        n.duration = duration.Duration(best)
+            # 避免 128th
+            if n.duration.type == "128th":
+                n.duration.quarterLength = 0.125
+
+        except:
+            pass
 
 
 
-def force_meter(score):
+def force_measure(score):
 
     print("force 4/4")
 
-    for part in score.parts:
+    for p in score.parts:
 
-        ts = part.recurse().getElementsByClass(
-            meter.TimeSignature
-        )
-
-        if len(ts)==0:
-            part.insert(
+        try:
+            p.insert(
                 0,
-                meter.TimeSignature("4/4")
+                __import__(
+                    "music21"
+                ).meter.TimeSignature("4/4")
             )
 
+        except:
+            pass
 
 
-def rebuild(score):
 
-    print("make notation")
+def check_measure(score):
 
-    try:
-        score.makeNotation(
-            inPlace=True
-        )
-    except Exception as e:
-        print(e)
+    print("check measures")
+
+    for i,m in enumerate(
+        score.recurse().getElementsByClass("Measure"),
+        1
+    ):
+
+        try:
+            print(
+                "Measure",
+                i,
+                m.duration.quarterLength
+            )
+
+        except:
+            pass
 
 
 
@@ -121,43 +138,39 @@ def clean_musicxml(input_file, output_file):
 
     print("read")
 
-    score = converter.parse(
-        input_file
-    )
+    score = converter.parse(input_file)
 
 
-    remove_bad(score)
+    remove_voices(score)
 
-    remove_beam_tie(score)
+    remove_chords(score)
 
-    remove_dots(score)
+    safe_remove_beams(score)
 
-    duration_safe(score)
-
-    force_meter(score)
-
-    rebuild(score)
-
-    remove_beam_tie(score)
+    safe_remove_ties(score)
 
     duration_safe(score)
 
+    force_measure(score)
 
-    print("check measures")
 
-    for part in score.parts:
+    print("rebuild measures")
 
-        for m in part.getElementsByClass(
-            stream.Measure
-        ):
-            print(
-                "Measure",
-                m.number,
-                float(m.duration.quarterLength)
-            )
+
+    # 不呼叫 makeNotation
+    # 避免 music21 重新產生 beams
+
+
+    safe_remove_beams(score)
+
+    safe_remove_ties(score)
+
+
+    check_measure(score)
 
 
     print("write")
+
 
     score.write(
         "musicxml",
@@ -166,21 +179,16 @@ def clean_musicxml(input_file, output_file):
 
 
     print()
-    print(
-        "DONE",
-        output_file
-    )
+    print("DONE", output_file)
 
 
 
-if __name__=="__main__":
+if __name__ == "__main__":
 
-    if len(sys.argv)<3:
-
+    if len(sys.argv) < 3:
         print(
             "usage: python clean_musicxml.py input.musicxml output.musicxml"
         )
-
         sys.exit(1)
 
 
