@@ -1,94 +1,138 @@
 import sys
-from music21 import converter, stream, note, chord, meter
+from music21 import converter
+from music21 import stream
+from music21 import note
+from music21 import chord
+from music21 import meter
+from music21 import duration
 
 
-VERSION = "CLEAN MUSICXML V22.7"
+VERSION = "CLEAN MUSICXML V22.7 FINAL BAR FIX"
 
 
-def fix_note(n):
-
-    # 移除 tie
-    if hasattr(n, "tie"):
-        n.tie = None
-
-    # 移除 beam
-    if hasattr(n, "beams"):
-        n.beams = []
-
-
-def clean_musicxml(input_file, output_file):
-
-    print("================")
-    print(VERSION)
-    print("================")
-
-    print("read")
-    score = converter.parse(input_file)
-
-
-    print("remove voices")
-    for part in score.parts:
-        for m in part.getElementsByClass('Measure'):
-
-            # 不直接設定 voices
-            # music21 voices 是唯讀
-            for v in m.voices:
-                v.activeSite = None
-
-
+def remove_chords(score):
 
     print("remove chords")
+
     for part in score.parts:
 
-        for m in part.getElementsByClass('Measure'):
+        for c in list(
+            part.recurse().getElementsByClass(chord.Chord)
+        ):
 
-            replace = []
+            if len(c.pitches) > 0:
 
-            for element in m.notes:
+                n = note.Note(
+                    c.pitches[-1]
+                )
 
-                if isinstance(element, chord.Chord):
+                n.duration = c.duration
 
-                    # 取最高音
-                    n = note.Note(
-                        element.pitches[-1]
-                    )
-                    n.duration = element.duration
-
-                    replace.append(
-                        (element,n)
-                    )
-
-
-            for old,new in replace:
-                old.activeSite.remove(old)
-                m.insert(
-                    old.offset,
-                    new
+                c.activeSite.replace(
+                    c,
+                    n
                 )
 
 
+def clean_notes(score):
 
     print("remove ties + beams")
 
     for n in score.recurse().notes:
 
-        fix_note(n)
+        # remove tie
+        n.tie = None
+
+        # remove beam
+        try:
+            n.beams = []
+        except:
+            pass
 
 
 
-    print("quantize")
+def split_crossing_notes(score):
 
-    score.quantize(
-        quarterLengthDivisors=[
-            1,
-            2,
-            4
-        ]
-    )
+    print("split crossing notes")
 
 
+    for part in score.parts:
+
+        measures = part.getElementsByClass(
+            stream.Measure
+        )
+
+
+        for m in measures:
+
+            new_notes = []
+
+
+            for n in list(m.notes):
+
+                start = n.offset
+
+                end = (
+                    n.offset
+                    +
+                    n.duration.quarterLength
+                )
+
+
+                # 超過小節
+                if end > 4:
+
+
+                    first = 4 - start
+
+
+                    if first > 0:
+
+
+                        n1 = n.clone()
+
+                        n1.duration = duration.Duration(
+                            first
+                        )
+
+
+                        n2 = n.clone()
+
+                        n2.offset = 4
+
+                        n2.duration = duration.Duration(
+                            end-4
+                        )
+
+
+                        new_notes.append(
+                            (n,n1,n2)
+                        )
+
+
+
+            for old,n1,n2 in new_notes:
+
+                old.activeSite.remove(
+                    old
+                )
+
+                m.insert(
+                    n1.offset,
+                    n1
+                )
+
+                m.insert(
+                    n2.offset,
+                    n2
+                )
+
+
+
+def force_time_signature(score):
 
     print("force 4/4")
+
 
     for part in score.parts:
 
@@ -96,7 +140,9 @@ def clean_musicxml(input_file, output_file):
             meter.TimeSignature
         )
 
+
         if len(ts)==0:
+
             part.insert(
                 0,
                 meter.TimeSignature("4/4")
@@ -104,7 +150,10 @@ def clean_musicxml(input_file, output_file):
 
 
 
+def rebuild(score):
+
     print("rebuild measures")
+
 
     score.makeMeasures(
         inPlace=True
@@ -112,38 +161,50 @@ def clean_musicxml(input_file, output_file):
 
 
 
+def bar_normalize(score):
+
     print("bar normalize")
+
 
     for part in score.parts:
 
+
         for m in part.getElementsByClass(
-            'Measure'
+            stream.Measure
         ):
+
 
             total = m.duration.quarterLength
 
 
             if total > 4:
 
+
                 print(
-                    "split measure",
+                    "FIX BAR:",
                     m.number,
                     total
                 )
 
-                for n in m.notes:
 
-                    fix_note(n)
+                split_crossing_notes(
+                    score
+                )
 
 
+
+def check(score):
 
     print("check measures")
 
+
     for part in score.parts:
 
+
         for m in part.getElementsByClass(
-            'Measure'
+            stream.Measure
         ):
+
 
             print(
                 "Measure",
@@ -153,7 +214,78 @@ def clean_musicxml(input_file, output_file):
 
 
 
+def clean_musicxml(
+        input_file,
+        output_file
+):
+
+
+    print("================")
+    print(VERSION)
+    print("================")
+
+
+    print("input:",input_file)
+
+
+    print("read")
+
+    score = converter.parse(
+        input_file
+    )
+
+
+    print("remove voices")
+
+    # 不修改 voices
+    # music21 voices property 唯讀
+
+
+
+    remove_chords(score)
+
+
+    clean_notes(score)
+
+
+    print("quantize")
+
+    try:
+
+        score.quantize(
+            quarterLengthDivisors=[
+                1,
+                2,
+                4
+            ]
+        )
+
+    except Exception:
+
+        pass
+
+
+
+    force_time_signature(score)
+
+
+    rebuild(score)
+
+
+    split_crossing_notes(score)
+
+
+    bar_normalize(score)
+
+
+    rebuild(score)
+
+
+    check(score)
+
+
     print("write")
+
 
     score.write(
         "musicxml",
@@ -162,11 +294,15 @@ def clean_musicxml(input_file, output_file):
 
 
     print()
-    print("DONE",output_file)
+    print(
+        "DONE",
+        output_file
+    )
 
 
 
 if __name__=="__main__":
+
 
     if len(sys.argv)<3:
 
