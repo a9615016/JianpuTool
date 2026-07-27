@@ -1,7 +1,5 @@
-import music21
 import sys
-import os
-import copy
+import music21
 
 
 VERSION = "CLEAN MUSICXML V22"
@@ -15,118 +13,129 @@ def clean_musicxml(input_file, output_file):
 
     print("input:", input_file)
 
+    print("read")
     score = music21.converter.parse(input_file)
 
-    print("read")
 
-    # 移除 voices / chords
     print("remove voices")
     for part in score.parts:
         for element in list(part.recurse()):
-            if isinstance(element, music21.note.Note):
-                element.volume.velocity = None
+            if isinstance(element, music21.stream.Voice):
+                element.activeSite.remove(element)
+
 
     print("remove chords")
     for part in score.parts:
-        for chord in list(part.recurse().getElementsByClass('Chord')):
+        for chord in list(part.recurse().getElementsByClass("Chord")):
             notes = chord.notes
             for n in notes:
                 chord.activeSite.insert(chord.offset, n)
             chord.activeSite.remove(chord)
 
+
     print("quantize")
-
-    # 4/4
-    print("force 4/4")
-
-    score.insert(0, music21.meter.TimeSignature("4/4"))
-
-
-    # 重新建立 measures
-    print("rebuild measures")
 
     for part in score.parts:
 
-        new_part = music21.stream.Part()
+        for n in part.recurse().notesAndRests:
 
-        measure = music21.stream.Measure(number=1)
+            try:
+                q = n.duration.quarterLength
 
-        current = 0
-        measure_length = 4.0
+                # 常用音符量化
+                values = [
+                    0.25,
+                    0.5,
+                    1,
+                    1.5,
+                    2,
+                    3,
+                    4
+                ]
+
+                n.duration.quarterLength = min(
+                    values,
+                    key=lambda x: abs(x-q)
+                )
+
+            except:
+                pass
 
 
-        for element in part.flatten().notesAndRests:
+    print("force 4/4")
 
-            dur = element.duration.quarterLength
+    score.timeSignature = music21.meter.TimeSignature("4/4")
 
 
-            # 超過小節，切割
-            while current + dur > measure_length:
+    print("rebuild measures")
 
-                remain = measure_length - current
 
+    for part in score.parts:
+
+        old = list(part.recurse().notesAndRests)
+
+
+        part.remove(
+            list(part.getElementsByClass("Measure"))
+        )
+
+
+        measure_no = 1
+        current = music21.stream.Measure(
+            number=measure_no
+        )
+
+        total = 0
+
+
+        for element in old:
+
+            length = element.duration.quarterLength
+
+
+            # 超過小節線
+            if total + length > 4:
+
+                # 補滿休止
+                remain = 4-total
 
                 if remain > 0:
+                    rest = music21.note.Rest(
+                        quarterLength=remain
+                    )
+                    current.append(rest)
 
-                    first = copy.deepcopy(element)
-                    first.duration.quarterLength = remain
-                    measure.insert(current, first)
+
+                part.append(current)
 
 
-                new_part.append(measure)
+                measure_no += 1
 
-                print(
-                    "split measure",
-                    measure.number
+                current = music21.stream.Measure(
+                    number=measure_no
                 )
 
+                total = 0
 
-                measure = music21.stream.Measure(
-                    number=measure.number + 1
+
+            current.append(element)
+            total += length
+
+
+        if len(current)>0:
+
+            remain = 4-total
+
+            if remain > 0:
+                current.append(
+                    music21.note.Rest(
+                        quarterLength=remain
+                    )
                 )
 
-                dur -= remain
-                current = 0
+            part.append(current)
 
 
-                if dur > 0:
-
-                    second = copy.deepcopy(element)
-                    second.duration.quarterLength = dur
-                    element = second
-
-
-
-            measure.insert(current, element)
-
-            current += dur
-
-
-            if current >= measure_length:
-
-                new_part.append(measure)
-
-                measure = music21.stream.Measure(
-                    number=measure.number + 1
-                )
-
-                current = 0
-
-
-
-        # 最後小節
-        if len(measure.notesAndRests) > 0:
-            new_part.append(measure)
-
-
-        part.clear()
-        part.insert(0,new_part)
-
-
-    print("remove empty measures")
-
-
-    # 寫出
 
     print("write")
 
@@ -143,9 +152,9 @@ def clean_musicxml(input_file, output_file):
 
 if __name__ == "__main__":
 
-    if len(sys.argv) < 3:
+    if len(sys.argv)<3:
         print(
-            "python clean_musicxml.py input.musicxml output.musicxml"
+            "usage: python clean_musicxml.py input.musicxml output.musicxml"
         )
         sys.exit(1)
 
