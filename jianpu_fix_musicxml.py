@@ -7,13 +7,13 @@ from music21 import meter
 from music21 import duration
 
 
-VERSION = "JIANPU FIX MUSICXML V26 FINAL TICK ALIGN"
+VERSION = "JIANPU FIX MUSICXML V26.1 FINAL TICK ALIGN MAKE MEASURES"
 
 
 # 四分音符 = 16 ticks
 TICKS_PER_QUARTER = 16
 
-# 4/4 一小節
+# 4/4 = 64 ticks
 BAR_TICKS = 64
 
 
@@ -25,17 +25,16 @@ def quantize_ticks(q):
     )
 
 
-    # jianpu_ly 比較安全的節奏
     values = [
-        64,   # whole
-        48,   # dotted half
-        32,   # half
-        24,   # dotted quarter
-        16,   # quarter
-        12,   # dotted eighth
-        8,    # eighth
-        6,    # triplet-ish
-        4,    # sixteenth
+        64,
+        48,
+        32,
+        24,
+        16,
+        12,
+        8,
+        6,
+        4,
         2,
         1
     ]
@@ -108,7 +107,6 @@ def rebuild_part(part):
     for pitch, tick in events:
 
 
-
         # 超過小節線
         if current + tick > BAR_TICKS:
 
@@ -118,12 +116,15 @@ def rebuild_part(part):
 
             if remain > 0:
 
+
                 r = note.Rest()
+
 
                 r.duration = duration.Duration(
                     remain /
                     TICKS_PER_QUARTER
                 )
+
 
                 new_part.append(r)
 
@@ -136,7 +137,6 @@ def rebuild_part(part):
         if pitch is None:
 
             obj = note.Rest()
-
 
         else:
 
@@ -159,7 +159,7 @@ def rebuild_part(part):
 
 
 
-    # 最後補滿小節
+    # 補最後小節
 
     if current < BAR_TICKS:
 
@@ -179,6 +179,42 @@ def rebuild_part(part):
 
 
     return new_part
+
+
+
+
+def check_measures(score, title):
+
+
+    print(title)
+
+
+    measures = (
+        score
+        .parts[0]
+        .getElementsByClass("Measure")
+    )
+
+
+    for i,m in enumerate(
+        measures,
+        1
+    ):
+
+
+        ticks = round(
+            m.duration.quarterLength
+            *
+            TICKS_PER_QUARTER
+        )
+
+
+        print(
+            "Measure",
+            i,
+            "ticks",
+            ticks
+        )
 
 
 
@@ -221,49 +257,27 @@ def fix_musicxml(
 
 
 
-    print("check ticks")
+    print("before makeMeasures")
 
 
-    measures = (
-        new_score
-        .parts[0]
-        .makeMeasures()
-        .getElementsByClass("Measure")
+    new_score = new_score.makeMeasures()
+
+
+
+    check_measures(
+        new_score,
+        "CHECK AFTER MAKE MEASURES"
     )
-
-
-
-    for i,m in enumerate(
-        measures,
-        1
-    ):
-
-
-        ticks = round(
-            m.duration.quarterLength
-            *
-            TICKS_PER_QUARTER
-        )
-
-
-        print(
-            "Measure",
-            i,
-            "ticks",
-            ticks
-        )
 
 
 
     print("write")
 
 
-
     new_score.write(
         "musicxml",
         fp=output_file
     )
-
 
 
     print("DONE")
@@ -281,6 +295,7 @@ if __name__ == "__main__":
         print(
             "python jianpu_fix_musicxml.py input.musicxml output.musicxml"
         )
+
 
         sys.exit(1)
 
