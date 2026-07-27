@@ -1,301 +1,262 @@
-# clean_musicxml.py
-# CLEAN MUSICXML V30
-# MIDI -> JIANPU FINAL CLEANER
-
+from music21 import converter, meter, stream
 import sys
-import music21
 
 
-def clean_musicxml(input_file, output_file):
+print("================")
+print("CLEAN MUSICXML V26 JIANPU SAFE")
+print("================")
 
-    print("================")
-    print("CLEAN MUSICXML V30 MIDI JIANPU FINAL")
-    print("================")
 
+if len(sys.argv) < 3:
+    print(
+        "Usage: python clean_musicxml.py input.musicxml output.musicxml"
+    )
+    sys.exit(1)
 
-    print("read")
 
-    score = music21.converter.parse(input_file)
+src = sys.argv[1]
+dst = sys.argv[2]
 
 
-    # -------------------------
-    # 基本清理
-    # -------------------------
+print("read")
 
-    print("remove voices")
+score = converter.parse(src)
 
-    for part in score.parts:
-        for m in part.getElementsByClass('Measure'):
-            for n in m.notesAndRests:
-                if hasattr(n, "voice"):
-                    n.voice = None
 
 
-    print("remove chords")
+# =========================
+# Remove voices / chords
+# =========================
 
-    for part in score.parts:
-        for chord in list(part.recurse().getElementsByClass('Chord')):
-            notes = chord.notes
-            for n in notes:
-                chord.activeSite.replace(chord, n)
+print("remove voices")
+print("remove chords")
 
 
+for part in score.parts:
 
-    print("remove notation")
+    for n in list(part.recurse()):
 
-    for obj in score.recurse():
+        if hasattr(n, "voices"):
 
-        if hasattr(obj, "beams"):
-            obj.beams = music21.beam.Beams()
+            try:
+                n.voices = []
+            except:
+                pass
 
-        if hasattr(obj, "tie"):
-            obj.tie = None
 
+        if n.__class__.__name__ == "Chord":
 
+            try:
+                n.removeRedundantPitchClasses()
+            except:
+                pass
 
-    # -------------------------
-    # 強制單聲部
-    # -------------------------
 
-    print("flatten")
 
-    score = score.flatten()
+# =========================
+# Remove notation
+# =========================
 
+print("remove beams")
+print("remove ties")
 
 
-    # -------------------------
-    # 強制 4/4
-    # -------------------------
+for n in score.recurse().notes:
 
-    print("force 4/4")
 
-    for part in score.parts:
+    try:
+        n.beams.fill(None)
+    except:
+        pass
 
-        ts = music21.meter.TimeSignature("4/4")
 
-        part.insert(0, ts)
+    try:
+        n.tie = None
+    except:
+        pass
 
 
+    try:
+        n.duration.tuplets = []
+    except:
+        pass
 
-    # -------------------------
-    # duration量化
-    # -------------------------
 
-    print("quantize duration")
 
-    for n in score.notesAndRests:
+# =========================
+# Force 4/4
+# =========================
 
-        q = float(n.duration.quarterLength)
+print("force 4/4")
 
 
-        # 最小16分音符
-        values = [
-            0.25,
-            0.5,
-            0.75,
-            1,
-            1.5,
-            2,
-            3,
-            4
-        ]
+for part in score.parts:
 
-        closest = min(
-            values,
-            key=lambda x:abs(x-q)
-        )
-
-        n.duration.quarterLength = closest
-
-
-
-    # -------------------------
-    # 建立新小節
-    # -------------------------
-
-    print("rebuild measures")
-
-
-    new_score = music21.stream.Score()
-
-
-    for part in score.parts:
-
-
-        new_part = music21.stream.Part()
-
-        current_measure = music21.stream.Measure(
-            number=1
-        )
-
-        beat = 0
-        measure_no = 1
-
-
-        for n in part.notesAndRests:
-
-
-            dur = float(n.duration.quarterLength)
-
-
-
-            # 超過小節
-            if beat + dur > 4:
-
-                remain = 4 - beat
-
-
-                if remain > 0:
-
-                    copy = n.__deepcopy__({})
-                    copy.duration.quarterLength = remain
-                    current_measure.append(copy)
-
-
-                print(
-                    "split note at measure",
-                    measure_no
-                )
-
-
-                new_part.append(
-                    current_measure
-                )
-
-
-                measure_no += 1
-
-
-                current_measure = music21.stream.Measure(
-                    number=measure_no
-                )
-
-                beat = 0
-
-
-                extra = dur - remain
-
-
-                if extra > 0:
-
-                    copy = n.__deepcopy__({})
-                    copy.duration.quarterLength = extra
-
-                    current_measure.append(copy)
-
-                    beat += extra
-
-
-            else:
-
-                current_measure.append(n)
-
-                beat += dur
-
-
-
-            if abs(beat-4)<0.001:
-
-
-                new_part.append(
-                    current_measure
-                )
-
-
-                measure_no += 1
-
-                current_measure = music21.stream.Measure(
-                    number=measure_no
-                )
-
-                beat=0
-
-
-
-        if len(current_measure.notesAndRests)>0:
-
-            # 補休止
-            rest = music21.note.Rest()
-
-            rest.duration.quarterLength = 4-beat
-
-            if rest.duration.quarterLength>0:
-
-                current_measure.append(rest)
-
-
-            new_part.append(current_measure)
-
-
-
-        new_score.append(new_part)
-
-
-
-    score = new_score
-
-
-
-    # -------------------------
-    # 最終檢查
-    # -------------------------
-
-    print("FINAL CHECK")
-
-
-    for part in score.parts:
-
-        for m in part.getElementsByClass("Measure"):
-
-
-            total=sum(
-                n.duration.quarterLength
-                for n in m.notesAndRests
-            )
-
-
-            print(
-                "Measure",
-                m.number,
-                total
-            )
-
-
-            if abs(total-4)>0.001:
-
-                print(
-                    "WARNING BAD MEASURE",
-                    m.number,
-                    total
-                )
-
-
-    print("FINAL WRITE")
-
-
-    score.write(
-        "musicxml",
-        fp=output_file
+    part.insert(
+        0,
+        meter.TimeSignature("4/4")
     )
 
 
-    print("DONE")
-    print(output_file)
+
+# =========================
+# Quantize duration
+# =========================
+
+print("duration quantize")
+
+
+score.quantize(
+    quarterLengthDivisors=[
+        1,
+        2,
+        4,
+        8,
+        16
+    ]
+)
 
 
 
-if __name__=="__main__":
+# =========================
+# Split notes crossing bar
+# =========================
 
-    if len(sys.argv)<3:
+print("split cross measure notes")
 
-        print(
-            "usage: python clean_musicxml.py input.musicxml output.musicxml"
+
+for part in score.parts:
+
+    try:
+
+        part.makeMeasures(
+            inPlace=True
         )
 
-        sys.exit()
+    except Exception as e:
+
+        print(e)
 
 
-    clean_musicxml(
-        sys.argv[1],
-        sys.argv[2]
+
+# =========================
+# FINAL STRICT REBUILD
+# =========================
+
+
+print("FINAL REBUILD MEASURES")
+
+
+for part in score.parts:
+
+
+    measures = part.makeMeasures(
+        inPlace=False
     )
+
+
+    for m in measures:
+
+        total = 0
+
+
+        for n in m.notesAndRests:
+
+            total += n.duration.quarterLength
+
+
+        # 補休止
+        if total < 4:
+
+            m.append(
+                stream.Rest(
+                    quarterLength=4-total
+                )
+            )
+
+
+    part.remove(
+        part.measures
+    )
+
+
+    for m in measures:
+
+        part.append(m)
+
+
+
+# =========================
+# Final Check
+# =========================
+
+
+print("FINAL CHECK")
+
+
+ok=True
+
+
+for i,m in enumerate(
+    score.parts[0].getElementsByClass("Measure"),
+    1
+):
+
+    length=m.duration.quarterLength
+
+    print(
+        "Measure",
+        i,
+        length
+    )
+
+
+    if abs(length-4)>0.01:
+
+        ok=False
+
+
+
+if ok:
+
+    print(
+        "ALL MEASURES SAFE"
+    )
+
+else:
+
+    print(
+        "WARNING measure mismatch"
+    )
+
+
+
+# =========================
+# Clear cache
+# =========================
+
+print("clear notation cache")
+
+
+score.coreElementsChanged()
+
+
+
+# =========================
+# Write
+# =========================
+
+print("FINAL WRITE")
+
+
+score.write(
+    "musicxml",
+    fp=dst
+)
+
+
+print(
+    "DONE"
+)
+
+print(dst)
