@@ -1,4 +1,3 @@
-# main.py
 import os
 import uuid
 import subprocess
@@ -7,56 +6,229 @@ from fastapi.responses import FileResponse, HTMLResponse
 
 app = FastAPI()
 
-@app.get("/", response_class=HTMLResponse)
-def home():
-    return '''
-    <html><body style="font-family:Arial;text-align:center;margin-top:80px">
-    <h1>JianpuTool 簡譜產生器</h1>
-    <h2>MP3 → MIDI → MusicXML → 簡譜 PDF</h2>
-    <form action="/upload" method="post" enctype="multipart/form-data">
-    <input type="file" name="file" accept=".mp3,.wav"><br><br>
-    <button type="submit">開始轉換</button>
-    </form></body></html>'''
+BASE_DIR = os.getcwd()
+OUTPUT_DIR = os.path.join(BASE_DIR, "outputs")
 
-def run_cmd(cmd):
-    print("RUN:", " ".join(cmd))
-    r = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-    print(r.stdout)
-    return r
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+
+@app.get("/")
+def home():
+    return HTMLResponse("""
+    <html>
+    <body>
+    <h2>JianpuTool 簡譜產生器</h2>
+    <form action="/upload" method="post" enctype="multipart/form-data">
+        <input type="file" name="file">
+        <button type="submit">開始轉換</button>
+    </form>
+    </body>
+    </html>
+    """)
+
 
 @app.post("/upload")
 async def upload(file: UploadFile = File(...)):
-    work_dir=os.path.join("outputs",str(uuid.uuid4()))
-    os.makedirs(work_dir,exist_ok=True)
-    input_audio=os.path.join(work_dir,file.filename)
-    with open(input_audio,"wb") as f:
+
+    job_id = str(uuid.uuid4())
+    work_dir = os.path.join(OUTPUT_DIR, job_id)
+
+    os.makedirs(work_dir, exist_ok=True)
+
+    print("====================")
+    print("開始任務:", job_id)
+    print("收到:", file.filename)
+    print("====================")
+
+
+    # 1. 保存 MP3
+    input_audio = os.path.join(work_dir, file.filename)
+
+    with open(input_audio, "wb") as f:
         f.write(await file.read())
 
-    midi=os.path.join(work_dir,"melody.mid")
-    r=run_cmd(["python","basic_pitch_convert.py",input_audio,midi])
-    if r.returncode:return {"error":"BasicPitch failed","log":r.stdout}
+    print("MP3保存完成:", input_audio)
 
-    qmidi=os.path.join(work_dir,"melody_clean.mid")
-    r=run_cmd(["python","midi_quantize.py",midi,qmidi])
-    if r.returncode:return {"error":"Quantize failed","log":r.stdout}
 
-    xml=os.path.join(work_dir,"input.musicxml")
-    r=run_cmd(["python","midi_to_musicxml.py",qmidi,xml])
-    if r.returncode:return {"error":"MusicXML failed","log":r.stdout}
 
-    clean=os.path.join(work_dir,"clean.musicxml")
-    r=run_cmd(["python","clean_musicxml.py",xml,clean])
-    if r.returncode:return {"error":"Clean failed","log":r.stdout}
+    # 2. BasicPitch
+    print("開始 BasicPitch")
 
-    ly=os.path.join(work_dir,"jianpu.ly")
-    r=run_cmd(["python","-m","jianpu_ly",clean])
-    if r.returncode:return {"error":"jianpu_ly failed","log":r.stdout}
-    with open(ly,"w",encoding="utf-8") as f:f.write(r.stdout)
+    midi_file = os.path.join(work_dir, "melody.mid")
 
-    r=run_cmd(["lilypond","-o",work_dir,ly])
-    if r.returncode:return {"error":"lilypond failed","log":r.stdout}
+    result = subprocess.run(
+        [
+            "python",
+            "basicpitch_convert.py",
+            input_audio,
+            midi_file
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True
+    )
 
-    pdf=os.path.join(work_dir,"jianpu.pdf")
-    if not os.path.exists(pdf):
-        return {"error":"PDF not created","log":r.stdout}
-    return FileResponse(pdf,media_type="application/pdf",filename="jianpu.pdf")
+    print(result.stdout)
+
+
+    if result.returncode != 0:
+        return {
+            "error": "BasicPitch失敗",
+            "log": result.stdout
+        }
+
+
+    print("MIDI完成:", midi_file)
+
+
+
+    # 3. MIDI -> MusicXML
+
+    print("開始 MIDI轉MusicXML")
+
+    musicxml = os.path.join(work_dir, "input.musicxml")
+
+
+    result = subprocess.run(
+        [
+            "python",
+            "midi_to_musicxml.py",
+            midi_file,
+            musicxml
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True
+    )
+
+    print(result.stdout)
+
+
+    if result.returncode != 0:
+        return {
+            "error":"MusicXML失敗",
+            "log":result.stdout
+        }
+
+
+
+    # 4. 清理 MusicXML
+
+    print("開始清理 MusicXML")
+
+
+    clean_xml = os.path.join(
+        work_dir,
+        "clean.musicxml"
+    )
+
+
+    result = subprocess.run(
+        [
+            "python",
+            "clean_musicxml.py",
+            musicxml,
+            clean_xml
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True
+    )
+
+
+    print(result.stdout)
+
+
+
+    # 5. jianpu_ly
+
+    print("開始 jianpu_ly")
+
+
+    ly_file = os.path.join(
+        work_dir,
+        "jianpu.ly"
+    )
+
+
+    with open(ly_file,"w",encoding="utf-8") as f:
+
+        result = subprocess.run(
+            [
+                "python",
+                "-m",
+                "jianpu_ly",
+                clean_xml
+            ],
+            stdout=f,
+            stderr=subprocess.STDOUT,
+            text=True
+        )
+
+
+    print("jianpu_ly return:", result.returncode)
+
+
+
+    if result.returncode != 0:
+        return {
+            "error":"jianpu_ly失敗"
+        }
+
+
+
+    # 6. LilyPond
+
+    print("開始 LilyPond")
+
+
+    result = subprocess.run(
+        [
+            "lilypond",
+            "-o",
+            os.path.join(work_dir,"jianpu"),
+            ly_file
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True
+    )
+
+
+    print(result.stdout)
+
+    print(
+        "LilyPond return:",
+        result.returncode
+    )
+
+
+    if result.returncode != 0:
+        return {
+            "error":"LilyPond失敗",
+            "log":result.stdout
+        }
+
+
+
+    pdf_file = os.path.join(
+        work_dir,
+        "jianpu.pdf"
+    )
+
+
+    if not os.path.exists(pdf_file):
+        return {
+            "error":"PDF沒有產生"
+        }
+
+
+    print("完成:", pdf_file)
+
+
+
+    return FileResponse(
+        pdf_file,
+        media_type="application/pdf",
+        filename="jianpu.pdf"
+    )
