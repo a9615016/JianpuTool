@@ -2,7 +2,7 @@ from music21 import converter, stream, note, chord, meter
 import sys
 
 
-VERSION = "CLEAN MUSICXML V23.7 FIX STREAMITERATOR"
+VERSION = "CLEAN MUSICXML V23.8 FINAL BAR QUANTIZE"
 
 
 def remove_voices(score):
@@ -24,14 +24,11 @@ def remove_chords(score):
 
     print("remove chords")
 
-    for part in score.parts:
+    for c in list(
+        score.recurse().getElementsByClass("Chord")
+    ):
 
-        chords = list(
-            part.recurse().getElementsByClass("Chord")
-        )
-
-        for c in chords:
-
+        try:
             n = note.Note(
                 c.pitches[-1]
             )
@@ -42,6 +39,9 @@ def remove_chords(score):
                 c,
                 n
             )
+
+        except:
+            pass
 
 
 
@@ -75,13 +75,11 @@ def force_four_four(score):
 
     print("force 4/4")
 
-    ts = meter.TimeSignature("4/4")
-
     for part in score.parts:
 
         part.insert(
             0,
-            ts
+            meter.TimeSignature("4/4")
         )
 
 
@@ -98,13 +96,31 @@ def split_long_notes(score):
 
 
 
-def split_long_measures(score):
+def measure_check(score):
 
-    print("measure split")
+    print("check measures")
 
     for part in score.parts:
 
-        # 重要：轉 list，避免 StreamIterator
+        for m in list(
+            part.getElementsByClass("Measure")
+        ):
+
+            print(
+                "Measure",
+                m.number,
+                m.duration.quarterLength
+            )
+
+
+
+def quantize_bars(score):
+
+    print("bar quantize")
+
+
+    for part in score.parts:
+
         measures = list(
             part.getElementsByClass("Measure")
         )
@@ -112,70 +128,45 @@ def split_long_measures(score):
 
         for m in measures:
 
-            ql = m.duration.quarterLength
 
-            print(
-                "Measure",
-                m.number,
-                ql
-            )
+            total = m.duration.quarterLength
 
 
-            # 正常小節跳過
-            if ql <= 4:
+            if total <= 4:
                 continue
 
 
             print(
-                "split long measure:",
-                m.number
+                "fix measure",
+                m.number,
+                total
             )
 
 
-            notes = list(
+            remain = 4
+
+
+            for n in list(
                 m.notesAndRests
-            )
+            ):
 
 
-            # 建立新小節
-            new_measure = stream.Measure(
-                number=str(m.number) + ".5"
-            )
+                if remain <= 0:
+
+                    n.duration.quarterLength = 0
+
+                    continue
 
 
-            for n in notes:
-
-                if n.offset >= 4:
-
-                    n.offset -= 4
-
-                    new_measure.insert(
-                        n.offset,
-                        n
-                    )
+                dur = n.duration.quarterLength
 
 
-            # 正確移除 Music21Object
-            part.remove(
-                m
-            )
+                if dur > remain:
+
+                    n.duration.quarterLength = remain
 
 
-            # 放回原小節
-            part.insert(
-                m.offset,
-                m
-            )
-
-
-            if len(
-                list(new_measure.notesAndRests)
-            ) > 0:
-
-                part.insert(
-                    m.offset + 4,
-                    new_measure
-                )
+                remain -= n.duration.quarterLength
 
 
 
@@ -208,9 +199,10 @@ def clean_musicxml(
     force_four_four(score)
 
 
-    split_long_measures(score)
-
     split_long_notes(score)
+
+
+    quantize_bars(score)
 
 
     remove_beams(score)
@@ -218,20 +210,10 @@ def clean_musicxml(
     remove_ties(score)
 
 
-    print("check measures")
+    measure_check(score)
 
 
-    for part in score.parts:
-
-        for m in list(
-            part.getElementsByClass("Measure")
-        ):
-
-            print(
-                "Measure",
-                m.number,
-                m.duration.quarterLength
-            )
+    print("clear notation cache")
 
 
     print("FINAL WRITE")
