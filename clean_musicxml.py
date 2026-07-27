@@ -1,200 +1,158 @@
 import sys
 import music21
-import os
+from music21 import stream, meter, note, chord, duration
 
 
 print("================")
-print("CLEAN MUSICXML V16")
+print("CLEAN MUSICXML V17")
 print("================")
-
-
-def quantize(q):
-
-    values = [
-        0.25,
-        0.5,
-        0.75,
-        1,
-        1.5,
-        2,
-        3,
-        4
-    ]
-
-    return min(
-        values,
-        key=lambda x: abs(x-q)
-    )
-
-
-def fix_measure(measure):
-
-    limit = 4.0
-
-    total = 0
-
-    new_elements = []
-
-
-    for n in measure.notesAndRests:
-
-        dur = quantize(
-            float(n.duration.quarterLength)
-        )
-
-
-        # 已經超過小節
-        if total >= limit:
-            break
-
-
-        # 最後剩餘拍數
-        remain = limit - total
-
-
-        if dur > remain:
-
-            dur = remain
-
-
-        if dur > 0:
-
-            n.duration.quarterLength = dur
-
-            new_elements.append(n)
-
-            total += dur
-
-
-
-    # 不足補休止符
-
-    if total < limit:
-
-        rest = music21.note.Rest()
-
-        rest.duration.quarterLength = (
-            limit-total
-        )
-
-        new_elements.append(rest)
-
-
-    # 清空原小節
-
-    for n in list(measure.notesAndRests):
-
-        measure.remove(n)
-
-
-    for n in new_elements:
-
-        measure.insert(
-            measure.offset,
-            n
-        )
 
 
 def clean(input_file, output_file):
 
-    print("input:",input_file)
+    print("input:", input_file)
+
+    score = music21.converter.parse(input_file)
 
 
-    score = music21.converter.parse(
-        input_file
-    )
-
-
+    # remove voices
     print("remove voices")
 
-
     for part in score.parts:
+        for element in part.recurse():
 
-        for v in list(
-            part.recurse().getElementsByClass(
-                music21.stream.Voice
-            )
-        ):
-
-            v.activeSite.remove(v)
-
+            if hasattr(element, "voices"):
+                try:
+                    element.voices.clear()
+                except:
+                    pass
 
 
+
+    # remove chords
     print("remove chords")
 
-
     for part in score.parts:
 
-        for chord in list(
-            part.recurse().getElementsByClass(
-                music21.chord.Chord
-            )
-        ):
+        for c in list(part.recurse().getElementsByClass('Chord')):
 
-            notes = chord.notes
+            pitches = c.pitches
 
-            if notes:
+            if pitches:
 
-                chord.activeSite.replace(
-                    chord,
-                    notes[-1]
+                n = note.Note(
+                    pitches[0]
                 )
 
+                n.duration = c.duration
+
+                c.replace(n)
 
 
+
+    # quantize
     print("quantize")
 
+    for n in score.recurse().notes:
 
-    for n in score.recurse().notesAndRests:
+        try:
+            n.duration.quarterLength = round(
+                n.duration.quarterLength * 4
+            ) / 4
 
-        n.duration.quarterLength = quantize(
-            n.duration.quarterLength
-        )
+        except:
+            pass
 
 
 
+    # force 4/4
     print("force 4/4")
 
-
     for part in score.parts:
 
-        for m in part.getElementsByClass(
-            music21.stream.Measure
-        ):
-
-            m.timeSignature = (
-                music21.meter.TimeSignature(
-                    "4/4"
-                )
-            )
-
-
-
-    print("fix measures")
-
-
-    for part in score.parts:
-
-        measures = part.getElementsByClass(
-            music21.stream.Measure
+        part.insert(
+            0,
+            meter.TimeSignature("4/4")
         )
 
-        for m in measures:
 
-            fix_measure(m)
+    # NEW V17
+    # rebuild measures
+    print("rebuild measures")
 
 
+    new_score = stream.Score()
+
+
+    for part in score.parts:
+
+
+        new_part = stream.Part()
+
+
+        current = stream.Measure()
+
+        current.number = 1
+
+
+        total = 0
+
+
+        measure_no = 1
+
+
+        for n in part.recurse().notesAndRests:
+
+
+            q = n.duration.quarterLength
+
+
+            # 超過4拍，換小節
+            if total + q > 4:
+
+
+                current.rightBarline = "regular"
+
+                new_part.append(current)
+
+
+                measure_no += 1
+
+                current = stream.Measure()
+
+                current.number = measure_no
+
+                total = 0
+
+
+
+            current.append(n)
+
+            total += q
+
+
+
+        if len(current):
+
+            new_part.append(current)
+
+
+
+        new_score.append(new_part)
+
+
+
+    score = new_score
+
+
+
+    # remove empty measures
 
     print("remove empty measures")
 
-
     for part in score.parts:
 
-        for m in list(
-            part.getElementsByClass(
-                music21.stream.Measure
-            )
-        ):
+        for m in list(part.getElementsByClass("Measure")):
 
             if len(m.notesAndRests)==0:
 
@@ -204,21 +162,17 @@ def clean(input_file, output_file):
 
     print("write")
 
-
     score.write(
         "musicxml",
         fp=output_file
     )
 
 
-    print(
-        "DONE",
-        output_file
-    )
+    print("DONE", output_file)
 
 
 
-if __name__=="__main__":
+if __name__ == "__main__":
 
     if len(sys.argv)<3:
 
@@ -226,7 +180,7 @@ if __name__=="__main__":
             "python clean_musicxml.py input.musicxml output.musicxml"
         )
 
-        sys.exit(1)
+        exit()
 
 
     clean(
