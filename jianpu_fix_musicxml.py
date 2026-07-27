@@ -1,36 +1,50 @@
 import sys
-from music21 import converter, stream, note, meter, duration
+
+from music21 import converter
+from music21 import stream
+from music21 import note
+from music21 import meter
+from music21 import duration
 
 
 VERSION = "JIANPU FIX MUSICXML V26 FINAL TICK ALIGN"
 
 
+# 四分音符 = 16 ticks
 TICKS_PER_QUARTER = 16
+
+# 4/4 一小節
 BAR_TICKS = 64
 
 
 
 def quantize_ticks(q):
 
-    ticks = round(q * TICKS_PER_QUARTER)
+    ticks = round(
+        q * TICKS_PER_QUARTER
+    )
 
+
+    # jianpu_ly 比較安全的節奏
     values = [
-        64,
-        48,
-        32,
-        24,
-        16,
-        12,
-        8,
-        6,
-        4,
+        64,   # whole
+        48,   # dotted half
+        32,   # half
+        24,   # dotted quarter
+        16,   # quarter
+        12,   # dotted eighth
+        8,    # eighth
+        6,    # triplet-ish
+        4,    # sixteenth
         2,
         1
     ]
 
+
     return min(
         values,
-        key=lambda x: abs(x - ticks)
+        key=lambda x:
+        abs(x - ticks)
     )
 
 
@@ -39,9 +53,12 @@ def rebuild_part(part):
 
     print("rebuild part")
 
-    notes = []
+
+    events = []
+
 
     for n in part.recurse().notesAndRests:
+
 
         if isinstance(n, note.Note):
 
@@ -49,7 +66,8 @@ def rebuild_part(part):
                 n.duration.quarterLength
             )
 
-            notes.append(
+
+            events.append(
                 (
                     n.pitch,
                     tick
@@ -63,7 +81,8 @@ def rebuild_part(part):
                 n.duration.quarterLength
             )
 
-            notes.append(
+
+            events.append(
                 (
                     None,
                     tick
@@ -74,19 +93,23 @@ def rebuild_part(part):
 
     new_part = stream.Part()
 
+
     new_part.insert(
         0,
         meter.TimeSignature("4/4")
     )
 
 
+
     current = 0
 
 
-    for pitch, tick in notes:
+
+    for pitch, tick in events:
 
 
-        # 超過小節
+
+        # 超過小節線
         if current + tick > BAR_TICKS:
 
 
@@ -98,10 +121,12 @@ def rebuild_part(part):
                 r = note.Rest()
 
                 r.duration = duration.Duration(
-                    remain / TICKS_PER_QUARTER
+                    remain /
+                    TICKS_PER_QUARTER
                 )
 
                 new_part.append(r)
+
 
 
             current = 0
@@ -112,6 +137,7 @@ def rebuild_part(part):
 
             obj = note.Rest()
 
+
         else:
 
             obj = note.Note(
@@ -119,8 +145,10 @@ def rebuild_part(part):
             )
 
 
+
         obj.duration = duration.Duration(
-            tick / TICKS_PER_QUARTER
+            tick /
+            TICKS_PER_QUARTER
         )
 
 
@@ -131,17 +159,20 @@ def rebuild_part(part):
 
 
 
-    # 補最後小節
+    # 最後補滿小節
 
     if current < BAR_TICKS:
 
+
         r = note.Rest()
+
 
         r.duration = duration.Duration(
             (BAR_TICKS-current)
             /
             TICKS_PER_QUARTER
         )
+
 
         new_part.append(r)
 
@@ -157,6 +188,7 @@ def fix_musicxml(
         output_file
 ):
 
+
     print("================")
     print(VERSION)
     print("================")
@@ -164,19 +196,24 @@ def fix_musicxml(
 
     print("read")
 
+
     score = converter.parse(
         input_file
     )
 
 
+
     new_score = stream.Score()
+
 
 
     for part in score.parts:
 
+
         fixed = rebuild_part(
             part
         )
+
 
         new_score.append(
             fixed
@@ -187,16 +224,27 @@ def fix_musicxml(
     print("check ticks")
 
 
+    measures = (
+        new_score
+        .parts[0]
+        .makeMeasures()
+        .getElementsByClass("Measure")
+    )
+
+
+
     for i,m in enumerate(
-        new_score.parts[0].makeMeasures().getElementsByClass("Measure"),
+        measures,
         1
     ):
+
 
         ticks = round(
             m.duration.quarterLength
             *
             TICKS_PER_QUARTER
         )
+
 
         print(
             "Measure",
@@ -210,10 +258,12 @@ def fix_musicxml(
     print("write")
 
 
+
     new_score.write(
         "musicxml",
         fp=output_file
     )
+
 
 
     print("DONE")
@@ -221,16 +271,18 @@ def fix_musicxml(
 
 
 
+
 if __name__ == "__main__":
 
 
-    if len(sys.argv)<3:
+    if len(sys.argv) < 3:
+
 
         print(
             "python jianpu_fix_musicxml.py input.musicxml output.musicxml"
         )
 
-        sys.exit()
+        sys.exit(1)
 
 
 
