@@ -1,6 +1,6 @@
 import sys
-import music21
 import os
+import music21
 
 
 def clean(input_file, output_file):
@@ -11,85 +11,145 @@ def clean(input_file, output_file):
 
     print("input:", input_file)
 
+    if not os.path.exists(input_file):
+        raise FileNotFoundError(input_file)
+
+
     score = music21.converter.parse(input_file)
+
 
     print("remove voices")
 
-    # flatten
-    flat = score.flatten()
+    for part in score.parts:
 
-    new_score = music21.stream.Score()
-    part = music21.stream.Part()
+        for measure in part.getElementsByClass('Measure'):
+
+            # 移除 voice
+            for voice in list(measure.getElementsByClass('Voice')):
+                for element in list(voice):
+                    voice.remove(element)
+                    measure.insert(element)
+
+                measure.remove(voice)
+
+
 
     print("remove chords")
 
-    for element in flat.notesAndRests:
+    for part in score.parts:
 
-        # 保留休止
-        if isinstance(element, music21.note.Rest):
-            part.append(element)
+        for measure in part.getElementsByClass('Measure'):
 
-        # Note直接保留
-        elif isinstance(element, music21.note.Note):
-            part.append(element)
+            chords = list(
+                measure.getElementsByClass('Chord')
+            )
 
-        # Chord只取最高音
-        elif isinstance(element, music21.chord.Chord):
+            for chord in chords:
 
-            if len(element.notes) > 0:
+                # 取最高音
+                if len(chord.pitches) > 0:
 
-                highest = element.sortAscending().notes[-1]
+                    highest = max(
+                        chord.pitches,
+                        key=lambda p: p.pitch.ps
+                    )
 
-                n = music21.note.Note(
-                    highest.pitch
-                )
+                    note = music21.note.Note(
+                        highest
+                    )
 
-                n.duration = element.duration
+                    note.duration = chord.duration
 
-                part.append(n)
+                    measure.insert(
+                        chord.offset,
+                        note
+                    )
 
 
-    print("rebuild measures")
+                measure.remove(chord)
 
-    part.makeMeasures(
-        inPlace=True
-    )
+
+
+    print("remove grace notes")
+
+    for n in score.recurse().notes:
+
+        if n.duration.isGrace:
+
+            n.activeSite.remove(n)
+
+
+
+    print("fix duration")
+
+
+    # 修正不合法 duration
+    allowed = [
+        0.25,
+        0.5,
+        0.75,
+        1,
+        1.5,
+        2,
+        3,
+        4
+    ]
+
+
+    for n in score.recurse().notes:
+
+        q = n.duration.quarterLength
+
+        closest = min(
+            allowed,
+            key=lambda x: abs(x-q)
+        )
+
+        n.duration.quarterLength = closest
+
 
 
     print("quantize")
 
-    for n in part.recurse().notes:
+    try:
+        score = score.quantize(
+            quarterLengthDivisors=[
+                4,
+                8,
+                16
+            ]
+        )
+    except Exception as e:
+        print(
+            "quantize skip:",
+            e
+        )
 
-        try:
-            n.duration.quarterLength = round(
-                n.duration.quarterLength * 4
-            ) / 4
-
-        except:
-            pass
-
-
-    new_score.append(part)
 
 
     print("write")
 
-    new_score.write(
+    score.write(
         "musicxml",
         fp=output_file
     )
 
 
-    print("DONE", output_file)
+    print(
+        "DONE",
+        output_file
+    )
 
 
 
 if __name__ == "__main__":
 
     if len(sys.argv) < 3:
+
         print(
             "usage: python clean_musicxml.py input.musicxml output.musicxml"
         )
+
         sys.exit(1)
 
 
