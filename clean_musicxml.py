@@ -3,7 +3,7 @@ import sys
 
 
 print("================")
-print("CLEAN MUSICXML V26 JIANPU SAFE")
+print("CLEAN MUSICXML V26 PURE JIANPU")
 print("================")
 
 
@@ -18,74 +18,57 @@ src = sys.argv[1]
 dst = sys.argv[2]
 
 
+# =====================
+# READ
+# =====================
+
 print("read")
 
 score = converter.parse(src)
 
 
 
-# =========================
-# Remove voices / chords
-# =========================
+# =====================
+# REMOVE COMPLEX DATA
+# =====================
 
 print("remove voices")
 print("remove chords")
+print("remove beams")
+print("remove ties")
+print("remove tuplets")
 
 
 for part in score.parts:
 
-    for n in list(part.recurse()):
-
-        if hasattr(n, "voices"):
-
-            try:
-                n.voices = []
-            except:
-                pass
+    for n in part.recurse().notesAndRests:
 
 
-        if n.__class__.__name__ == "Chord":
-
-            try:
-                n.removeRedundantPitchClasses()
-            except:
-                pass
-
+        # tuplets
+        try:
+            n.duration.tuplets = []
+        except:
+            pass
 
 
-# =========================
-# Remove notation
-# =========================
-
-print("remove beams")
-print("remove ties")
-
-
-for n in score.recurse().notes:
+        # ties
+        try:
+            n.tie = None
+        except:
+            pass
 
 
-    try:
-        n.beams.fill(None)
-    except:
-        pass
-
-
-    try:
-        n.tie = None
-    except:
-        pass
-
-
-    try:
-        n.duration.tuplets = []
-    except:
-        pass
+        # beams
+        try:
+            n.beams.fill(None)
+        except:
+            pass
 
 
 
-# =========================
-# Force 4/4
-# =========================
+# =====================
+# FORCE 4/4
+# =====================
 
 print("force 4/4")
 
@@ -99,9 +82,9 @@ for part in score.parts:
 
 
 
-# =========================
-# Quantize duration
-# =========================
+# =====================
+# QUANTIZE
+# =====================
 
 print("duration quantize")
 
@@ -118,106 +101,150 @@ score.quantize(
 
 
 
-# =========================
-# Split notes crossing bar
-# =========================
+# =====================
+# REBUILD
+# =====================
 
-print("split cross measure notes")
-
-
-for part in score.parts:
-
-    try:
-
-        part.makeMeasures(
-            inPlace=True
-        )
-
-    except Exception as e:
-
-        print(e)
-
-
-
-# =========================
-# FINAL STRICT REBUILD
-# =========================
-
-
-print("FINAL REBUILD MEASURES")
+print("rebuild measures")
 
 
 for part in score.parts:
 
-
-    measures = part.makeMeasures(
-        inPlace=False
+    part.makeMeasures(
+        inPlace=True
     )
 
 
-    for m in measures:
 
-        total = 0
+# =====================
+# PURE SCORE REBUILD
+# =====================
 
-
-        for n in m.notesAndRests:
-
-            total += n.duration.quarterLength
+print("BUILD PURE SCORE")
 
 
-        # 補休止
-        if total < 4:
+pure = stream.Score()
+
+
+
+for part in score.parts:
+
+
+    new_part = stream.Part()
+
+
+    for n in part.recurse().notesAndRests:
+
+
+        ql = n.duration.quarterLength
+
+
+        # remove invalid duration
+        if ql <= 0:
+            continue
+
+
+        # avoid giant notes
+        if ql > 4:
+            ql = 4
+
+
+        n.duration.quarterLength = ql
+
+
+        # remove notation
+        try:
+            n.tie = None
+        except:
+            pass
+
+
+        try:
+            n.duration.tuplets = []
+        except:
+            pass
+
+
+        new_part.append(n)
+
+
+
+    # rebuild again
+    new_part.makeMeasures(
+        inPlace=True
+    )
+
+
+    pure.append(new_part)
+
+
+
+score = pure
+
+
+
+# =====================
+# FILL EMPTY MEASURES
+# =====================
+
+print("fill measure rest")
+
+
+for part in score.parts:
+
+
+    for m in part.getElementsByClass(
+        "Measure"
+    ):
+
+
+        length = m.duration.quarterLength
+
+
+        if length < 4:
 
             m.append(
                 stream.Rest(
-                    quarterLength=4-total
+                    quarterLength=4-length
                 )
             )
 
 
-    part.remove(
-        part.measures
-    )
 
-
-    for m in measures:
-
-        part.append(m)
-
-
-
-# =========================
-# Final Check
-# =========================
-
+# =====================
+# FINAL CHECK
+# =====================
 
 print("FINAL CHECK")
 
 
-ok=True
+safe=True
 
 
-for i,m in enumerate(
-    score.parts[0].getElementsByClass("Measure"),
-    1
-):
+for part in score.parts:
 
-    length=m.duration.quarterLength
+    for i,m in enumerate(
+        part.getElementsByClass("Measure"),
+        1
+    ):
 
-    print(
-        "Measure",
-        i,
-        length
-    )
+        length=m.duration.quarterLength
 
 
-    if abs(length-4)>0.01:
+        print(
+            "Measure",
+            i,
+            length
+        )
 
-        ok=False
+
+        if abs(length-4)>0.01:
+
+            safe=False
 
 
 
-if ok:
+if safe:
 
     print(
         "ALL MEASURES SAFE"
@@ -226,14 +253,14 @@ if ok:
 else:
 
     print(
-        "WARNING measure mismatch"
+        "WARNING MEASURE ERROR"
     )
 
 
 
-# =========================
-# Clear cache
-# =========================
+# =====================
+# CACHE CLEAR
+# =====================
 
 print("clear notation cache")
 
@@ -242,9 +269,9 @@ score.coreElementsChanged()
 
 
 
-# =========================
-# Write
-# =========================
+# =====================
+# WRITE
+# =====================
 
 print("FINAL WRITE")
 
@@ -255,8 +282,5 @@ score.write(
 )
 
 
-print(
-    "DONE"
-)
-
+print("DONE")
 print(dst)
