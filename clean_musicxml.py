@@ -1,132 +1,245 @@
-from music21 import converter, stream, note, meter
 import sys
+import music21
+import os
 
 
 print("================")
-print("CLEAN MUSICXML V26 BAR SAFE")
+print("CLEAN MUSICXML V27")
+print("TRUE NOTE SPLIT VERSION")
 print("================")
 
 
-src = sys.argv[1]
+if len(sys.argv) < 2:
+    print("usage: python clean_musicxml.py input.musicxml output.musicxml")
+    sys.exit(1)
+
+
+input_file = sys.argv[1]
 
 if len(sys.argv) >= 3:
-    out = sys.argv[2]
+    output_file = sys.argv[2]
 else:
-    out = "clean.musicxml"
+    output_file = input_file.replace(".musicxml", "_clean.musicxml")
 
 
 print("read")
+score = music21.converter.parse(input_file)
 
-score = converter.parse(src)
 
+# ==========================
+# remove voices
+# ==========================
 
 print("remove voices")
-for p in score.parts:
-    for el in p.recurse():
-        if hasattr(el, "voice"):
-            el.voice = None
 
+for p in score.parts:
+    for el in list(p.recurse()):
+        if isinstance(el, music21.note.NotRest):
+            try:
+                el.activeSite = None
+            except:
+                pass
+
+
+# ==========================
+# remove chords
+# ==========================
 
 print("remove chords")
-for p in score.parts:
-    for ch in list(p.recurse().getElementsByClass("Chord")):
-        n = ch.sortAscending().notes[0]
-        ch.replace(ch, n)
 
+for p in score.parts:
+    for chord in list(p.recurse().getElementsByClass("Chord")):
+        notes = chord.notes
+
+        for n in notes:
+            chord.activeSite.insert(chord.offset, n)
+
+        chord.activeSite.remove(chord)
+
+
+# ==========================
+# remove notation
+# ==========================
+
+print("remove beams")
+for n in score.recurse().notes:
+    if hasattr(n, "beams"):
+        n.beams = music21.beam.Beams()
+
+
+print("remove ties")
+for n in score.recurse().notes:
+    n.tie = None
+
+
+
+# ==========================
+# force 4/4
+# ==========================
 
 print("force 4/4")
 
 for p in score.parts:
-    p.insert(0, meter.TimeSignature("4/4"))
+    p.insert(0, music21.meter.TimeSignature("4/4"))
 
 
 
-print("rebuild measures")
+# ==========================
+# quantize duration
+# ==========================
+
+print("duration quantize")
 
 
-newScore = stream.Score()
+allowed = [
+    4,
+    2,
+    1,
+    0.5,
+    0.25,
+    0.125
+]
 
 
-for p in score.parts:
+def quantize(x):
 
-    np = stream.Part()
+    return min(
+        allowed,
+        key=lambda y: abs(y-x)
+    )
 
-    offset = 0
+
+for n in score.recurse().notes:
+
+    q = quantize(
+        float(n.duration.quarterLength)
+    )
+
+    n.duration.quarterLength = q
 
 
-    for n in p.flatten().notesAndRests:
 
-        dur = n.duration.quarterLength
+# ==========================
+# TRUE NOTE SPLIT
+# ==========================
+
+print("TRUE NOTE SPLIT")
+
+
+for part in score.parts:
+
+    measures = part.makeMeasures()
+
+    new_stream = music21.stream.Part()
+
+    ts = music21.meter.TimeSignature("4/4")
+
+    current_measure = 1
+    measure_pos = 0
+
+
+    for element in part.flatten().notesAndRests:
+
+        dur = float(element.duration.quarterLength)
 
 
         while dur > 0:
 
-            beatPos = offset % 4
 
-            remain = 4 - beatPos
-
-
-            take = min(dur, remain)
+            remain = 4 - measure_pos
 
 
-            if isinstance(n, note.Rest):
-
-                nn = note.Rest()
-
-            else:
-
-                nn = note.Note(
-                    n.pitch
-                )
+            take = min(
+                dur,
+                remain
+            )
 
 
-            nn.duration.quarterLength = take
-
-            np.insert(offset, nn)
+            new_element = element.clone()
 
 
-            offset += take
+            new_element.duration.quarterLength = take
+
+
+            new_stream.insert(
+                measure_pos + (current_measure-1)*4,
+                new_element
+            )
+
+
             dur -= take
 
-
-    newScore.append(np)
-
+            measure_pos += take
 
 
-print("fill measures")
+            if measure_pos >= 4:
+
+                measure_pos = 0
+                current_measure += 1
 
 
-for p in newScore.parts:
 
-    p.makeMeasures(
+    part.clear()
+
+    for e in new_stream:
+        part.insert(e.offset,e)
+
+
+
+# ==========================
+# rebuild measures
+# ==========================
+
+print("rebuild measures")
+
+score = score.makeMeasures(
+    inPlace=False
+)
+
+
+# ==========================
+# fill rests
+# ==========================
+
+print("fill rests")
+
+
+for p in score.parts:
+
+    p.makeRests(
+        fillGaps=True,
         inPlace=True
     )
+
+
+
+# ==========================
+# final check
+# ==========================
 
 
 print("FINAL CHECK")
 
 
-for p in newScore.parts:
+for m in score.parts[0].getElementsByClass("Measure"):
 
-    for m in p.getElementsByClass("Measure"):
+    length = m.duration.quarterLength
 
-        q = m.duration.quarterLength
-
-        print(
-            "Measure",
-            m.number,
-            q
-        )
+    print(
+        "Measure",
+        m.number,
+        length
+    )
 
 
-print("WRITE")
+print("FINAL WRITE")
 
 
-newScore.write(
+score.write(
     "musicxml",
-    fp=out
+    fp=output_file
 )
 
 
 print("DONE")
-print(out)
+print(output_file)
