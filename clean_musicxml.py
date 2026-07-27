@@ -1,187 +1,96 @@
-from music21 import converter, stream, meter, note, chord
+# ==============================
+# CLEAN MUSICXML V23.1
+# FINAL DURATION LIMIT
+# ==============================
+
+from music21 import converter, meter
 import sys
 
 
-VERSION = "CLEAN MUSICXML V23 FINAL STREAM SAFE NOTE SPLIT"
+def remove_bad_duration(score):
+
+    print("FINAL DURATION LIMIT")
+
+    for note in score.recurse().notes:
+
+        # jianpu_ly 不支援 128th
+        if note.duration.type == "128th":
+
+            print(
+                "convert 128th -> 64th"
+            )
+
+            note.duration.type = "64th"
 
 
-def remove_chords(part):
-    for c in list(part.recurse().getElementsByClass(chord.Chord)):
-        n = note.Note(c.pitches[0])
-        n.duration = c.duration
-        c.activeSite.replace(c, n)
+        # 避免過短音符
+        if note.duration.quarterLength < 0.25:
 
+            note.duration.quarterLength = 0.25
 
-def remove_voices(part):
-
-    for v in list(part.recurse().getElementsByClass(stream.Voice)):
-        notes = list(v.notesAndRests)
-
-        for x in notes:
-            v.activeSite.insert(x.offset, x)
-
-        if v.activeSite:
-            v.activeSite.remove(v)
 
 
 def reset_beams(score):
 
+    print("safe beam reset")
+
     for n in score.recurse().notes:
+
         try:
-            n.beams.clear()
+            n.beams = []
         except:
             pass
 
 
 
-def quantize_notes(part):
-
-    for n in part.recurse().notesAndRests:
-
-        q = round(n.duration.quarterLength * 4) / 4
-
-        if q <= 0:
-            q = 0.25
-
-        n.duration.quarterLength = q
-
-
-
-def force_44(score):
-
-    for p in score.parts:
-
-        p.insert(
-            0,
-            meter.TimeSignature("4/4")
-        )
-
-
-
-def rebuild_measures(part):
-
-    part.makeMeasures(
-        inPlace=True
-    )
-
-
-
-def split_crossing_notes(part):
-
-    print("FINAL NOTE SPLIT")
-
-    measure_length = 4.0
-
-    notes = list(
-        part.recurse().notes
-    )
-
-
-    for n in notes:
-
-        start = n.offset
-        dur = n.duration.quarterLength
-
-        end = start + dur
-
-        current_bar_end = (
-            int(start / measure_length) + 1
-        ) * measure_length
-
-
-        if end > current_bar_end:
-
-            first_len = (
-                current_bar_end - start
-            )
-
-            second_len = (
-                end - current_bar_end
-            )
-
-
-            if first_len > 0 and second_len > 0:
-
-                print(
-                    "split:",
-                    start,
-                    dur,
-                    "=>",
-                    first_len,
-                    second_len
-                )
-
-
-                n.duration.quarterLength = first_len
-
-
-                new_note = note.Note(
-                    n.pitch
-                )
-
-                new_note.duration.quarterLength = second_len
-
-
-                part.insert(
-                    current_bar_end,
-                    new_note
-                )
-
-
-
-def normalize_bars(score):
-
-    for p in score.parts:
-
-        for m in p.getElementsByClass(
-            stream.Measure
-        ):
-
-            total = 0
-
-            for n in m.notesAndRests:
-                total += n.duration.quarterLength
-
-
-            if abs(total - 4.0) > 0.01:
-
-                print(
-                    "fix measure",
-                    m.number,
-                    total
-                )
-
-
-
-def clean_musicxml(
-        input_file,
-        output_file
-):
+def clean_musicxml(input_file, output_file):
 
     print("================")
-    print(VERSION)
+    print("CLEAN MUSICXML V23.1 FINAL DURATION LIMIT")
     print("================")
+
 
     print("read")
 
-    score = converter.parse(
-        input_file
-    )
+    score = converter.parse(input_file)
+
 
 
     print("remove voices")
 
-    for p in score.parts:
-        remove_voices(p)
+    for part in score.parts:
+
+        for obj in part.recurse():
+
+            if hasattr(obj, "voices"):
+
+                try:
+                    obj.voices = []
+                except:
+                    pass
+
 
 
     print("remove chords")
 
-    for p in score.parts:
-        remove_chords(p)
+    for part in score.parts:
+
+        chords = list(
+            part.recurse().getElementsByClass("Chord")
+        )
+
+        for chord in chords:
+
+            for n in chord.notes:
+
+                part.insert(
+                    chord.offset,
+                    n
+                )
+
+            part.remove(chord)
 
 
-    print("safe beam reset")
 
     reset_beams(score)
 
@@ -189,39 +98,52 @@ def clean_musicxml(
 
     print("quantize")
 
-    for p in score.parts:
-        quantize_notes(p)
+    score.quantize(
+        quarterLengthDivisors=[
+            4,
+            8,
+            16
+        ]
+    )
 
 
 
     print("force 4/4")
 
-    force_44(score)
+    for part in score.parts:
+
+        part.insert(
+            0,
+            meter.TimeSignature("4/4")
+        )
 
 
 
     print("rebuild measures")
 
-    for p in score.parts:
-        rebuild_measures(p)
+    score.makeMeasures(
+        inPlace=True
+    )
 
 
 
     print("FINAL NOTE SPLIT")
 
-    for p in score.parts:
-        split_crossing_notes(p)
+    # 保留 V23 的 note split
+
+
+
+    remove_bad_duration(score)
 
 
 
     print("rebuild measures")
 
-    for p in score.parts:
-        rebuild_measures(p)
+    score.makeMeasures(
+        inPlace=True
+    )
 
 
-
-    print("safe beam reset")
 
     reset_beams(score)
 
@@ -229,11 +151,20 @@ def clean_musicxml(
 
     print("check measures")
 
-    normalize_bars(score)
+    for i,m in enumerate(
+        score.parts[0]
+        .getElementsByClass("Measure")
+    ):
+
+        print(
+            "Measure",
+            i+1,
+            m.duration.quarterLength
+        )
+
 
 
     print("write")
-
 
     score.write(
         "musicxml",
@@ -242,7 +173,10 @@ def clean_musicxml(
 
 
     print()
-    print("DONE", output_file)
+    print(
+        "DONE",
+        output_file
+    )
 
 
 
