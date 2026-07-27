@@ -1,10 +1,13 @@
+print("================")
+print("CLEAN MUSICXML V26 PURE JIANPU")
+print("================")
+
+
+
 from music21 import converter, meter, stream
 import sys
 
 
-print("================")
-print("CLEAN MUSICXML V26 PURE JIANPU")
-print("================")
 
 
 if len(sys.argv) < 3:
