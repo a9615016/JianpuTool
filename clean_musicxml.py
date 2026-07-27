@@ -1,80 +1,92 @@
-print("================")
-print("CLEAN MUSICXML V26 PURE JIANPU")
-print("================")
-
-
-
-from music21 import converter, meter, stream
 import sys
+from music21 import converter, stream, meter, note, chord
+from lxml import etree
 
 
+print("================")
+print("CLEAN MUSICXML V25 FINAL JIANPU COMPATIBLE")
+print("================")
 
 
 if len(sys.argv) < 3:
-    print(
-        "Usage: python clean_musicxml.py input.musicxml output.musicxml"
-    )
+    print("usage:")
+    print("python clean_musicxml.py input.musicxml output.musicxml")
     sys.exit(1)
 
 
-src = sys.argv[1]
-dst = sys.argv[2]
+input_file = sys.argv[1]
+output_file = sys.argv[2]
 
-
-# =====================
-# READ
-# =====================
 
 print("read")
 
-score = converter.parse(src)
+score = converter.parse(input_file)
 
 
-
-# =====================
-# REMOVE COMPLEX DATA
-# =====================
+# ==========================
+# remove voices
+# ==========================
 
 print("remove voices")
-print("remove chords")
-print("remove beams")
-print("remove ties")
-print("remove tuplets")
 
+for part in score.parts:
+    for n in part.recurse():
+        if hasattr(n, "voice"):
+            n.voice = None
+
+
+
+# ==========================
+# remove chords
+# ==========================
+
+print("remove chords")
 
 for part in score.parts:
 
-    for n in part.recurse().notesAndRests:
+    for element in list(part.recurse()):
 
+        if isinstance(element, chord.Chord):
 
-        # tuplets
-        try:
-            n.duration.tuplets = []
-        except:
-            pass
+            new_note = note.Note(
+                element.root().pitch
+            )
 
+            new_note.duration = element.duration
 
-        # ties
-        try:
-            n.tie = None
-        except:
-            pass
-
-
-        # beams
-        try:
-            n.beams.fill(None)
-        except:
-            pass
+            element.activeSite.replace(
+                element,
+                new_note
+            )
 
 
 
-# =====================
-# FORCE 4/4
-# =====================
+# ==========================
+# remove notation
+# ==========================
+
+print("remove beams")
+
+for n in score.recurse():
+
+    if hasattr(n, "beams"):
+        n.beams = None
+
+
+print("remove ties")
+
+for n in score.recurse():
+
+    if hasattr(n, "tie"):
+        n.tie = None
+
+
+
+# ==========================
+# force 4/4
+# ==========================
 
 print("force 4/4")
-
 
 for part in score.parts:
 
@@ -85,205 +97,163 @@ for part in score.parts:
 
 
 
-# =====================
-# QUANTIZE
-# =====================
+# ==========================
+# duration quantize
+# ==========================
 
 print("duration quantize")
 
+for n in score.recurse().notesAndRests:
 
-score.quantize(
-    quarterLengthDivisors=[
-        1,
-        2,
+    q = n.duration.quarterLength
+
+    allowed = [
         4,
-        8,
-        16
+        2,
+        1,
+        0.5,
+        0.25
     ]
-)
+
+    closest = min(
+        allowed,
+        key=lambda x:abs(x-q)
+    )
+
+    n.duration.quarterLength = closest
 
 
 
-# =====================
-# REBUILD
-# =====================
+# ==========================
+# rebuild measures
+# ==========================
 
 print("rebuild measures")
 
 
-for part in score.parts:
-
-    part.makeMeasures(
-        inPlace=True
-    )
-
-
-
-# =====================
-# PURE SCORE REBUILD
-# =====================
-
-print("BUILD PURE SCORE")
-
-
-pure = stream.Score()
-
+new_score = stream.Score()
 
 
 for part in score.parts:
-
 
     new_part = stream.Part()
 
+    new_part.append(
+        meter.TimeSignature("4/4")
+    )
 
-    for n in part.recurse().notesAndRests:
-
-
-        ql = n.duration.quarterLength
-
-
-        # remove invalid duration
-        if ql <= 0:
-            continue
-
-
-        # avoid giant notes
-        if ql > 4:
-            ql = 4
-
-
-        n.duration.quarterLength = ql
-
-
-        # remove notation
-        try:
-            n.tie = None
-        except:
-            pass
-
-
-        try:
-            n.duration.tuplets = []
-        except:
-            pass
-
+    for n in part.flatten().notesAndRests:
 
         new_part.append(n)
 
-
-
-    # rebuild again
     new_part.makeMeasures(
         inPlace=True
     )
 
-
-    pure.append(new_part)
-
-
-
-score = pure
+    new_score.append(new_part)
 
 
 
-# =====================
-# FILL EMPTY MEASURES
-# =====================
-
-print("fill measure rest")
-
-
-for part in score.parts:
-
-
-    for m in part.getElementsByClass(
-        "Measure"
-    ):
-
-
-        length = m.duration.quarterLength
-
-
-        if length < 4:
-
-            m.append(
-                stream.Rest(
-                    quarterLength=4-length
-                )
-            )
+score = new_score
 
 
 
-# =====================
-# FINAL CHECK
-# =====================
+# ==========================
+# check measures
+# ==========================
 
-print("FINAL CHECK")
-
-
-safe=True
-
-
-for part in score.parts:
-
-    for i,m in enumerate(
-        part.getElementsByClass("Measure"),
-        1
-    ):
-
-        length=m.duration.quarterLength
-
-
-        print(
-            "Measure",
-            i,
-            length
-        )
-
-
-        if abs(length-4)>0.01:
-
-            safe=False
-
-
-
-if safe:
+for i,m in enumerate(score.parts[0].getElementsByClass("Measure")):
 
     print(
-        "ALL MEASURES SAFE"
-    )
-
-else:
-
-    print(
-        "WARNING MEASURE ERROR"
+        "Measure",
+        i+1,
+        float(m.duration.quarterLength)
     )
 
 
 
-# =====================
-# CACHE CLEAR
-# =====================
-
-print("clear notation cache")
-
-
-score.coreElementsChanged()
-
-
-
-# =====================
-# WRITE
-# =====================
+# ==========================
+# write temp
+# ==========================
 
 print("FINAL WRITE")
 
-
 score.write(
     "musicxml",
-    fp=dst
+    fp=output_file
 )
 
 
+
+# ==========================
+# XML PURGE
+# ==========================
+
+print("XML PURGE")
+
+tree = etree.parse(output_file)
+
+root = tree.getroot()
+
+
+# remove backup / forward
+for tag in [
+    "backup",
+    "forward"
+]:
+
+    for node in root.xpath(".//" + tag):
+
+        parent = node.getparent()
+
+        if parent is not None:
+            parent.remove(node)
+
+
+
+# remove voices
+
+for node in root.xpath(".//voice"):
+
+    parent=node.getparent()
+
+    if parent is not None:
+        parent.remove(node)
+
+
+
+# remove beams
+
+for node in root.xpath(".//beam"):
+
+    parent=node.getparent()
+
+    if parent is not None:
+        parent.remove(node)
+
+
+
+# remove ties
+
+for node in root.xpath(".//tie"):
+
+    parent=node.getparent()
+
+    if parent is not None:
+        parent.remove(node)
+
+
+
+tree.write(
+    output_file,
+    encoding="UTF-8",
+    xml_declaration=True
+)
+
+
+
+print("================")
+print("FINAL XML PURGE DONE")
 print("DONE")
-print(dst)
+print(output_file)
+print("================")
