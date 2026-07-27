@@ -1,153 +1,172 @@
 import sys
 import music21
-from music21 import stream, note, chord, meter
+import os
 
 
-VALID_DURATIONS = [
-    0.25,
-    0.5,
-    0.75,
-    1,
-    1.5,
-    2,
-    3,
-    4,
-    6,
-    8,
-    12
-]
+print("================")
+print("CLEAN MUSICXML")
+print("================")
 
 
-def nearest_duration(value):
+def quantize_duration(q):
+    """
+    將 duration 限制到 jianpu_ly 支援範圍
+    """
+
+    allowed = [
+        0.25,   # 16分音符
+        0.5,    # 8分音符
+        0.75,
+        1,
+        1.5,
+        2,
+        3,
+        4
+    ]
+
     return min(
-        VALID_DURATIONS,
-        key=lambda x: abs(x - value)
+        allowed,
+        key=lambda x: abs(x - q)
     )
 
 
 def clean(input_file, output_file):
 
-    print("================")
-    print("CLEAN MUSICXML")
-    print("================")
-
     print("input:", input_file)
+
 
     score = music21.converter.parse(input_file)
 
 
-    # ----------------------
-    # remove voices
-    # ----------------------
     print("remove voices")
 
     for part in score.parts:
-        for v in list(part.recurse().getElementsByClass('Voice')):
-            v.activeSite.remove(v)
+
+        for measure in part.getElementsByClass(
+            music21.stream.Measure
+        ):
+
+            for v in list(
+                measure.getElementsByClass(
+                    music21.stream.Voice
+                )
+            ):
+                v.remove()
 
 
-    # ----------------------
-    # remove chords
-    # ----------------------
     print("remove chords")
 
-    for c in list(score.recurse().getElementsByClass('Chord')):
-
-        pitches = c.pitches
-
-        if len(pitches) > 0:
-
-            n = note.Note(
-                pitches[0]
-            )
-
-            n.duration = c.duration
-
-            c.activeSite.replace(
-                c,
-                n
-            )
-
-
-    # ----------------------
-    # quantize
-    # ----------------------
-    print("quantize")
-
-    try:
-        score.quantize(
-            quarterLengthDivisors=[
-                4,
-                2,
-                1
-            ]
-        )
-    except:
-        pass
-
-
-    # ----------------------
-    # force 4/4
-    # ----------------------
-    print("force 4/4")
 
     for part in score.parts:
 
-        part.insert(
-            0,
-            meter.TimeSignature("4/4")
-        )
+        for measure in part.getElementsByClass(
+            music21.stream.Measure
+        ):
+
+            for element in list(measure.notes):
+
+                if isinstance(
+                    element,
+                    music21.chord.Chord
+                ):
+
+                    # 取最高音
+                    note = element.notes[-1]
+
+                    element.replace(
+                        element,
+                        note
+                    )
 
 
-    # ----------------------
-    # fix duration
-    # ----------------------
+    print("quantize")
+
+
+    for note in score.recurse().notesAndRests:
+
+        q = note.duration.quarterLength
+
+        new_q = quantize_duration(q)
+
+        note.duration.quarterLength = new_q
+
+
+
+    print("force 4/4")
+
+
+    for part in score.parts:
+
+        for measure in part.getElementsByClass(
+            music21.stream.Measure
+        ):
+
+            measure.timeSignature = (
+                music21.meter.TimeSignature("4/4")
+            )
+
+
     print("fix duration")
 
 
-    for n in score.recurse().notes:
+    for part in score.parts:
 
-        q = float(
-            n.duration.quarterLength
-        )
+        total = 0
 
+        for measure in part.getElementsByClass(
+            music21.stream.Measure
+        ):
 
-        # 非法 duration
-        if q not in VALID_DURATIONS:
+            length = 0
 
-            new_q = nearest_duration(q)
+            for n in measure.notesAndRests:
 
-            print(
-                "fix duration:",
-                q,
-                "->",
-                new_q
-            )
-
-            n.duration.quarterLength = new_q
+                length += n.duration.quarterLength
 
 
+            # 超過4拍，縮短最後音符
+            if length > 4:
 
-    # ----------------------
-    # remove empty measures
-    # ----------------------
+                diff = length - 4
+
+                elems = list(
+                    measure.notesAndRests
+                )
+
+                if elems:
+
+                    last = elems[-1]
+
+                    new_len = (
+                        last.duration.quarterLength
+                        - diff
+                    )
+
+                    if new_len > 0:
+
+                        last.duration.quarterLength = new_len
+
+
+
     print("remove empty measures")
 
-    for m in list(
-        score.recurse().getElementsByClass(
-            stream.Measure
-        )
-    ):
 
-        if len(m.notes)==0:
+    for part in score.parts:
 
-            try:
-                m.activeSite.remove(m)
-            except:
-                pass
+        for m in list(
+            part.getElementsByClass(
+                music21.stream.Measure
+            )
+        ):
+
+            if len(m.notesAndRests) == 0:
+
+                part.remove(m)
+
 
 
     print("write")
+
 
     score.write(
         "musicxml",
@@ -155,14 +174,12 @@ def clean(input_file, output_file):
     )
 
 
-    print(
-        "DONE",
-        output_file
-    )
+    print("DONE", output_file)
 
 
 
 if __name__ == "__main__":
+
 
     if len(sys.argv) < 3:
 
