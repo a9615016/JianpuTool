@@ -208,7 +208,7 @@ async def upload(file: UploadFile = File(...)):
                 "python",
                 "-m",
                 "jianpu_ly",
-                clean_xml
+                "clean.musicxml"
             ],
             cwd=work_dir,
             stdout=f,
@@ -296,7 +296,7 @@ async def upload(file: UploadFile = File(...)):
 
 
 
-    print("PDF完成")
+    print("result = subprocess.run(result = subprocess.run(PDF完成")
 
 
     return FileResponse(
