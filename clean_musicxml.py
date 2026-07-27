@@ -1,115 +1,165 @@
 import sys
 import music21
-from music21 import stream, note, meter, duration
+from music21 import stream, note, meter, duration, instrument
 
 
 print("================")
-print("CLEAN MUSICXML V27")
-print("TRUE NOTE SPLIT VERSION")
+print("CLEAN MUSICXML V28")
+print("TRUE BAR SPLIT VERSION")
 print("================")
 
 
-def split_cross_measure_notes(score):
+BAR_LENGTH = 4.0
 
-    print("SPLIT EVERY CROSSING NOTE")
 
-    new_score = stream.Score()
+def quantize_length(q):
 
-    for part in score.parts:
+    values = [
+        0.25,
+        0.5,
+        0.75,
+        1.0,
+        1.5,
+        2.0,
+        3.0,
+        4.0
+    ]
 
-        new_part = stream.Part()
+    return min(
+        values,
+        key=lambda x: abs(x-q)
+    )
 
-        current_measure = None
 
-        for m in part.getElementsByClass('Measure'):
+def split_measure_notes(part):
 
-            current_measure = m
+    print("TRUE NOTE SPLIT")
 
-            new_measure = stream.Measure(
-                number=m.number
+    new_part = stream.Part()
+
+    measures = list(
+        part.getElementsByClass("Measure")
+    )
+
+
+    measure_no = 1
+
+
+    for m in measures:
+
+        new_measure = stream.Measure(
+            number=measure_no
+        )
+
+        new_measure.insert(
+            0,
+            meter.TimeSignature("4/4")
+        )
+
+
+        current_time = 0.0
+
+
+        for n in m.notesAndRests:
+
+
+            dur = float(
+                n.duration.quarterLength
             )
 
-            new_measure.timeSignature = meter.TimeSignature("4/4")
 
+            # rest 直接處理
+            if isinstance(n, note.Rest):
 
-            for n in m.notesAndRests:
-
-                if not isinstance(n, note.Note):
-                    new_measure.append(n)
-                    continue
-
-
-                offset = n.offset
-                length = n.duration.quarterLength
-
-
-                # 4/4 一小節長度
-                bar_length = 4.0
-
-
-                start = offset
-                end = offset + length
-
-
-                if end <= bar_length:
+                if current_time + dur <= BAR_LENGTH:
 
                     new_measure.append(n)
+                    current_time += dur
 
-                else:
+                continue
 
-                    print(
-                        "CUT NOTE:",
-                        n.pitch,
-                        "duration",
-                        length
+
+
+            # note 跨小節
+            while current_time + dur > BAR_LENGTH:
+
+
+                remain = BAR_LENGTH - current_time
+
+
+                if remain > 0:
+
+                    n1 = note.Note(
+                        n.pitch
                     )
 
+                    n1.duration = duration.Duration(
+                        quantize_length(remain)
+                    )
 
-                    first_length = bar_length - start
-
-                    second_length = length - first_length
-
-
-                    if first_length > 0:
-
-                        n1 = note.Note(
-                            n.pitch
-                        )
-
-                        n1.duration = duration.Duration(
-                            first_length
-                        )
-
-                        new_measure.append(n1)
+                    new_measure.append(n1)
 
 
 
-                    if second_length > 0:
-
-                        # 放到下一小節
-                        n2 = note.Note(
-                            n.pitch
-                        )
-
-                        n2.duration = duration.Duration(
-                            second_length
-                        )
-
-                        # 建立下一 measure
-                        # 先加入標記
-                        new_measure.insert(
-                            4,
-                            n2
-                        )
+                print(
+                    "SPLIT:",
+                    n.pitch,
+                    "remain",
+                    remain
+                )
 
 
-            new_part.append(new_measure)
+                new_part.append(
+                    new_measure
+                )
 
 
-        new_score.append(new_part)
+                measure_no += 1
 
 
-    return new_score
+                new_measure = stream.Measure(
+                    number=measure_no
+                )
+
+                new_measure.insert(
+                    0,
+                    meter.TimeSignature("4/4")
+                )
+
+
+                dur -= remain
+
+                current_time = 0
+
+
+
+            if dur > 0:
+
+                n2 = note.Note(
+                    n.pitch
+                )
+
+                n2.duration = duration.Duration(
+                    quantize_length(dur)
+                )
+
+                new_measure.append(n2)
+
+                current_time += dur
+
+
+
+        if len(new_measure.notesAndRests) > 0:
+
+            new_part.append(
+                new_measure
+            )
+
+            measure_no += 1
+
+
+
+    return new_part
 
 
 
@@ -117,30 +167,36 @@ def clean(input_file, output_file):
 
     print("READ")
 
-    score = music21.converter.parse(input_file)
+    score = music21.converter.parse(
+        input_file
+    )
 
 
-    print("remove voices")
+    print("REMOVE VOICES")
 
     for p in score.parts:
-        for v in p.recurse().getElementsByClass('Voice'):
+
+        for v in p.recurse().getElementsByClass(
+            "Voice"
+        ):
             v.activeSite.remove(v)
 
 
 
-    print("remove chords")
+    print("REMOVE CHORDS")
 
     for c in score.recurse().getElementsByClass(
-        'Chord'
+        "Chord"
     ):
-        c.notes[0].activeSite.replace(
+
+        c.activeSite.replace(
             c,
             c.notes[0]
         )
 
 
 
-    print("remove beams")
+    print("REMOVE BEAMS")
 
     for n in score.recurse().notes:
 
@@ -148,7 +204,7 @@ def clean(input_file, output_file):
 
 
 
-    print("remove ties")
+    print("REMOVE TIES")
 
     for n in score.recurse().notes:
 
@@ -156,96 +212,71 @@ def clean(input_file, output_file):
 
 
 
-    print("force 4/4")
+    print("FORCE 4/4")
+
+
+    new_score = stream.Score()
+
+
 
     for p in score.parts:
 
-        p.insert(
-            0,
-            meter.TimeSignature("4/4")
+
+        print(
+            "PROCESS PART"
         )
 
 
-    print("quantize duration")
-
-    for n in score.recurse().notesAndRests:
-
-        q = n.duration.quarterLength
-
-        values = [
-            0.25,
-            0.5,
-            1,
-            2,
-            4
-        ]
-
-        closest = min(
-            values,
-            key=lambda x:abs(x-q)
+        new_part = split_measure_notes(
+            p
         )
 
-        n.duration.quarterLength = closest
 
-
-
-    score = split_cross_measure_notes(score)
-
-
-
-    print("REBUILD MEASURES")
-
-    score.makeMeasures(
-        inPlace=True
-    )
-
-
-    print("FILL REST")
-
-    for p in score.parts:
-
-        p.makeRests(
-            fillGaps=True,
-            inPlace=True
+        new_score.append(
+            new_part
         )
+
 
 
     print("FINAL CHECK")
 
 
-    for m in score.parts[0].getElementsByClass(
-        'Measure'
+    for m in new_score.parts[0].getElementsByClass(
+        "Measure"
     ):
 
-        total = 0
-
-        for n in m.notesAndRests:
-
-            total += n.duration.quarterLength
+        total = sum(
+            n.duration.quarterLength
+            for n in m.notesAndRests
+        )
 
 
         print(
             "Measure",
             m.number,
-            total
+            float(total)
         )
 
 
 
-    print("FINAL WRITE")
+    print("WRITE")
 
-    score.write(
+
+    new_score.write(
         "musicxml",
         fp=output_file
     )
 
 
+    print("================")
     print("DONE")
     print(output_file)
+    print("================")
 
 
 
 if __name__ == "__main__":
+
 
     if len(sys.argv) < 3:
 
