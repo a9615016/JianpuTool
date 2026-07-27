@@ -2,82 +2,38 @@ import os
 import uuid
 import shutil
 import subprocess
+
 from pathlib import Path
 
 from fastapi import FastAPI, UploadFile, File
 from fastapi.responses import HTMLResponse, FileResponse
 
 
-# =========================
-# 基本設定
-# =========================
-
 app = FastAPI(
-    title="JianpuTool v26",
-    version="26.0"
+    title="JianpuTool v29"
 )
 
 
 BASE_DIR = Path("/app")
 
 OUTPUT_DIR = BASE_DIR / "outputs"
-OUTPUT_DIR.mkdir(exist_ok=True)
 
-
-# =========================
-# 首頁
-# =========================
-
-@app.get("/")
-def home():
-
-    return HTMLResponse("""
-    <html>
-    <head>
-    <title>JianpuTool v26</title>
-    </head>
-
-    <body>
-
-    <h1>JianpuTool v26</h1>
-
-    <h3>
-    MP3/WAV/MIDI → Jianpu PDF
-    </h3>
-
-
-    <form action="/upload"
-          method="post"
-          enctype="multipart/form-data">
-
-    <input type="file"
-           name="file">
-
-    <br><br>
-
-    <button type="submit">
-    Convert
-    </button>
-
-    </form>
-
-
-    </body>
-    </html>
-    """)
+OUTPUT_DIR.mkdir(
+    exist_ok=True
+)
 
 
 
-# =========================
-# 執行命令工具
-# =========================
+# ==========================
+# 執行命令
+# ==========================
 
 def run_cmd(cmd):
 
-    print("================")
+    print("====================")
     print("RUN:")
     print(" ".join(cmd))
-    print("================")
+    print("====================")
 
 
     result = subprocess.run(
@@ -102,35 +58,101 @@ def run_cmd(cmd):
 
 
 
+# ==========================
+# 首頁
+# ==========================
 
-# =========================
-# 上傳
-# =========================
+@app.get("/")
+def home():
+
+    return HTMLResponse(
+"""
+<html>
+
+<head>
+<title>JianpuTool v29</title>
+</head>
+
+
+<body>
+
+<h1>
+JianpuTool v29
+</h1>
+
+<h3>
+MP3 / WAV → Jianpu PDF
+</h3>
+
+
+<form action="/upload"
+method="post"
+enctype="multipart/form-data">
+
+
+<input type="file"
+name="file">
+
+
+<br><br>
+
+
+<button>
+Convert
+</button>
+
+
+</form>
+
+
+</body>
+
+</html>
+"""
+)
+
+
+
+# ==========================
+# Upload
+# ==========================
 
 @app.post("/upload")
 async def upload(
     file: UploadFile = File(...)
 ):
 
-    job_id = str(uuid.uuid4())
+
+    job_id = str(
+        uuid.uuid4()
+    )
+
+
+    print("====================")
+    print(
+        "開始任務:",
+        job_id
+    )
+
 
 
     work = OUTPUT_DIR / job_id
 
+
     work.mkdir()
+
 
 
     input_file = work / file.filename
 
 
 
-    print("================")
-    print("收到:")
-    print(file.filename)
-    print("================")
+    print(
+        "收到:",
+        file.filename
+    )
 
 
-    # 保存檔案
 
     with open(
         input_file,
@@ -143,57 +165,62 @@ async def upload(
         )
 
 
+
     print(
-        "保存完成:",
-        input_file
+        "MP3保存完成"
     )
 
-
-
-    ext = input_file.suffix.lower()
+    print(
+        input_file
+    )
 
 
 
     try:
 
 
-        # -------------------------
-        # MIDI
-        # -------------------------
-
-        if ext == ".mid" or ext == ".midi":
-
-
-            midi = input_file
+        ext = input_file.suffix.lower()
 
 
 
-        # -------------------------
-        # MP3 WAV
-        # -------------------------
+        # =====================
+        # MP3/WAV
+        # =====================
 
-        elif ext in [
+
+        if ext in [
             ".mp3",
             ".wav"
         ]:
 
 
-            print(
-                "開始 BasicPitch"
-            )
+            midi = work / "melody.mid"
 
-
-            midi = work / "basicpitch.mid"
 
 
             run_cmd(
-                [
-                    "python",
-                    "basicpitch_convert.py",
-                    str(input_file),
-                    str(midi)
-                ]
+            [
+                "python",
+                "basicpitch_convert.py",
+                str(input_file),
+                str(midi)
+            ]
             )
+
+
+            print(
+                "MIDI完成"
+            )
+
+
+
+        elif ext in [
+            ".mid",
+            ".midi"
+        ]:
+
+
+            midi = input_file
 
 
 
@@ -202,8 +229,33 @@ async def upload(
 
             return {
                 "error":
-                "只支援 mp3 wav midi"
+                "unsupported file"
             }
+
+
+
+        # =====================
+        # MIDI CLEAN V29
+        # =====================
+
+
+        clean_mid = work / "clean.mid"
+
+
+
+        run_cmd(
+        [
+            "python",
+            "midi_cleaner.py",
+            str(midi),
+            str(clean_mid)
+        ]
+        )
+
+
+        print(
+            "MIDI CLEAN完成"
+        )
 
 
 
@@ -212,48 +264,49 @@ async def upload(
         # =====================
 
 
-        print(
-            "MIDI TO MUSICXML"
-        )
-
-
         musicxml = work / "input.musicxml"
 
 
+
         run_cmd(
-            [
-                "python",
-                "converter.py",
-                str(midi),
-                str(musicxml)
-            ]
+        [
+            "python",
+            "midi_to_musicxml.py",
+            str(clean_mid),
+            str(musicxml)
+        ]
         )
 
-
-
-        # =====================
-        # 清理 MusicXML
-        # =====================
-
-
-        clean_xml = (
-            work /
-            "clean.musicxml"
-        )
 
 
         print(
-            "開始 MusicXML 清理"
+            "MusicXML完成"
         )
 
 
+
+        # =====================
+        # MusicXML CLEAN
+        # =====================
+
+
+        clean_xml = work / "clean.musicxml"
+
+
+
         run_cmd(
-            [
-                "python",
-                "clean_musicxml.py",
-                str(musicxml),
-                str(clean_xml)
-            ]
+        [
+            "python",
+            "clean_musicxml.py",
+            str(musicxml),
+            str(clean_xml)
+        ]
+        )
+
+
+
+        print(
+            "清理完成"
         )
 
 
@@ -263,21 +316,14 @@ async def upload(
         # =====================
 
 
-        ly_file = (
-            work /
-            "jianpu.ly"
-        )
+        ly_file = work / "jianpu.ly"
 
-
-        pdf_file = (
-            work /
-            "jianpu.pdf"
-        )
 
 
         print(
             "開始 jianpu_ly"
         )
+
 
 
         with open(
@@ -288,20 +334,20 @@ async def upload(
 
 
             subprocess.run(
-                [
-                    "python",
-                    "-m",
-                    "jianpu_ly",
-                    str(clean_xml)
-                ],
-                stdout=out,
-                stderr=subprocess.STDOUT
+            [
+                "python",
+                "-m",
+                "jianpu_ly",
+                str(clean_xml)
+            ],
+            stdout=out,
+            stderr=subprocess.STDOUT
             )
 
 
 
         print(
-            "LY 完成"
+            "LY完成"
         )
 
 
@@ -317,37 +363,37 @@ async def upload(
 
 
         run_cmd(
-            [
-                "lilypond",
-                "-o",
-                str(work / "jianpu"),
-                str(ly_file)
-            ]
+        [
+            "lilypond",
+            "-o",
+            str(work / "jianpu"),
+            str(ly_file)
+        ]
         )
 
 
 
-        # LilyPond output:
-        # jianpu.pdf
+        pdf = work / "jianpu.pdf"
 
 
-        if not pdf_file.exists():
+
+        if not pdf.exists():
 
             raise Exception(
-                "PDF沒有產生"
+                "PDF不存在"
             )
 
 
 
         print(
-            "完成:",
-            pdf_file
+            "PDF完成:",
+            pdf
         )
 
 
 
         return FileResponse(
-            pdf_file,
+            pdf,
             media_type="application/pdf",
             filename="jianpu.pdf"
         )
@@ -364,29 +410,23 @@ async def upload(
 
 
         return {
-
             "status":
             "failed",
 
             "error":
             str(e)
-
         }
 
 
 
-
-# =========================
-# 測試
-# =========================
-
+# ==========================
+# Health
+# ==========================
 
 @app.get("/health")
 def health():
 
     return {
-
         "status":
-        "JianpuTool v26 running"
-
+        "JianpuTool v29 running"
     }
