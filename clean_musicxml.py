@@ -1,167 +1,195 @@
 import sys
+import os
 import music21
-from music21 import beam
+from music21 import stream, meter, note, chord, tie
 
 
-VERSION = "CLEAN MUSICXML V23.3.4 FINAL NO BEAM REBUILD"
+VERSION = "CLEAN MUSICXML V23.4 FINAL BAR QUANTIZE"
 
 
 def remove_voices(score):
     print("remove voices")
 
     for p in score.parts:
-        for n in p.recurse().notes:
-            try:
-                n.voice = None
-            except:
-                pass
-
+        for n in p.recurse():
+            if hasattr(n, "voice"):
+                try:
+                    n.voice = None
+                except:
+                    pass
 
 
 def remove_chords(score):
     print("remove chords")
 
-    for c in list(score.recurse().getElementsByClass("Chord")):
-        try:
-            if len(c.notes) > 0:
-                c.replace(c.notes[0])
-        except:
-            pass
+    for p in score.parts:
+        for c in list(p.recurse().getElementsByClass(chord.Chord)):
+            new_notes = []
+
+            for pitch in c.pitches:
+                n = note.Note(
+                    pitch,
+                    quarterLength=c.duration.quarterLength
+                )
+                new_notes.append(n)
+
+            c.activeSite.replace(c, new_notes[0])
 
 
-
-def remove_beams(score):
-
+def remove_bad_beams(score):
     print("remove beams")
 
     for n in score.recurse().notes:
 
         try:
-            # music21 正確 Beam 物件
-            n.beams = beam.Beams()
-
+            n.beams = None
         except:
             pass
 
 
-
 def remove_ties(score):
-
     print("remove ties")
 
     for n in score.recurse().notes:
 
         try:
             n.tie = None
-
         except:
             pass
 
 
 
-def remove_dots(score):
+def quantize_duration(n):
 
-    print("remove dots")
+    q = n.duration.quarterLength
+
+    # 16分音符格
+    grid = 0.25
+
+    q = round(q / grid) * grid
+
+
+    if q <= 0:
+        q = 0.25
+
+
+    if q > 4:
+        q = 4
+
+
+    n.duration.quarterLength = q
+
+
+
+def quantize_notes(score):
+
+    print("duration quantize")
 
     for n in score.recurse().notes:
 
-        try:
-            n.duration.dots = 0
-
-        except:
-            pass
+        quantize_duration(n)
 
 
 
-def duration_safe(score):
+def split_long_notes(part):
 
-    print("duration safe")
+    print("split long notes")
 
-    for n in score.recurse().notes:
+    result = stream.Part()
 
-        try:
+    current = 0
 
-            ql = n.duration.quarterLength
-
-            if ql <= 0:
-
-                n.duration.quarterLength = 0.25
+    bar_length = 4
 
 
-        except:
+    for n in part.notes:
 
-            pass
+        remain = n.duration.quarterLength
 
 
+        while remain > 0:
 
-def force_44(score):
+            pos = current % bar_length
 
-    print("force 4/4")
+            available = bar_length - pos
 
-    for p in score.parts:
 
-        try:
-
-            p.insert(
-                0,
-                music21.meter.TimeSignature("4/4")
+            length = min(
+                remain,
+                available
             )
 
-        except:
 
-            pass
+            new = n.clone()
+
+            new.duration.quarterLength = length
+
+            result.append(new)
+
+
+            remain -= length
+
+            current += length
+
+
+    return result
 
 
 
-def rebuild_measures(score):
+def rebuild_measure(part):
 
     print("rebuild measures")
 
-    try:
+    part2 = split_long_notes(part)
 
-        score.makeMeasures(
-            inPlace=True
-        )
+    measures = stream.Part()
 
-    except Exception as e:
-
-        print(
-            "makeMeasures skip:",
-            e
-        )
+    measures.append(
+        meter.TimeSignature("4/4")
+    )
 
 
+    for n in part2.notes:
 
-def check_measures(score):
+        measures.append(n)
+
+
+    return measures
+
+
+
+def check_bars(score):
 
     print("check measures")
 
-    try:
+    for p in score.parts:
 
-        for i,m in enumerate(
-            score.parts[0]
-            .getElementsByClass("Measure")
-        ):
+        offset = 0
 
-            print(
-                "Measure",
-                i+1,
-                m.duration.quarterLength
-            )
+        bar = 1
 
-    except Exception as e:
-
-        print(
-            "measure check error:",
-            e
-        )
+        total = 0
 
 
+        for n in p.notes:
 
-def clean_musicxml(
-    input_file,
-    output_file
-):
+            total += n.duration.quarterLength
+
+
+            if total >= 4:
+
+                print(
+                    "Measure",
+                    bar,
+                    4.0
+                )
+
+                total = 0
+                bar += 1
+
+
+
+def clean_musicxml(src, dst):
 
     print("================")
     print(VERSION)
@@ -170,58 +198,72 @@ def clean_musicxml(
 
     print("read")
 
-    score = music21.converter.parse(
-        input_file
-    )
+    score = music21.converter.parse(src)
+
 
 
     remove_voices(score)
 
     remove_chords(score)
 
-    remove_beams(score)
-
-    remove_ties(score)
-
-    remove_dots(score)
-
-    duration_safe(score)
-
-    force_44(score)
-
-    rebuild_measures(score)
-
-
-    # 最後保險
-    remove_beams(score)
+    remove_bad_beams(score)
 
     remove_ties(score)
 
 
-    check_measures(score)
+    print("force 4/4")
 
 
-    print("write")
+    for p in score.parts:
+
+        p.insert(
+            0,
+            meter.TimeSignature("4/4")
+        )
 
 
-    # 注意:
-    # 不呼叫 makeNotation
-    # 避免 beamsList 錯誤
+    quantize_notes(score)
 
-    score.write(
+
+
+    new_score = stream.Score()
+
+
+
+    for p in score.parts:
+
+        new_part = rebuild_measure(p)
+
+        new_score.append(new_part)
+
+
+
+    remove_bad_beams(new_score)
+
+    remove_ties(new_score)
+
+
+
+    check_bars(new_score)
+
+
+
+    print("FINAL WRITE")
+
+
+    new_score.write(
         "musicxml",
-        fp=output_file
+        fp=dst
     )
 
 
     print()
     print("DONE")
-    print(output_file)
+    print(dst)
 
 
 
 if __name__ == "__main__":
-
 
     if len(sys.argv) < 3:
 
