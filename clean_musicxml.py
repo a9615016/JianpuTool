@@ -1,6 +1,6 @@
 import sys
 import music21
-from music21 import stream, note, chord, meter, duration
+from music21 import stream, note, chord, meter
 
 
 VERSION = "V18"
@@ -17,183 +17,187 @@ def clean(input_file, output_file):
     score = music21.converter.parse(input_file)
 
 
-    # --------------------------
-    # remove voices
-    # --------------------------
-    print("remove voices")
-
-    for part in score.parts:
-        for v in part.voices:
-            try:
-                v.flatten()
-            except:
-                pass
+    new_score = stream.Score()
 
 
-    # --------------------------
-    # remove chords
-    # --------------------------
-    print("remove chords")
-
-    for part in score.parts:
-
-        for c in list(part.recurse().getElementsByClass('Chord')):
-
-            n = note.Note(
-                c.pitches[0],
-                quarterLength=c.duration.quarterLength
-            )
-
-            c.activeSite.replace(c, n)
+    for old_part in score.parts:
 
 
-    # --------------------------
-    # quantize
-    # --------------------------
-    print("quantize")
+        print("flatten notes")
 
-    try:
-        score.quantize(
-            quarterLengthDivisors=[
-                1,
-                2,
-                4
-            ]
-        )
-    except Exception as e:
-        print("quantize skip:", e)
+        flat = old_part.flatten()
 
 
-
-    # --------------------------
-    # force 4/4
-    # --------------------------
-    print("force 4/4")
-
-    for part in score.parts:
-
-        part.insert(
-            0,
-            meter.TimeSignature("4/4")
-        )
+        events = []
 
 
-    # --------------------------
-    # fix measures
-    # --------------------------
-    print("fix measures")
+        # -------------------------
+        # 只保留 Note / Rest
+        # -------------------------
+
+        for e in flat.notesAndRests:
 
 
-    for part in score.parts:
+            if isinstance(e, chord.Chord):
+
+                n = note.Note(
+                    e.pitches[0],
+                    quarterLength=e.duration.quarterLength
+                )
+
+                events.append(n)
 
 
-        measures = part.makeMeasures()
+            elif isinstance(e, note.Note):
+
+                n = note.Note(
+                    e.pitch,
+                    quarterLength=e.duration.quarterLength
+                )
+
+                events.append(n)
+
+
+            elif isinstance(e, note.Rest):
+
+                r = note.Rest(
+                    quarterLength=e.duration.quarterLength
+                )
+
+                events.append(r)
+
+
+
+        print("rebuild measures")
 
 
         new_part = stream.Part()
 
 
-        for m in measures:
+        measure_no = 1
+        current_measure = stream.Measure(
+            number=measure_no
+        )
 
-            total = 0
 
-            fixed = stream.Measure(
-                number=m.number
+        current_length = 0
+
+
+        for e in events:
+
+
+            ql = float(e.duration.quarterLength)
+
+
+            # -------------------------
+            # 修正奇怪 duration
+            # -------------------------
+
+            allowed = [
+                0.25,
+                0.5,
+                0.75,
+                1,
+                1.5,
+                2,
+                3,
+                4
+            ]
+
+
+            ql = min(
+                allowed,
+                key=lambda x: abs(x-ql)
             )
 
 
-            for element in m.notesAndRests:
-
-                ql = element.duration.quarterLength
+            e.duration.quarterLength = ql
 
 
-                # 太長切掉
-                if ql > 4:
 
-                    print(
-                        "trim long:",
-                        ql
-                    )
+            # -------------------------
+            # 超過4拍
+            # 換下一小節
+            # -------------------------
 
-                    element.duration.quarterLength = 4
+            if current_length + ql > 4:
 
 
-                # 修正怪長度
-                allowed = [
-                    0.25,
-                    0.5,
-                    0.75,
-                    1,
-                    1.5,
-                    2,
-                    3,
-                    4
-                ]
+                remain = 4-current_length
 
 
-                q = element.duration.quarterLength
+                if remain > 0:
 
-
-                closest = min(
-                    allowed,
-                    key=lambda x:abs(x-q)
-                )
-
-
-                element.duration.quarterLength = closest
-
-
-                # 防止超過4拍
-                if total + closest > 4:
-
-                    remain = 4-total
-
-                    if remain > 0:
-
-                        r = note.Rest(
+                    current_measure.append(
+                        note.Rest(
                             quarterLength=remain
                         )
-
-                        fixed.append(r)
-
-                    break
-
-
-                fixed.append(element)
-
-                total += closest
-
-
-
-            # 不足補休止
-            if total < 4:
-
-                fixed.append(
-                    note.Rest(
-                        quarterLength=4-total
                     )
+
+
+                new_part.append(
+                    current_measure
                 )
 
 
-            new_part.append(fixed)
+                measure_no += 1
+
+
+                current_measure = stream.Measure(
+                    number=measure_no
+                )
+
+
+                current_length = 0
 
 
 
-        part.clear()
+            current_measure.append(e)
 
-        for x in new_part:
-
-            part.append(x)
+            current_length += ql
 
 
 
-    # --------------------------
-    # remove empty measures
-    # --------------------------
+        # 最後不足補休止
+
+        if current_length < 4:
+
+            current_measure.append(
+                note.Rest(
+                    quarterLength=4-current_length
+                )
+            )
+
+
+        new_part.append(
+            current_measure
+        )
+
+
+
+        # -------------------------
+        # 強制4/4
+        # -------------------------
+
+        print("force 4/4")
+
+
+        new_part.insert(
+            0,
+            meter.TimeSignature("4/4")
+        )
+
+
+        new_score.append(
+            new_part
+        )
+
+
 
     print("remove empty measures")
 
-    for part in score.parts:
+
+    for part in new_score.parts:
 
         for m in list(
             part.getElementsByClass("Measure")
@@ -205,13 +209,10 @@ def clean(input_file, output_file):
 
 
 
-    # --------------------------
-    # write
-    # --------------------------
-
     print("write")
 
-    score.write(
+
+    new_score.write(
         "musicxml",
         fp=output_file
     )
@@ -225,7 +226,7 @@ def clean(input_file, output_file):
 if __name__ == "__main__":
 
 
-    if len(sys.argv)<3:
+    if len(sys.argv) < 3:
 
         print(
             "python clean_musicxml.py input.musicxml output.musicxml"
