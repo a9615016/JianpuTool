@@ -1,220 +1,167 @@
 import sys
-import music21
-from music21 import stream, note, meter, duration, tie
+from music21 import converter, meter, note, chord, stream
 
 
-VERSION = "CLEAN MUSICXML V23.4 FINAL BAR QUANTIZE"
+VERSION = "CLEAN MUSICXML V23.5 FINAL TIMESIG SAFE"
 
 
-def remove_bad_elements(score):
-
-    print("remove voices")
-
-    for p in score.parts:
-        for n in list(p.recurse()):
-            
-            # remove chord
-            if n.classes and "Chord" in n.classes:
-                try:
-                    n.activeSite.remove(n)
-                except:
-                    pass
-
-
-    print("remove beams")
-
-    for n in score.recurse().notes:
-
-        try:
-            # 正確移除 beam object
-            n.beams = music21.beam.Beams()
-        except:
-            pass
-
-
-    print("remove ties")
-
-    for n in score.recurse().notes:
-
-        try:
-            n.tie = None
-        except:
-            pass
-
-
-    print("remove dots")
-
-    for n in score.recurse().notes:
-
-        try:
-            n.duration.dots = 0
-        except:
-            pass
-
-
-
-def quantize_duration(score):
-
-    print("duration quantize")
-
-    allowed = [
-        4.0,
-        2.0,
-        1.0,
-        0.5,
-        0.25
-    ]
-
-
-    for n in score.recurse().notes:
-
-        q = n.duration.quarterLength
-
-        closest = min(
-            allowed,
-            key=lambda x:abs(x-q)
-        )
-
-        n.duration = duration.Duration(
-            closest
-        )
-
-
-
-def rebuild_measure(score):
-
-    print("force 4/4")
-
-    for p in score.parts:
-
-        p.insert(
-            0,
-            meter.TimeSignature("4/4")
-        )
-
-
-    print("rebuild measures")
-
-    try:
-
-        score.makeMeasures(
-            inPlace=True
-        )
-
-    except Exception as e:
-
-        print(
-            "makeMeasures skip:",
-            e
-        )
-
-
-
-def split_long_notes(score):
-
-    print("split duration")
-
-
-    for p in score.parts:
-
-        measures = list(
-            p.getElementsByClass(
-                stream.Measure
-            )
-        )
-
-
-        for m in measures:
-
-            total = 0
-
-            for n in list(m.notes):
-
-                q = n.duration.quarterLength
-
-
-                if total + q > 4:
-
-                    remain = 4-total
-
-
-                    if remain > 0:
-
-                        n.duration = duration.Duration(
-                            remain
-                        )
-
-
-                    continue
-
-
-                total += q
-
-
-
-def check_measure(score):
-
-    print("check measures")
-
-
-    for i,m in enumerate(
-        score.recurse()
-        .getElementsByClass(stream.Measure),
-        1
-    ):
-
-        length = m.duration.quarterLength
-
-        print(
-            "Measure",
-            i,
-            length
-        )
-
-
-        if length != 4:
-
-            print(
-                "WARNING measure",
-                i,
-                length
-            )
-
-
-
-def clean_musicxml(
-        input_file,
-        output_file
-):
+def clean_musicxml(input_file, output_file):
 
     print("================")
     print(VERSION)
     print("================")
 
-
     print("read")
 
-    score = music21.converter.parse(
-        input_file
-    )
+    score = converter.parse(input_file)
 
 
-    remove_bad_elements(score)
+    print("remove voices")
+
+    for part in score.parts:
+
+        # remove voices
+        for v in list(part.recurse().getElementsByClass('Voice')):
+            v.activeSite.remove(v)
 
 
-    quantize_duration(score)
+        print("remove chords")
+
+        for c in list(part.recurse().getElementsByClass('Chord')):
+            n = note.Note(c.root())
+            n.duration = c.duration
+            c.activeSite.replace(c, n)
 
 
-    rebuild_measure(score)
+        print("remove beams")
+
+        for n in part.recurse().notes:
+            try:
+                n.beams = None
+            except:
+                pass
 
 
-    split_long_notes(score)
+        print("remove ties")
+
+        for n in part.recurse().notes:
+            try:
+                n.tie = None
+            except:
+                pass
 
 
-    remove_bad_elements(score)
+        print("duration safe")
+
+        for n in part.recurse().notes:
+
+            if n.duration.quarterLength <= 0:
+                n.duration.quarterLength = 1
 
 
-    check_measure(score)
+
+    print("force 4/4")
+
+    for part in score.parts:
+
+        # 清掉舊拍號
+        for ts in list(part.recurse().getElementsByClass(meter.TimeSignature)):
+            ts.activeSite.remove(ts)
+
+        part.insert(
+            0,
+            meter.TimeSignature("4/4")
+        )
+
+
+
+    print("remove anacrusis")
+
+    try:
+        score.anacrusis = False
+    except:
+        pass
+
+
+
+    print("rebuild measures")
+
+
+    for part in score.parts:
+
+        try:
+            part.makeMeasures(
+                meterStream=part.recurse().getElementsByClass(
+                    meter.TimeSignature
+                )
+            )
+        except Exception as e:
+            print("measure rebuild skip:", e)
+
+
+
+    print("split long notes")
+
+
+    for part in score.parts:
+
+        for n in list(part.recurse().notes):
+
+            if n.duration.quarterLength > 4:
+
+                remain = n.duration.quarterLength
+
+                n.duration.quarterLength = 4
+
+                remain -= 4
+
+                while remain > 0:
+
+                    new_n = note.Note(n.pitch)
+
+                    length = min(remain,4)
+
+                    new_n.duration.quarterLength = length
+
+                    part.insert(
+                        n.offset + 4,
+                        new_n
+                    )
+
+                    remain -= length
+
+
+
+    print("final timesig check")
+
+
+    for part in score.parts:
+
+        measures = part.getElementsByClass(
+            stream.Measure
+        )
+
+        for m in measures:
+
+            if len(
+                m.getElementsByClass(
+                    meter.TimeSignature
+                )
+            ) == 0:
+
+                m.insert(
+                    0,
+                    meter.TimeSignature("4/4")
+                )
+
+
+
+    print("clear notation cache")
+
+    try:
+        score.streamStatus._beams = None
+    except:
+        pass
 
 
     print("FINAL WRITE")
@@ -234,14 +181,11 @@ def clean_musicxml(
 
 if __name__ == "__main__":
 
-
-    if len(sys.argv)<3:
-
+    if len(sys.argv) < 3:
         print(
             "python clean_musicxml.py input.musicxml output.musicxml"
         )
-
-        sys.exit()
+        sys.exit(1)
 
 
     clean_musicxml(
