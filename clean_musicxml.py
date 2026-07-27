@@ -1,6 +1,6 @@
 import sys
 import music21
-import os
+from music21 import stream, note, meter, duration
 
 
 print("================")
@@ -9,237 +9,254 @@ print("TRUE NOTE SPLIT VERSION")
 print("================")
 
 
-if len(sys.argv) < 2:
-    print("usage: python clean_musicxml.py input.musicxml output.musicxml")
-    sys.exit(1)
+def split_cross_measure_notes(score):
 
+    print("SPLIT EVERY CROSSING NOTE")
 
-input_file = sys.argv[1]
+    new_score = stream.Score()
 
-if len(sys.argv) >= 3:
-    output_file = sys.argv[2]
-else:
-    output_file = input_file.replace(".musicxml", "_clean.musicxml")
+    for part in score.parts:
 
+        new_part = stream.Part()
 
-print("read")
-score = music21.converter.parse(input_file)
+        current_measure = None
 
+        for m in part.getElementsByClass('Measure'):
 
-# ==========================
-# remove voices
-# ==========================
+            current_measure = m
 
-print("remove voices")
-
-for p in score.parts:
-    for el in list(p.recurse()):
-        if isinstance(el, music21.note.NotRest):
-            try:
-                el.activeSite = None
-            except:
-                pass
-
-
-# ==========================
-# remove chords
-# ==========================
-
-print("remove chords")
-
-for p in score.parts:
-    for chord in list(p.recurse().getElementsByClass("Chord")):
-        notes = chord.notes
-
-        for n in notes:
-            chord.activeSite.insert(chord.offset, n)
-
-        chord.activeSite.remove(chord)
-
-
-# ==========================
-# remove notation
-# ==========================
-
-print("remove beams")
-for n in score.recurse().notes:
-    if hasattr(n, "beams"):
-        n.beams = music21.beam.Beams()
-
-
-print("remove ties")
-for n in score.recurse().notes:
-    n.tie = None
-
-
-
-# ==========================
-# force 4/4
-# ==========================
-
-print("force 4/4")
-
-for p in score.parts:
-    p.insert(0, music21.meter.TimeSignature("4/4"))
-
-
-
-# ==========================
-# quantize duration
-# ==========================
-
-print("duration quantize")
-
-
-allowed = [
-    4,
-    2,
-    1,
-    0.5,
-    0.25,
-    0.125
-]
-
-
-def quantize(x):
-
-    return min(
-        allowed,
-        key=lambda y: abs(y-x)
-    )
-
-
-for n in score.recurse().notes:
-
-    q = quantize(
-        float(n.duration.quarterLength)
-    )
-
-    n.duration.quarterLength = q
-
-
-
-# ==========================
-# TRUE NOTE SPLIT
-# ==========================
-
-print("TRUE NOTE SPLIT")
-
-
-for part in score.parts:
-
-    measures = part.makeMeasures()
-
-    new_stream = music21.stream.Part()
-
-    ts = music21.meter.TimeSignature("4/4")
-
-    current_measure = 1
-    measure_pos = 0
-
-
-    for element in part.flatten().notesAndRests:
-
-        dur = float(element.duration.quarterLength)
-
-
-        while dur > 0:
-
-
-            remain = 4 - measure_pos
-
-
-            take = min(
-                dur,
-                remain
+            new_measure = stream.Measure(
+                number=m.number
             )
 
-
-            new_element = element.clone()
-
-
-            new_element.duration.quarterLength = take
+            new_measure.timeSignature = meter.TimeSignature("4/4")
 
 
-            new_stream.insert(
-                measure_pos + (current_measure-1)*4,
-                new_element
-            )
+            for n in m.notesAndRests:
+
+                if not isinstance(n, note.Note):
+                    new_measure.append(n)
+                    continue
 
 
-            dur -= take
-
-            measure_pos += take
-
-
-            if measure_pos >= 4:
-
-                measure_pos = 0
-                current_measure += 1
+                offset = n.offset
+                length = n.duration.quarterLength
 
 
-
-    part.clear()
-
-    for e in new_stream:
-        part.insert(e.offset,e)
+                # 4/4 一小節長度
+                bar_length = 4.0
 
 
-
-# ==========================
-# rebuild measures
-# ==========================
-
-print("rebuild measures")
-
-score = score.makeMeasures(
-    inPlace=False
-)
+                start = offset
+                end = offset + length
 
 
-# ==========================
-# fill rests
-# ==========================
+                if end <= bar_length:
 
-print("fill rests")
+                    new_measure.append(n)
+
+                else:
+
+                    print(
+                        "CUT NOTE:",
+                        n.pitch,
+                        "duration",
+                        length
+                    )
 
 
-for p in score.parts:
+                    first_length = bar_length - start
 
-    p.makeRests(
-        fillGaps=True,
+                    second_length = length - first_length
+
+
+                    if first_length > 0:
+
+                        n1 = note.Note(
+                            n.pitch
+                        )
+
+                        n1.duration = duration.Duration(
+                            first_length
+                        )
+
+                        new_measure.append(n1)
+
+
+
+                    if second_length > 0:
+
+                        # 放到下一小節
+                        n2 = note.Note(
+                            n.pitch
+                        )
+
+                        n2.duration = duration.Duration(
+                            second_length
+                        )
+
+                        # 建立下一 measure
+                        # 先加入標記
+                        new_measure.insert(
+                            4,
+                            n2
+                        )
+
+
+            new_part.append(new_measure)
+
+
+        new_score.append(new_part)
+
+
+    return new_score
+
+
+
+def clean(input_file, output_file):
+
+    print("READ")
+
+    score = music21.converter.parse(input_file)
+
+
+    print("remove voices")
+
+    for p in score.parts:
+        for v in p.recurse().getElementsByClass('Voice'):
+            v.activeSite.remove(v)
+
+
+
+    print("remove chords")
+
+    for c in score.recurse().getElementsByClass(
+        'Chord'
+    ):
+        c.notes[0].activeSite.replace(
+            c,
+            c.notes[0]
+        )
+
+
+
+    print("remove beams")
+
+    for n in score.recurse().notes:
+
+        n.beams = None
+
+
+
+    print("remove ties")
+
+    for n in score.recurse().notes:
+
+        n.tie = None
+
+
+
+    print("force 4/4")
+
+    for p in score.parts:
+
+        p.insert(
+            0,
+            meter.TimeSignature("4/4")
+        )
+
+
+    print("quantize duration")
+
+    for n in score.recurse().notesAndRests:
+
+        q = n.duration.quarterLength
+
+        values = [
+            0.25,
+            0.5,
+            1,
+            2,
+            4
+        ]
+
+        closest = min(
+            values,
+            key=lambda x:abs(x-q)
+        )
+
+        n.duration.quarterLength = closest
+
+
+
+    score = split_cross_measure_notes(score)
+
+
+
+    print("REBUILD MEASURES")
+
+    score.makeMeasures(
         inPlace=True
     )
 
 
+    print("FILL REST")
 
-# ==========================
-# final check
-# ==========================
+    for p in score.parts:
+
+        p.makeRests(
+            fillGaps=True,
+            inPlace=True
+        )
 
 
-print("FINAL CHECK")
+    print("FINAL CHECK")
 
 
-for m in score.parts[0].getElementsByClass("Measure"):
+    for m in score.parts[0].getElementsByClass(
+        'Measure'
+    ):
 
-    length = m.duration.quarterLength
+        total = 0
 
-    print(
-        "Measure",
-        m.number,
-        length
+        for n in m.notesAndRests:
+
+            total += n.duration.quarterLength
+
+
+        print(
+            "Measure",
+            m.number,
+            total
+        )
+
+
+
+    print("FINAL WRITE")
+
+    score.write(
+        "musicxml",
+        fp=output_file
     )
 
 
-print("FINAL WRITE")
+    print("DONE")
+    print(output_file)
 
 
-score.write(
-    "musicxml",
-    fp=output_file
-)
+
+if __name__ == "__main__":
+
+    if len(sys.argv) < 3:
+
+        print(
+            "python clean_musicxml.py input.musicxml output.musicxml"
+        )
+
+        sys.exit()
 
 
-print("DONE")
-print(output_file)
+    clean(
+        sys.argv[1],
+        sys.argv[2]
+    )
