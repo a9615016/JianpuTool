@@ -4,18 +4,15 @@ import os
 
 
 print("================")
-print("CLEAN MUSICXML")
+print("CLEAN MUSICXML V16")
 print("================")
 
 
-def quantize_duration(q):
-    """
-    將 duration 限制到 jianpu_ly 支援範圍
-    """
+def quantize(q):
 
-    allowed = [
-        0.25,   # 16分音符
-        0.5,    # 8分音符
+    values = [
+        0.25,
+        0.5,
         0.75,
         1,
         1.5,
@@ -25,33 +22,102 @@ def quantize_duration(q):
     ]
 
     return min(
-        allowed,
-        key=lambda x: abs(x - q)
+        values,
+        key=lambda x: abs(x-q)
     )
+
+
+def fix_measure(measure):
+
+    limit = 4.0
+
+    total = 0
+
+    new_elements = []
+
+
+    for n in measure.notesAndRests:
+
+        dur = quantize(
+            float(n.duration.quarterLength)
+        )
+
+
+        # 已經超過小節
+        if total >= limit:
+            break
+
+
+        # 最後剩餘拍數
+        remain = limit - total
+
+
+        if dur > remain:
+
+            dur = remain
+
+
+        if dur > 0:
+
+            n.duration.quarterLength = dur
+
+            new_elements.append(n)
+
+            total += dur
+
+
+
+    # 不足補休止符
+
+    if total < limit:
+
+        rest = music21.note.Rest()
+
+        rest.duration.quarterLength = (
+            limit-total
+        )
+
+        new_elements.append(rest)
+
+
+    # 清空原小節
+
+    for n in list(measure.notesAndRests):
+
+        measure.remove(n)
+
+
+    for n in new_elements:
+
+        measure.insert(
+            measure.offset,
+            n
+        )
 
 
 def clean(input_file, output_file):
 
-    print("input:", input_file)
+    print("input:",input_file)
 
 
-    score = music21.converter.parse(input_file)
+    score = music21.converter.parse(
+        input_file
+    )
 
 
     print("remove voices")
 
+
     for part in score.parts:
 
-        for measure in part.getElementsByClass(
-            music21.stream.Measure
+        for v in list(
+            part.recurse().getElementsByClass(
+                music21.stream.Voice
+            )
         ):
 
-            for v in list(
-                measure.getElementsByClass(
-                    music21.stream.Voice
-                )
-            ):
-                v.remove()
+            v.activeSite.remove(v)
+
 
 
     print("remove chords")
@@ -59,36 +125,31 @@ def clean(input_file, output_file):
 
     for part in score.parts:
 
-        for measure in part.getElementsByClass(
-            music21.stream.Measure
+        for chord in list(
+            part.recurse().getElementsByClass(
+                music21.chord.Chord
+            )
         ):
 
-            for element in list(measure.notes):
+            notes = chord.notes
 
-                if isinstance(
-                    element,
-                    music21.chord.Chord
-                ):
+            if notes:
 
-                    # 取最高音
-                    note = element.notes[-1]
+                chord.activeSite.replace(
+                    chord,
+                    notes[-1]
+                )
 
-                    element.replace(
-                        element,
-                        note
-                    )
 
 
     print("quantize")
 
 
-    for note in score.recurse().notesAndRests:
+    for n in score.recurse().notesAndRests:
 
-        q = note.duration.quarterLength
-
-        new_q = quantize_duration(q)
-
-        note.duration.quarterLength = new_q
+        n.duration.quarterLength = quantize(
+            n.duration.quarterLength
+        )
 
 
 
@@ -97,54 +158,30 @@ def clean(input_file, output_file):
 
     for part in score.parts:
 
-        for measure in part.getElementsByClass(
+        for m in part.getElementsByClass(
             music21.stream.Measure
         ):
 
-            measure.timeSignature = (
-                music21.meter.TimeSignature("4/4")
+            m.timeSignature = (
+                music21.meter.TimeSignature(
+                    "4/4"
+                )
             )
 
 
-    print("fix duration")
+
+    print("fix measures")
 
 
     for part in score.parts:
 
-        total = 0
-
-        for measure in part.getElementsByClass(
+        measures = part.getElementsByClass(
             music21.stream.Measure
-        ):
+        )
 
-            length = 0
+        for m in measures:
 
-            for n in measure.notesAndRests:
-
-                length += n.duration.quarterLength
-
-
-            # 超過4拍，縮短最後音符
-            if length > 4:
-
-                diff = length - 4
-
-                elems = list(
-                    measure.notesAndRests
-                )
-
-                if elems:
-
-                    last = elems[-1]
-
-                    new_len = (
-                        last.duration.quarterLength
-                        - diff
-                    )
-
-                    if new_len > 0:
-
-                        last.duration.quarterLength = new_len
+            fix_measure(m)
 
 
 
@@ -159,7 +196,7 @@ def clean(input_file, output_file):
             )
         ):
 
-            if len(m.notesAndRests) == 0:
+            if len(m.notesAndRests)==0:
 
                 part.remove(m)
 
@@ -174,17 +211,19 @@ def clean(input_file, output_file):
     )
 
 
-    print("DONE", output_file)
+    print(
+        "DONE",
+        output_file
+    )
 
 
 
-if __name__ == "__main__":
+if __name__=="__main__":
 
-
-    if len(sys.argv) < 3:
+    if len(sys.argv)<3:
 
         print(
-            "usage: python clean_musicxml.py input.musicxml output.musicxml"
+            "python clean_musicxml.py input.musicxml output.musicxml"
         )
 
         sys.exit(1)
