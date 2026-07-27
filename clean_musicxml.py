@@ -1,10 +1,14 @@
+print("==============================")
+print("CLEAN MUSICXML V26 JIANPU SAFE")
+print("==============================")
+
+
+
+
 from music21 import converter, stream, note, chord, meter
 import sys
 
 
-print("==============================")
-print("CLEAN MUSICXML V26 JIANPU SAFE")
-print("==============================")
 
 
 src = sys.argv[1]
