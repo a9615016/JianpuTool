@@ -3,69 +3,6 @@ import os
 import music21
 
 
-def fix_measure_duration(score):
-    """
-    修正每小節拍數
-    目標: 4/4 = 4拍
-    """
-
-    print("修正 measure duration")
-
-    for part in score.parts:
-
-        measures = list(part.getElementsByClass("Measure"))
-
-        for m in measures:
-
-            total = 0
-
-            for n in m.notesAndRests:
-                total += n.duration.quarterLength
-
-
-            # 4/4 = 4拍
-            if total < 4:
-
-                diff = 4 - total
-
-                print(
-                    "補休止:",
-                    m.number,
-                    diff
-                )
-
-                r = music21.note.Rest()
-                r.duration.quarterLength = diff
-                m.append(r)
-
-
-            elif total > 4:
-
-                print(
-                    "超拍:",
-                    m.number,
-                    total
-                )
-
-                # 嘗試縮短最後一個音
-                last = m.notesAndRests[-1]
-
-                overflow = total - 4
-
-                new_length = (
-                    last.duration.quarterLength
-                    - overflow
-                )
-
-
-                if new_length > 0:
-                    last.duration.quarterLength = new_length
-
-
-    return score
-
-
-
 def clean(input_file, output_file):
 
     print("================")
@@ -74,90 +11,116 @@ def clean(input_file, output_file):
 
     print("input:", input_file)
 
-
-    score = music21.converter.parse(
-        input_file
-    )
-
+    score = music21.converter.parse(input_file)
 
     print("remove voices")
 
-    # 保留第一聲部
+    # 移除 voice 標記
     for part in score.parts:
-
-        voices = part.getElementsByClass(
-            music21.stream.Voice
-        )
-
-        if len(voices):
-
-            first = voices[0]
-
-            part.removeByClass(
-                music21.stream.Voice
-            )
-
-            for x in first:
-                part.append(x)
-
+        for el in part.recurse():
+            if hasattr(el, "voice"):
+                try:
+                    el.voice = None
+                except:
+                    pass
 
 
     print("remove chords")
 
-    for chord in score.recurse().getElementsByClass(
-        music21.chord.Chord
-    ):
+    # Chord 改成最高音 Note
+    for part in score.parts:
 
-        pitch = chord.sortAscending()[0]
-
-        chord.replace(
-            music21.note.Note(pitch)
+        chords = list(
+            part.recurse().getElementsByClass(
+                music21.chord.Chord
+            )
         )
 
+        for c in chords:
+
+            if len(c.notes) > 0:
+
+                highest = max(
+                    c.notes,
+                    key=lambda n: n.pitch.midi
+                )
+
+                n = music21.note.Note(
+                    highest.pitch
+                )
+
+                n.duration = c.duration
+
+                c.activeSite.replace(
+                    c,
+                    n
+                )
 
 
-    print("remove grace")
+    print("remove grace notes")
 
     for n in score.recurse().notes:
 
-        if n.duration.isGrace:
-
-            n.duration = music21.duration.Duration(
-                0.25
-            )
-
-
-
-    print("force 4/4")
-
-    for m in score.recurse().getElementsByClass(
-        music21.stream.Measure
-    ):
-
-        m.timeSignature = music21.meter.TimeSignature(
-            "4/4"
-        )
+        try:
+            if n.duration.isGrace:
+                n.activeSite.remove(n)
+        except:
+            pass
 
 
 
     print("fix duration")
 
-    score = fix_measure_duration(score)
+    # 量化節奏
+    for n in score.recurse().notesAndRests:
+
+        try:
+
+            q = n.duration.quarterLength
+
+            allowed = [
+                0.25,
+                0.5,
+                0.75,
+                1,
+                1.5,
+                2,
+                3,
+                4
+            ]
+
+            closest = min(
+                allowed,
+                key=lambda x: abs(x-q)
+            )
+
+            n.duration.quarterLength = closest
+
+        except:
+            pass
 
 
 
-    print("quantize")
+    print("force 4/4")
+
+    for part in score.parts:
+
+        part.insert(
+            0,
+            music21.meter.TimeSignature("4/4")
+        )
 
 
-    score.quantize(
-        quarterLengthDivisors=[
-            1,
-            2,
-            4,
-            8,
-            16
-        ]
-    )
+    print("remove empty")
+
+    for part in score.parts:
+
+        for m in list(part.getElementsByClass("Measure")):
+
+            if len(m.notesAndRests) == 0:
+
+                part.remove(m)
+
 
 
     print("write")
@@ -168,34 +131,23 @@ def clean(input_file, output_file):
     )
 
 
-    print(
-        "DONE",
-        output_file
-    )
+    print("DONE")
+    print(output_file)
 
 
 
 if __name__ == "__main__":
 
-    if len(sys.argv) < 2:
+    if len(sys.argv) < 3:
+
         print(
-            "usage: python clean_musicxml.py input.musicxml [output.musicxml]"
+            "usage: python clean_musicxml.py input.musicxml output.musicxml"
         )
+
         sys.exit(1)
 
 
-    inp = sys.argv[1]
-
-
-    if len(sys.argv) >= 3:
-        out = sys.argv[2]
-
-    else:
-        out = os.path.splitext(inp)[0] + "_clean.musicxml"
-
-
-
     clean(
-        inp,
-        out
+        sys.argv[1],
+        sys.argv[2]
     )
