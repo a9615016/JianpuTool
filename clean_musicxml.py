@@ -1,4 +1,3 @@
-```python
 import sys
 import music21
 import os
@@ -98,4 +97,3 @@ if __name__ == "__main__":
         sys.argv[1],
         sys.argv[2]
     )
-```
