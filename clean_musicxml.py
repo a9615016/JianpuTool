@@ -1,141 +1,52 @@
 import sys
 import music21
-from music21 import stream, note, meter, duration
+from music21 import stream, meter, note, chord, tie
 
 
-VERSION = "CLEAN MUSICXML V23.6 FINAL DURATION SPLIT SAFE"
+VERSION = "CLEAN MUSICXML V23.7 FINAL MEASURE SPLIT SAFE"
 
 
-SAFE_DURATIONS = [
-    0.25,
-    0.5,
-    0.75,
-    1,
-    1.5,
-    2,
-    3,
-    4
-]
+def remove_bad_elements(score):
+
+    print("remove voices")
+
+    for part in score.parts:
+        for el in list(part.recurse()):
+            if hasattr(el, "voices"):
+                try:
+                    el.voices = []
+                except:
+                    pass
 
 
-def split_duration_value(q):
+    print("remove chords")
 
-    result = []
+    for part in score.parts:
+        for c in list(part.recurse().getElementsByClass("Chord")):
+            try:
+                n = note.Note(c.pitches[0])
+                n.duration = c.duration
+                c.activeSite.replace(c, n)
+            except:
+                pass
 
-    while q > 4:
-        result.append(4)
-        q -= 4
-
-    if q > 0:
-        result.append(q)
-
-    return result
-
-
-
-def remove_beams(score):
 
     print("remove beams")
 
     for n in score.recurse().notes:
-
         try:
-            n.beams = None
+            n.beams = music21.beam.Beams()
         except:
             pass
 
-
-
-def remove_ties(score):
 
     print("remove ties")
 
     for n in score.recurse().notes:
-
         try:
             n.tie = None
         except:
             pass
-
-
-
-def remove_chords(score):
-
-    print("remove chords")
-
-    for c in list(score.recurse().getElementsByClass("Chord")):
-
-        notes = []
-
-        for p in c.pitches:
-
-            n = note.Note(p)
-            n.duration = c.duration
-            notes.append(n)
-
-        c.activeSite.replace(c, notes)
-
-
-
-def remove_voices(score):
-
-    print("remove voices")
-
-    for v in score.recurse().getElementsByClass("Voice"):
-
-        try:
-            v.activeSite.remove(v)
-
-        except:
-            pass
-
-
-
-def duration_split(score):
-
-    print("duration split")
-
-    for part in score.parts:
-
-        new_part = stream.Part()
-
-        for elem in part.flatten().notesAndRests:
-
-            q = elem.duration.quarterLength
-
-
-            # 正常長度
-            if q in SAFE_DURATIONS:
-
-                new_part.append(elem)
-
-            else:
-
-                values = split_duration_value(q)
-
-
-                for d in values:
-
-                    if isinstance(elem, note.Note):
-
-                        n = note.Note(elem.pitch)
-
-                    else:
-
-                        n = note.Rest()
-
-
-                    n.duration = duration.Duration(d)
-
-                    new_part.append(n)
-
-
-
-        part.clear()
-
-        for x in new_part:
-
-            part.append(x)
 
 
 
@@ -145,38 +56,126 @@ def force_time_signature(score):
 
     for part in score.parts:
 
-        found = False
-
-        for m in part.getElementsByClass("Measure"):
-
-            for ts in m.getTimeSignatures():
-
-                ts.numerator = 4
-                ts.denominator = 4
-                found = True
+        # 清除舊拍號
+        for ts in list(
+            part.recurse()
+            .getElementsByClass("TimeSignature")
+        ):
+            ts.activeSite.remove(ts)
 
 
-        if not found:
+        part.insert(
+            0,
+            meter.TimeSignature("4/4")
+        )
 
-            part.insert(
-                0,
-                meter.TimeSignature("4/4")
+
+
+def split_long_measures(score):
+
+    print("measure split")
+
+    for part in score.parts:
+
+        measures = list(
+            part.getElementsByClass("Measure")
+        )
+
+        new_measures = []
+
+        for m in measures:
+
+            q = m.duration.quarterLength
+
+            print(
+                "Measure",
+                m.number,
+                q
             )
 
 
+            # 正常小節
+            if q <= 4:
+                new_measures.append(m)
+                continue
 
-def check_duration(score):
-
-    print("final duration check")
-
-    for n in score.recurse().notes:
-
-        q = n.duration.quarterLength
-
-        if q not in SAFE_DURATIONS:
 
             print(
-                "WARNING duration:",
+                "SPLIT LONG MEASURE:",
+                q
+            )
+
+
+            current = stream.Measure()
+            current.number = m.number
+
+
+            length = 0
+
+
+            for el in m.notesAndRests:
+
+                dur = el.duration.quarterLength
+
+
+                # 超過4拍切斷
+                if length + dur > 4:
+
+                    remain = 4 - length
+
+                    if remain > 0:
+
+                        e1 = el.clone()
+                        e1.duration.quarterLength = remain
+                        current.append(e1)
+
+
+                    new_measures.append(current)
+
+
+                    current = stream.Measure()
+                    current.number = m.number
+
+                    length = 0
+
+
+                current.append(el)
+
+                length += dur
+
+
+            if len(current.notesAndRests) > 0:
+                new_measures.append(current)
+
+
+        # 重建 part
+
+        part.remove(
+            part.getElementsByClass("Measure")
+        )
+
+        for m in new_measures:
+            part.append(m)
+
+
+
+def final_check(score):
+
+    print("check measures")
+
+    for m in score.recurse().getElementsByClass("Measure"):
+
+        q = m.duration.quarterLength
+
+        print(
+            "Measure",
+            m.number,
+            q
+        )
+
+        if q > 4:
+            print(
+                "WARNING LONG MEASURE",
                 q
             )
 
@@ -196,23 +195,13 @@ def clean_musicxml(input_file, output_file):
     )
 
 
-    remove_voices(score)
-
-    remove_chords(score)
-
-    remove_beams(score)
-
-    remove_ties(score)
+    remove_bad_elements(score)
 
     force_time_signature(score)
 
-    duration_split(score)
+    split_long_measures(score)
 
-    remove_beams(score)
-
-    remove_ties(score)
-
-    check_duration(score)
+    final_check(score)
 
 
     print("FINAL WRITE")
@@ -235,7 +224,7 @@ if __name__ == "__main__":
     if len(sys.argv) < 3:
 
         print(
-            "python clean_musicxml.py input.musicxml output.musicxml"
+            "usage: python clean_musicxml.py input.musicxml output.musicxml"
         )
 
         sys.exit()
