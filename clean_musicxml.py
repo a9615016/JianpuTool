@@ -1,9 +1,67 @@
 import sys
-import music21
-from music21 import chord, note, stream
+from music21 import converter, stream, note, chord, meter, bar
 
 
-VERSION = "CLEAN MUSICXML V22.3"
+VERSION = "CLEAN MUSICXML V22.4"
+
+
+def split_crossing_notes(score, ticks_per_measure=64):
+
+    print("split crossing notes")
+
+    for part in score.parts:
+
+        new_part = stream.Part()
+
+        current_tick = 0
+
+        for element in part.flatten().notesAndRests:
+
+            if isinstance(element, note.Note):
+
+                dur = element.duration.quarterLength
+
+                start = current_tick
+                end = current_tick + dur * 16
+
+                while end > ticks_per_measure:
+
+                    remain = ticks_per_measure - start
+
+                    if remain > 0:
+
+                        n = note.Note(element.pitch)
+                        n.duration.quarterLength = remain / 16
+                        new_part.append(n)
+
+                    element.duration.quarterLength = (
+                        (end - ticks_per_measure) / 16
+                    )
+
+                    start = 0
+                    end = element.duration.quarterLength * 16
+
+                    current_tick = 0
+
+                new_part.append(element)
+
+            elif isinstance(element, chord.Chord):
+
+                # chord 改成最高音
+                n = note.Note(element.pitches[-1])
+                n.duration.quarterLength = element.duration.quarterLength
+                new_part.append(n)
+
+            else:
+                new_part.append(element)
+
+
+            current_tick += element.duration.quarterLength * 16
+
+
+        part.coreElementsChanged()
+        part.replace(part.elements, new_part.elements)
+
 
 
 def clean_musicxml(input_file, output_file):
@@ -14,104 +72,54 @@ def clean_musicxml(input_file, output_file):
 
     print("input:", input_file)
 
-    score = music21.converter.parse(input_file)
-
     print("read")
 
+    score = converter.parse(input_file)
 
-    # =========================
-    # remove voices
-    # =========================
+
     print("remove voices")
 
     for part in score.parts:
-        for n in part.recurse():
-            if hasattr(n, "voice"):
-                n.voice = None
+        for v in part.voices:
+            part.remove(v)
 
 
-
-    # =========================
-    # remove chords
-    # =========================
     print("remove chords")
 
     for part in score.parts:
 
-        elements = list(part.recurse())
+        for c in list(part.recurse().getElementsByClass(chord.Chord)):
 
-        for c in elements:
-
-            if isinstance(c, chord.Chord):
-
-                if len(c.notes) > 0:
-
-                    # 取最高音
-                    highest = max(
-                        c.notes,
-                        key=lambda x: x.pitch.midi
-                    )
-
-                    new_note = note.Note(
-                        highest.pitch
-                    )
-
-                    new_note.duration = c.duration
-
-                    try:
-                        c.activeSite.replace(
-                            c,
-                            new_note
-                        )
-                    except Exception:
-                        pass
+            n = note.Note(c.pitches[-1])
+            n.duration = c.duration
+            c.activeSite.replace(c, n)
 
 
-
-    # =========================
-    # quantize
-    # =========================
     print("quantize")
 
-    try:
-        score.quantize(
-            quarterLengthDivisors=[
-                1,2,4,8,16
-            ],
-            processOffsets=True,
-            processDurations=True
-        )
-    except Exception:
-        pass
+    for n in score.recurse().notes:
+
+        q = round(n.duration.quarterLength * 4) / 4
+        n.duration.quarterLength = max(q,0.25)
 
 
 
-    # =========================
-    # force 4/4
-    # =========================
     print("force 4/4")
 
-    for part in score.parts:
-
-        part.insert(
-            0,
-            music21.meter.TimeSignature("4/4")
-        )
+    score.insert(
+        0,
+        meter.TimeSignature("4/4")
+    )
 
 
-
-    # =========================
-    # rebuild measures
-    # =========================
     print("rebuild measures")
 
-    try:
-        score.makeMeasures(
-            inPlace=True
-        )
-    except Exception:
-        pass
+    score.makeMeasures(
+        inPlace=True
+    )
 
+
+    split_crossing_notes(score)
 
 
     print("write")
@@ -120,6 +128,7 @@ def clean_musicxml(input_file, output_file):
         "musicxml",
         fp=output_file
     )
+
 
     print()
     print("DONE", output_file)
@@ -132,7 +141,7 @@ if __name__ == "__main__":
         print(
             "python clean_musicxml.py input.musicxml output.musicxml"
         )
-        sys.exit()
+        sys.exit(1)
 
 
     clean_musicxml(
