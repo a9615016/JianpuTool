@@ -1,6 +1,28 @@
 import sys
 import music21
-import os
+from music21 import stream, note, chord, meter
+
+
+VALID_DURATIONS = [
+    0.25,
+    0.5,
+    0.75,
+    1,
+    1.5,
+    2,
+    3,
+    4,
+    6,
+    8,
+    12
+]
+
+
+def nearest_duration(value):
+    return min(
+        VALID_DURATIONS,
+        key=lambda x: abs(x - value)
+    )
 
 
 def clean(input_file, output_file):
@@ -13,141 +35,116 @@ def clean(input_file, output_file):
 
     score = music21.converter.parse(input_file)
 
-    # ==========================
-    # 移除 voices
-    # ==========================
 
+    # ----------------------
+    # remove voices
+    # ----------------------
     print("remove voices")
 
     for part in score.parts:
-        for measure in part.getElementsByClass('Measure'):
-            for voice in list(measure.voices):
-                measure.remove(voice)
+        for v in list(part.recurse().getElementsByClass('Voice')):
+            v.activeSite.remove(v)
 
 
-    # ==========================
-    # 移除 chords
-    # ==========================
-
+    # ----------------------
+    # remove chords
+    # ----------------------
     print("remove chords")
 
-    for part in score.parts:
+    for c in list(score.recurse().getElementsByClass('Chord')):
 
-        for chord in list(part.recurse().getElementsByClass('Chord')):
+        pitches = c.pitches
 
-            notes = chord.notes
+        if len(pitches) > 0:
 
-            if len(notes) > 0:
+            n = note.Note(
+                pitches[0]
+            )
 
-                for n in notes:
-                    chord.activeSite.insert(
-                        chord.offset,
-                        n
-                    )
+            n.duration = c.duration
 
-            chord.activeSite.remove(chord)
-
+            c.activeSite.replace(
+                c,
+                n
+            )
 
 
-    # ==========================
-    # Quantize
-    # ==========================
-
+    # ----------------------
+    # quantize
+    # ----------------------
     print("quantize")
 
-    for part in score.parts:
-
-        part.quantize(
+    try:
+        score.quantize(
             quarterLengthDivisors=[
                 4,
-                3,
                 2,
                 1
-            ],
-            processOffsets=True,
-            processDurations=True
+            ]
         )
+    except:
+        pass
 
 
-    # ==========================
-    # 強制 4/4
-    # ==========================
-
+    # ----------------------
+    # force 4/4
+    # ----------------------
     print("force 4/4")
 
     for part in score.parts:
 
-        for measure in part.getElementsByClass("Measure"):
+        part.insert(
+            0,
+            meter.TimeSignature("4/4")
+        )
 
-            measure.timeSignature = music21.meter.TimeSignature("4/4")
 
-
-
-    # ==========================
-    # 修正 duration
-    # ==========================
-
+    # ----------------------
+    # fix duration
+    # ----------------------
     print("fix duration")
 
-    for part in score.parts:
 
-        for measure in part.getElementsByClass("Measure"):
+    for n in score.recurse().notes:
 
-            total = 0
-
-            for n in measure.notesAndRests:
-
-                total += n.duration.quarterLength
+        q = float(
+            n.duration.quarterLength
+        )
 
 
-            target = 4
+        # 非法 duration
+        if q not in VALID_DURATIONS:
 
+            new_q = nearest_duration(q)
 
-            # 超過小節
-            if total > target:
+            print(
+                "fix duration:",
+                q,
+                "->",
+                new_q
+            )
 
-                diff = total - target
-
-                for n in reversed(measure.notesAndRests):
-
-                    if diff <= 0:
-                        break
-
-                    remove = min(
-                        diff,
-                        n.duration.quarterLength
-                    )
-
-                    n.duration.quarterLength -= remove
-                    diff -= remove
+            n.duration.quarterLength = new_q
 
 
 
-            # 不足補 rest
-            elif total < target:
-
-                rest = music21.note.Rest()
-
-                rest.duration.quarterLength = target - total
-
-                measure.append(rest)
-
-
-
-    # ==========================
-    # 移除空小節
-    # ==========================
-
+    # ----------------------
+    # remove empty measures
+    # ----------------------
     print("remove empty measures")
 
-    for part in score.parts:
+    for m in list(
+        score.recurse().getElementsByClass(
+            stream.Measure
+        )
+    ):
 
-        for m in list(part.getElementsByClass("Measure")):
+        if len(m.notes)==0:
 
-            if len(m.notesAndRests)==0:
-
-                part.remove(m)
-
+            try:
+                m.activeSite.remove(m)
+            except:
+                pass
 
 
     print("write")
@@ -158,7 +155,10 @@ def clean(input_file, output_file):
     )
 
 
-    print("DONE", output_file)
+    print(
+        "DONE",
+        output_file
+    )
 
 
 
