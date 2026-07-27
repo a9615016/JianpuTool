@@ -3,18 +3,117 @@ import uuid
 import subprocess
 
 from fastapi import FastAPI, UploadFile, File
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 
 
 app = FastAPI()
 
 
-@app.get("/")
+
+@app.get("/", response_class=HTMLResponse)
 def home():
-    return {
-        "status": "JianpuTool running",
-        "version": "V21.4"
-    }
+
+    return """
+    <!DOCTYPE html>
+
+    <html>
+
+    <head>
+
+        <meta charset="utf-8">
+
+        <title>JianpuTool</title>
+
+
+        <style>
+
+        body {
+
+            font-family: Arial;
+            text-align: center;
+            margin-top: 80px;
+
+        }
+
+
+        h1 {
+
+            font-size: 40px;
+
+        }
+
+
+        h2 {
+
+            color: #555;
+
+        }
+
+
+        input {
+
+            font-size:18px;
+
+        }
+
+
+        button {
+
+            font-size:20px;
+            padding:10px 40px;
+
+        }
+
+
+        </style>
+
+
+    </head>
+
+
+
+    <body>
+
+
+    <h1>
+    JianpuTool 簡譜產生器
+    </h1>
+
+
+    <h2>
+    MP3 → MIDI → MusicXML → 簡譜 PDF
+    </h2>
+
+
+
+    <form action="/upload"
+          method="post"
+          enctype="multipart/form-data">
+
+
+        <input type="file"
+               name="file"
+               accept=".mp3,.wav">
+
+
+        <br><br>
+
+
+        <button type="submit">
+        開始轉換
+        </button>
+
+
+    </form>
+
+
+
+    </body>
+
+
+    </html>
+    """
+
 
 
 
@@ -23,6 +122,7 @@ def run_cmd(cmd):
     print("RUN:")
     print(" ".join(cmd))
 
+
     result = subprocess.run(
         cmd,
         stdout=subprocess.PIPE,
@@ -30,9 +130,12 @@ def run_cmd(cmd):
         text=True
     )
 
+
     print(result.stdout)
 
     return result
+
+
 
 
 
@@ -52,9 +155,6 @@ async def upload(file: UploadFile = File(...)):
     )
 
 
-    # =====================
-    # Save MP3
-    # =====================
 
     input_audio = os.path.join(
         work_dir,
@@ -62,8 +162,11 @@ async def upload(file: UploadFile = File(...)):
     )
 
 
+
     with open(input_audio,"wb") as f:
+
         f.write(await file.read())
+
 
 
     print("================")
@@ -74,9 +177,8 @@ async def upload(file: UploadFile = File(...)):
 
 
 
-    # =====================
+
     # BasicPitch
-    # =====================
 
     midi_file=os.path.join(
         work_dir,
@@ -85,6 +187,7 @@ async def upload(file: UploadFile = File(...)):
 
 
     print("開始 BasicPitch")
+
 
 
     result=run_cmd(
@@ -97,7 +200,9 @@ async def upload(file: UploadFile = File(...)):
     )
 
 
+
     if result.returncode !=0:
+
         return {
             "error":"BasicPitch failed",
             "log":result.stdout
@@ -105,9 +210,10 @@ async def upload(file: UploadFile = File(...)):
 
 
 
-    # =====================
+
+
+
     # Quantize
-    # =====================
 
 
     clean_midi=os.path.join(
@@ -117,6 +223,7 @@ async def upload(file: UploadFile = File(...)):
 
 
     print("開始 MIDI Quantize")
+
 
 
     result=run_cmd(
@@ -129,7 +236,9 @@ async def upload(file: UploadFile = File(...)):
     )
 
 
+
     if result.returncode !=0:
+
         return {
             "error":"quantize failed",
             "log":result.stdout
@@ -138,9 +247,10 @@ async def upload(file: UploadFile = File(...)):
 
 
 
-    # =====================
+
+
+
     # MIDI -> MusicXML
-    # =====================
 
 
     musicxml=os.path.join(
@@ -150,6 +260,7 @@ async def upload(file: UploadFile = File(...)):
 
 
     print("MIDI轉MusicXML")
+
 
 
     result=run_cmd(
@@ -162,7 +273,9 @@ async def upload(file: UploadFile = File(...)):
     )
 
 
+
     if result.returncode !=0:
+
         return {
             "error":"musicxml failed",
             "log":result.stdout
@@ -170,9 +283,11 @@ async def upload(file: UploadFile = File(...)):
 
 
 
-    # =====================
+
+
+
+
     # Clean MusicXML
-    # =====================
 
 
     clean_xml=os.path.join(
@@ -182,6 +297,7 @@ async def upload(file: UploadFile = File(...)):
 
 
     print("清理 MusicXML")
+
 
 
     result=run_cmd(
@@ -194,31 +310,29 @@ async def upload(file: UploadFile = File(...)):
     )
 
 
-    print(
-        "clean_xml exists:",
-        os.path.exists(clean_xml)
-    )
-
 
     if result.returncode !=0:
+
         return {
             "error":"clean_musicxml failed",
             "log":result.stdout
         }
 
 
+
     if not os.path.exists(clean_xml):
 
         return {
-            "error":"clean.musicxml not created",
-            "log":result.stdout
+            "error":"clean.musicxml not created"
         }
 
 
 
-    # =====================
+
+
+
+
     # Jianpu
-    # =====================
 
 
     ly_file=os.path.join(
@@ -228,6 +342,7 @@ async def upload(file: UploadFile = File(...)):
 
 
     print("產生簡譜")
+
 
 
     result=run_cmd(
@@ -240,9 +355,6 @@ async def upload(file: UploadFile = File(...)):
     )
 
 
-    print("jianpu return:",
-          result.returncode)
-
 
     if result.returncode !=0:
 
@@ -250,6 +362,7 @@ async def upload(file: UploadFile = File(...)):
             "error":"jianpu_ly failed",
             "log":result.stdout
         }
+
 
 
     with open(
@@ -262,10 +375,6 @@ async def upload(file: UploadFile = File(...)):
 
 
 
-    print(
-        "LY SIZE:",
-        os.path.getsize(ly_file)
-    )
 
 
 
@@ -277,12 +386,15 @@ async def upload(file: UploadFile = File(...)):
 
 
 
-    # =====================
-    # LilyPond PDF
-    # =====================
+
+
+
+
+    # LilyPond
 
 
     print("產生PDF")
+
 
 
     result=run_cmd(
@@ -295,15 +407,10 @@ async def upload(file: UploadFile = File(...)):
     )
 
 
+
     pdf_file=os.path.join(
         work_dir,
         "jianpu.pdf"
-    )
-
-
-    print(
-        "PDF exists:",
-        os.path.exists(pdf_file)
     )
 
 
@@ -311,14 +418,24 @@ async def upload(file: UploadFile = File(...)):
     if not os.path.exists(pdf_file):
 
         return {
+
             "error":"PDF failed",
+
             "log":result.stdout
+
         }
 
 
 
+
+
+
     return FileResponse(
+
         pdf_file,
+
         media_type="application/pdf",
+
         filename="jianpu.pdf"
+
     )
