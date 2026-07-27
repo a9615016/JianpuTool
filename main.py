@@ -1,4 +1,3 @@
-print("========== MAIN.PY VERSION TEST 20260727 ==========")
 from fastapi import FastAPI, UploadFile, File
 from fastapi.responses import HTMLResponse
 import os
@@ -18,7 +17,8 @@ os.makedirs(
 )
 
 
-print("JianpuTool DEBUG MAIN VERSION 20260727")
+print("========== JianpuTool MAIN DEBUG 20260727 ==========")
+
 
 
 @app.get("/")
@@ -26,7 +26,7 @@ def home():
 
     return HTMLResponse(
         """
-        <h2>JianpuTool</h2>
+        <h2>JianpuTool 簡譜產生器</h2>
 
         <form action="/upload"
         method="post"
@@ -44,14 +44,14 @@ def home():
 
 
 
-# ===================================
-# jianpu_ly 前 MusicXML duration debug
-# ===================================
+# ==================================
+# jianpu_ly 前 MusicXML duration檢查
+# ==================================
 
 def debug_duration(xml_file):
 
     print("==============================")
-    print("RAW DURATION CHECK")
+    print("JIANPU INPUT DURATION DEBUG")
     print(xml_file)
     print("==============================")
 
@@ -63,7 +63,7 @@ def debug_duration(xml_file):
     except Exception as e:
 
         print(
-            "XML READ ERROR",
+            "XML ERROR:",
             e
         )
 
@@ -81,22 +81,23 @@ def debug_duration(xml_file):
 
     for i, note in enumerate(notes):
 
-        dur = note.find(
+
+        duration = note.find(
             "duration"
         )
 
 
-        if dur is None:
+        if duration is None:
             continue
 
 
         d = int(
-            dur.text
+            duration.text
         )
 
 
-        # 顯示第4小節附近
         if 45 <= pos <= 80:
+
 
             pitch = note.find(
                 "pitch"
@@ -114,8 +115,7 @@ def debug_duration(xml_file):
                 )
 
                 name = (
-                    step.text
-                    +
+                    step.text +
                     octave.text
                 )
 
@@ -130,7 +130,7 @@ def debug_duration(xml_file):
                 i,
                 "pitch=",
                 name,
-                "pos=",
+                "start=",
                 pos,
                 "duration=",
                 d,
@@ -149,7 +149,6 @@ def debug_duration(xml_file):
     )
 
     print("==============================")
-
 
 
 
@@ -193,6 +192,7 @@ async def upload(
         )
 
 
+
     print("================")
     print("收到:")
     print(file.filename)
@@ -200,9 +200,9 @@ async def upload(
 
 
 
-    # =========================
-    # clean musicxml
-    # =========================
+    # ==============================
+    # MusicXML clean
+    # ==============================
 
 
     clean_xml = os.path.join(
@@ -216,30 +216,39 @@ async def upload(
     )
 
 
-    result = subprocess.run(
+    clean_result = subprocess.run(
+
         [
             "python",
             "clean_musicxml.py",
             input_file,
             clean_xml
         ],
+
         stdout=subprocess.PIPE,
+
         stderr=subprocess.STDOUT,
+
         text=True
+
     )
 
 
     print(
-        result.stdout
+        clean_result.stdout
     )
 
 
-
-    if result.returncode != 0:
+    if clean_result.returncode != 0:
 
         return {
+
             "error":
-            result.stdout
+            "clean_musicxml失敗",
+
+            "log":
+            clean_result.stdout
+
         }
 
 
@@ -259,9 +268,9 @@ async def upload(
 
 
 
-    # =========================
+    # ==============================
     # NEW DEBUG
-    # =========================
+    # ==============================
 
     debug_duration(
         clean_xml
@@ -269,9 +278,9 @@ async def upload(
 
 
 
-    # =========================
+    # ==============================
     # jianpu_ly
-    # =========================
+    # ==============================
 
 
     print(
@@ -279,21 +288,28 @@ async def upload(
     )
 
 
+    cmd = [
+
+        "python",
+
+        "-m",
+
+        "jianpu_ly",
+
+        clean_xml
+
+    ]
+
+
     print(
         "RUN:",
-        "python -m jianpu_ly",
-        clean_xml
+        " ".join(cmd)
     )
 
 
-    ly_result = subprocess.run(
+    result = subprocess.run(
 
-        [
-            "python",
-            "-m",
-            "jianpu_ly",
-            clean_xml
-        ],
+        cmd,
 
         stdout=subprocess.PIPE,
 
@@ -305,16 +321,19 @@ async def upload(
 
 
     print(
-        ly_result.stdout
+        result.stdout
     )
 
 
-    if ly_result.returncode != 0:
+    if result.returncode != 0:
 
         return {
 
             "error":
-            ly_result.stdout
+            "jianpu_ly失敗",
+
+            "log":
+            result.stdout
 
         }
 
@@ -333,7 +352,7 @@ async def upload(
     ) as f:
 
         f.write(
-            ly_result.stdout
+            result.stdout
         )
 
 
@@ -343,7 +362,7 @@ async def upload(
         "status":
         "ok",
 
-        "folder":
-        workdir
+        "ly":
+        ly_file
 
     }
