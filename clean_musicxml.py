@@ -1,137 +1,179 @@
 import sys
-from music21 import converter, stream, meter, note, chord, duration
+from music21 import converter, stream, meter, note, chord
 from music21.beam import Beams
 
 
-VERSION = "CLEAN MUSICXML V22.9 FINAL BAR FORCE"
+VERSION = "CLEAN MUSICXML V22.9 FINAL NOTE SPLIT"
 
 
 def reset_beams(score):
+    print("safe beam reset")
+
     for n in score.recurse().notes:
         try:
             n.beams = Beams()
-        except Exception:
-            n.beams = None
+        except:
+            pass
 
 
-def remove_bad_elements(score):
+def remove_bad(score):
 
-    for part in score.parts:
-
-        # remove voices
-        for el in list(part.recurse()):
-            if isinstance(el, stream.Voice):
-                el.activeSite.remove(el)
-
-        # remove chords
-        for c in list(part.recurse().getElementsByClass(chord.Chord)):
-            highest = c.normalOrder[0] if c.normalOrder else 60
-            n = note.Note(highest)
-            n.duration = c.duration
-            c.activeSite.replace(c, n)
+    print("remove voices")
+    for v in score.recurse().getElementsByClass(stream.Voice):
+        try:
+            v.activeSite.remove(v)
+        except:
+            pass
 
 
-def force_time_signature(score):
+    print("remove chords")
 
-    for part in score.parts:
-        part.insert(0, meter.TimeSignature("4/4"))
+    for c in list(score.recurse().getElementsByClass(chord.Chord)):
 
-
-def rebuild_measures(part):
-
-    part.makeMeasures(
-        inPlace=True,
-        meterStream=part.recurse().getElementsByClass(
-            meter.TimeSignature
+        n = note.Note(
+            c.pitches[-1]
         )
+
+        n.duration = c.duration
+
+        c.activeSite.replace(
+            c,
+            n
+        )
+
+
+def force_meter(score):
+
+    for p in score.parts:
+        p.insert(
+            0,
+            meter.TimeSignature("4/4")
+        )
+
+
+def split_overflow(measure):
+
+    result = []
+
+    new_measure = stream.Measure(
+        number=measure.number
     )
 
-
-def split_overfull_measures(part):
-
-    new_part = stream.Part()
-
-    for m in part.getElementsByClass(stream.Measure):
-
-        total = m.duration.quarterLength
-
-        if total <= 4:
-            new_part.append(m)
-            continue
+    pos = 0
 
 
-        current = stream.Measure(
-            number=m.number
-        )
+    for element in measure.notesAndRests:
 
-        current_len = 0
+        length = element.duration.quarterLength
 
 
-        for n in m.notesAndRests:
+        # 正常放入
+        if pos + length <= 4:
 
-            length = n.duration.quarterLength
-
-
-            # 超過小節
-            if current_len + length > 4:
-
-                remain = 4-current_len
-
-                if remain > 0:
-                    r = note.Rest()
-                    r.duration = duration.Duration(remain)
-                    current.append(r)
+            new_measure.append(element)
+            pos += length
 
 
-                new_part.append(current)
+        else:
+
+            remain = 4 - pos
 
 
-                current = stream.Measure(
-                    number=m.number
-                )
+            # 前半段
+            if remain > 0:
 
-                current_len = 0
+                first = element.clone()
 
+                first.duration.quarterLength = remain
 
-            current.append(n)
-            current_len += length
+                new_measure.append(first)
 
 
 
-        if current_len < 4:
-            r = note.Rest()
-            r.duration = duration.Duration(
-                4-current_len
+            result.append(new_measure)
+
+
+
+            # 後半段
+            second = element.clone()
+
+            second.duration.quarterLength = length - remain
+
+
+            new_measure = stream.Measure(
+                number=measure.number + 1
             )
-            current.append(r)
+
+            new_measure.append(second)
+
+            pos = length-remain
 
 
-        new_part.append(current)
+
+    if new_measure.duration.quarterLength < 4:
+
+        r = note.Rest()
+
+        r.duration.quarterLength = (
+            4-new_measure.duration.quarterLength
+        )
+
+        new_measure.append(r)
 
 
-    part.replace(
-        part.getElementsByClass(stream.Measure),
-        new_part.getElementsByClass(stream.Measure)
+
+    result.append(new_measure)
+
+
+    return result
+
+
+
+def rebuild_force(part):
+
+    measures=[]
+
+
+    for m in part.getElementsByClass(
+        stream.Measure
+    ):
+
+        if m.duration.quarterLength > 4:
+
+            print(
+                "split overflow measure",
+                m.number,
+                m.duration.quarterLength
+            )
+
+            measures.extend(
+                split_overflow(m)
+            )
+
+        else:
+
+            measures.append(m)
+
+
+    part.remove(
+        part.getElementsByClass(stream.Measure)
     )
 
 
-def normalize_bars(score):
+    for m in measures:
 
-    for part in score.parts:
-
-        rebuild_measures(part)
-
-        split_overfull_measures(part)
-
-        rebuild_measures(part)
+        part.append(m)
 
 
 
 def check(score):
 
+    print("check measures")
+
     for m in score.recurse().getElementsByClass(
         stream.Measure
     ):
+
         print(
             "Measure",
             m.number,
@@ -139,22 +181,27 @@ def check(score):
         )
 
 
-def clean_musicxml(input_file, output_file):
+
+def clean_musicxml(
+    input_file,
+    output_file
+):
 
     print("================")
     print(VERSION)
     print("================")
 
+
     print("read")
 
-    score = converter.parse(input_file)
+    score = converter.parse(
+        input_file
+    )
 
 
-    print("remove voices")
-    remove_bad_elements(score)
+    remove_bad(score)
 
 
-    print("safe beam reset")
     reset_beams(score)
 
 
@@ -168,30 +215,37 @@ def clean_musicxml(input_file, output_file):
 
 
     print("force 4/4")
-    force_time_signature(score)
+
+    force_meter(score)
+
 
 
     print("rebuild measures")
-    rebuild_measures(
-        score.parts[0]
-    )
+
+    for p in score.parts:
+
+        p.makeMeasures(
+            inPlace=True
+        )
 
 
-    print("FINAL BAR FORCE")
+    print("FINAL NOTE SPLIT")
 
-    normalize_bars(score)
+    for p in score.parts:
+
+        rebuild_force(p)
 
 
-    print("safe beam reset")
+
     reset_beams(score)
 
 
-    print("check measures")
 
     check(score)
 
 
     print("write")
+
 
     score.write(
         "musicxml",
@@ -200,18 +254,14 @@ def clean_musicxml(input_file, output_file):
 
 
     print()
-    print("DONE",output_file)
+    print(
+        "DONE",
+        output_file
+    )
 
 
 
 if __name__=="__main__":
-
-    if len(sys.argv)<3:
-        print(
-            "python clean_musicxml.py input.musicxml output.musicxml"
-        )
-        sys.exit()
-
 
     clean_musicxml(
         sys.argv[1],
