@@ -1,54 +1,65 @@
 import sys
-from music21 import converter, stream, note, chord, meter, duration
+from music21 import converter
+from music21 import stream
+from music21 import note
+from music21 import chord
+from music21 import meter
+from music21 import duration
 
 
-VERSION = "CLEAN MUSICXML V23.3 FINAL BAR SAFE"
+VERSION = "CLEAN MUSICXML V23.3.1 FINAL JIANPU SAFE"
 
 
-def remove_bad_objects(score):
+def remove_bad(score):
 
     print("remove voices")
     print("remove chords")
 
     for part in score.parts:
 
-        remove_list = []
-
-        for el in part.recurse():
+        for el in list(part.recurse()):
 
             if isinstance(el, chord.Chord):
-                remove_list.append(el)
-
-            if isinstance(el, note.Note):
-
-                # remove tiny duration
-                if el.duration.quarterLength < 0.25:
-                    remove_list.append(el)
-
-        for el in remove_list:
-            try:
-                el.activeSite.remove(el)
-            except Exception:
-                pass
+                try:
+                    el.activeSite.remove(el)
+                except:
+                    pass
 
 
-
-def remove_beams(score):
+def remove_beam_tie(score):
 
     print("remove beams")
+    print("remove ties")
 
     for n in score.recurse().notes:
 
         try:
             n.beams = []
-        except Exception:
+        except:
+            pass
+
+        try:
+            n.tie = None
+        except:
+            pass
+
+
+def remove_dots(score):
+
+    print("remove dots")
+
+    for n in score.recurse().notes:
+
+        try:
+            n.duration.dots = 0
+        except:
             pass
 
 
 
-def fix_duration(score):
+def duration_safe(score):
 
-    print("fix duration")
+    print("duration safe")
 
     allowed = [
         0.25,
@@ -62,12 +73,12 @@ def fix_duration(score):
 
         q = float(n.duration.quarterLength)
 
-        closest = min(
+        best = min(
             allowed,
             key=lambda x: abs(x-q)
         )
 
-        n.duration = duration.Duration(closest)
+        n.duration = duration.Duration(best)
 
 
 
@@ -89,85 +100,16 @@ def force_meter(score):
 
 
 
-def split_crossing_notes(score):
+def rebuild(score):
 
-    print("split crossing notes")
+    print("make notation")
 
-    for part in score.parts:
-
-        measures = list(
-            part.getElementsByClass(
-                stream.Measure
-            )
+    try:
+        score.makeNotation(
+            inPlace=True
         )
-
-        for m in measures:
-
-            pos = 0
-
-            for n in list(m.notesAndRests):
-
-                length = n.duration.quarterLength
-
-                if pos + length > 4:
-
-                    remain = 4-pos
-                    extra = length-remain
-
-                    if remain > 0:
-
-                        n.duration = duration.Duration(remain)
-
-                        new_note = n.__deepcopy__()
-
-                        new_note.duration = duration.Duration(extra)
-
-                        try:
-                            m.insert(
-                                n.offset+remain,
-                                new_note
-                            )
-                        except Exception:
-                            pass
-
-                pos += n.duration.quarterLength
-
-
-
-def rebuild_measures(score):
-
-    print("rebuild measures")
-
-    for part in score.parts:
-
-        try:
-            part.makeMeasures(
-                inPlace=True
-            )
-        except Exception:
-            pass
-
-
-
-def final_bar_check(score):
-
-    print("final bar check")
-
-    for part in score.parts:
-
-        for m in part.getElementsByClass(
-            stream.Measure
-        ):
-
-            q = float(
-                m.duration.quarterLength
-            )
-
-            print(
-                "Measure",
-                m.number,
-                q
-            )
+    except Exception as e:
+        print(e)
 
 
 
@@ -184,25 +126,35 @@ def clean_musicxml(input_file, output_file):
     )
 
 
-    remove_bad_objects(score)
+    remove_bad(score)
 
-    remove_beams(score)
+    remove_beam_tie(score)
 
-    fix_duration(score)
+    remove_dots(score)
+
+    duration_safe(score)
 
     force_meter(score)
 
-    rebuild_measures(score)
+    rebuild(score)
 
-    split_crossing_notes(score)
+    remove_beam_tie(score)
 
-    fix_duration(score)
+    duration_safe(score)
 
-    rebuild_measures(score)
 
-    remove_beams(score)
+    print("check measures")
 
-    final_bar_check(score)
+    for part in score.parts:
+
+        for m in part.getElementsByClass(
+            stream.Measure
+        ):
+            print(
+                "Measure",
+                m.number,
+                float(m.duration.quarterLength)
+            )
 
 
     print("write")
