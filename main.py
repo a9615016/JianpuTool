@@ -172,7 +172,7 @@ async def upload(
 
     run_cmd([
         "python",
-        "clean_musicxml.py",
+        "jianpu_fix_musicxml.py",
         xml,
         clean_xml
     ])
