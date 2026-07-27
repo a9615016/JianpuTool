@@ -1,165 +1,170 @@
 import sys
 import os
-import xml.etree.ElementTree as ET
-from fractions import Fraction
+import music21
 
 
-def clean_musicxml(input_file, output_file):
+def fix_measure_duration(score):
+    """
+    修正每小節拍數
+    目標: 4/4 = 4拍
+    """
 
+    print("修正 measure duration")
+
+    for part in score.parts:
+
+        measures = list(part.getElementsByClass("Measure"))
+
+        for m in measures:
+
+            total = 0
+
+            for n in m.notesAndRests:
+                total += n.duration.quarterLength
+
+
+            # 4/4 = 4拍
+            if total < 4:
+
+                diff = 4 - total
+
+                print(
+                    "補休止:",
+                    m.number,
+                    diff
+                )
+
+                r = music21.note.Rest()
+                r.duration.quarterLength = diff
+                m.append(r)
+
+
+            elif total > 4:
+
+                print(
+                    "超拍:",
+                    m.number,
+                    total
+                )
+
+                # 嘗試縮短最後一個音
+                last = m.notesAndRests[-1]
+
+                overflow = total - 4
+
+                new_length = (
+                    last.duration.quarterLength
+                    - overflow
+                )
+
+
+                if new_length > 0:
+                    last.duration.quarterLength = new_length
+
+
+    return score
+
+
+
+def clean(input_file, output_file):
+
+    print("================")
     print("CLEAN MUSICXML")
+    print("================")
 
-    tree = ET.parse(input_file)
-    root = tree.getroot()
-
-    ns = {
-        "m": "http://www.musicxml.org/ns/musicxml"
-    }
+    print("input:", input_file)
 
 
-    # 找 divisions
-    divisions = 1
-
-    div_node = root.find(
-        ".//m:divisions",
-        ns
-    )
-
-    if div_node is not None:
-        divisions = int(div_node.text)
-
-
-    print("divisions =", divisions)
-
-
-
-    # 強制移除容易造成 jianpu_ly 失敗的元素
-
-    remove_tags = [
-        "backup",
-        "forward",
-        "grace",
-        "chord"
-    ]
-
-
-    for tag in remove_tags:
-
-        for node in root.findall(
-            ".//m:" + tag,
-            ns
-        ):
-            parent = None
-
-            for p in root.iter():
-
-                if node in list(p):
-                    parent = p
-                    break
-
-
-            if parent is not None:
-                parent.remove(node)
-
-
-
-    # 修正每小節 duration
-
-    measures = root.findall(
-        ".//m:measure",
-        ns
+    score = music21.converter.parse(
+        input_file
     )
 
 
-    print("measures =", len(measures))
+    print("remove voices")
+
+    # 保留第一聲部
+    for part in score.parts:
+
+        voices = part.getElementsByClass(
+            music21.stream.Voice
+        )
+
+        if len(voices):
+
+            first = voices[0]
+
+            part.removeByClass(
+                music21.stream.Voice
+            )
+
+            for x in first:
+                part.append(x)
 
 
-    for measure in measures:
 
+    print("remove chords")
 
-        total_duration = 0
+    for chord in score.recurse().getElementsByClass(
+        music21.chord.Chord
+    ):
 
-        notes = measure.findall(
-            "m:note",
-            ns
+        pitch = chord.sortAscending()[0]
+
+        chord.replace(
+            music21.note.Note(pitch)
         )
 
 
-        for note in notes:
 
-            duration = note.find(
-                "m:duration",
-                ns
+    print("remove grace")
+
+    for n in score.recurse().notes:
+
+        if n.duration.isGrace:
+
+            n.duration = music21.duration.Duration(
+                0.25
             )
 
 
-            if duration is not None:
 
-                total_duration += int(
-                    duration.text
-                )
+    print("force 4/4")
 
+    for m in score.recurse().getElementsByClass(
+        music21.stream.Measure
+    ):
 
-        # 4/4 小節應該 = divisions*4
-
-        target = divisions * 4
-
-
-        if total_duration > target:
-
-            print(
-                "修正超長小節:",
-                measure.attrib.get("number"),
-                total_duration,
-                "->",
-                target
-            )
-
-
-            overflow = total_duration - target
-
-
-            for note in reversed(notes):
-
-                duration = note.find(
-                    "m:duration",
-                    ns
-                )
-
-                if duration is None:
-                    continue
-
-
-                d = int(duration.text)
-
-
-                if overflow <= 0:
-                    break
-
-
-                if d <= overflow:
-
-                    overflow -= d
-                    measure.remove(note)
-
-
-                else:
-
-                    duration.text = str(
-                        d-overflow
-                    )
-
-                    overflow = 0
+        m.timeSignature = music21.meter.TimeSignature(
+            "4/4"
+        )
 
 
 
-    # 加入簡單標題
+    print("fix duration")
+
+    score = fix_measure_duration(score)
+
+
+
+    print("quantize")
+
+
+    score.quantize(
+        quarterLengthDivisors=[
+            1,
+            2,
+            4,
+            8,
+            16
+        ]
+    )
+
 
     print("write")
 
-    tree.write(
-        output_file,
-        encoding="utf-8",
-        xml_declaration=True
+    score.write(
+        "musicxml",
+        fp=output_file
     )
 
 
@@ -172,17 +177,25 @@ def clean_musicxml(input_file, output_file):
 
 if __name__ == "__main__":
 
-
-    if len(sys.argv) < 3:
-
+    if len(sys.argv) < 2:
         print(
-            "usage: python clean_musicxml.py input.musicxml output.musicxml"
+            "usage: python clean_musicxml.py input.musicxml [output.musicxml]"
         )
-
         sys.exit(1)
 
 
-    clean_musicxml(
-        sys.argv[1],
-        sys.argv[2]
+    inp = sys.argv[1]
+
+
+    if len(sys.argv) >= 3:
+        out = sys.argv[2]
+
+    else:
+        out = os.path.splitext(inp)[0] + "_clean.musicxml"
+
+
+
+    clean(
+        inp,
+        out
     )
