@@ -1,362 +1,301 @@
+# clean_musicxml.py
+# CLEAN MUSICXML V30
+# MIDI -> JIANPU FINAL CLEANER
+
 import sys
 import music21
-from music21 import (
-    converter,
-    stream,
-    note,
-    meter,
-    instrument
-)
 
 
-print("==============================")
-print("CLEAN MUSICXML V28")
-print("REBUILD SINGLE VOICE JIANPU")
-print("==============================")
+def clean_musicxml(input_file, output_file):
+
+    print("================")
+    print("CLEAN MUSICXML V30 MIDI JIANPU FINAL")
+    print("================")
 
 
-# -----------------------------
-# 可接受節奏
-# -----------------------------
+    print("read")
 
-DURATIONS = [
-    4,
-    2,
-    1,
-    0.5,
-    0.25
-]
+    score = music21.converter.parse(input_file)
 
 
-def quantize(q):
+    # -------------------------
+    # 基本清理
+    # -------------------------
 
-    return min(
-        DURATIONS,
-        key=lambda x: abs(x-q)
-    )
+    print("remove voices")
 
-
-
-# -----------------------------
-# 取得單旋律
-# -----------------------------
-
-def extract_melody(score):
-
-    print("extract melody")
+    for part in score.parts:
+        for m in part.getElementsByClass('Measure'):
+            for n in m.notesAndRests:
+                if hasattr(n, "voice"):
+                    n.voice = None
 
 
-    src = score.parts[0]
+    print("remove chords")
 
-
-    notes = []
-
-
-    for n in src.recurse().notes:
-
-
-        if isinstance(
-            n,
-            note.Note
-        ):
-
-            notes.append(
-                n
-            )
-
-
-        elif n.isRest:
-
-            notes.append(
-                n
-            )
-
-
-    print(
-        "notes:",
-        len(notes)
-    )
-
-
-    return notes
+    for part in score.parts:
+        for chord in list(part.recurse().getElementsByClass('Chord')):
+            notes = chord.notes
+            for n in notes:
+                chord.activeSite.replace(chord, n)
 
 
 
-# -----------------------------
-# 建立新的4/4樂譜
-# -----------------------------
+    print("remove notation")
 
-def rebuild(notes):
+    for obj in score.recurse():
 
+        if hasattr(obj, "beams"):
+            obj.beams = music21.beam.Beams()
 
-    print(
-        "rebuild score"
-    )
-
-
-    score = stream.Score()
-
-
-    part = stream.Part()
-
-
-    part.insert(
-        0,
-        instrument.Piano()
-    )
-
-
-    part.insert(
-        0,
-        meter.TimeSignature("4/4")
-    )
+        if hasattr(obj, "tie"):
+            obj.tie = None
 
 
 
-    measure_no = 1
+    # -------------------------
+    # 強制單聲部
+    # -------------------------
 
-    m = stream.Measure(
-        number=measure_no
-    )
+    print("flatten")
 
-
-    current = 0
-
+    score = score.flatten()
 
 
-    for old in notes:
+
+    # -------------------------
+    # 強制 4/4
+    # -------------------------
+
+    print("force 4/4")
+
+    for part in score.parts:
+
+        ts = music21.meter.TimeSignature("4/4")
+
+        part.insert(0, ts)
 
 
-        q = float(
-            old.duration.quarterLength
+
+    # -------------------------
+    # duration量化
+    # -------------------------
+
+    print("quantize duration")
+
+    for n in score.notesAndRests:
+
+        q = float(n.duration.quarterLength)
+
+
+        # 最小16分音符
+        values = [
+            0.25,
+            0.5,
+            0.75,
+            1,
+            1.5,
+            2,
+            3,
+            4
+        ]
+
+        closest = min(
+            values,
+            key=lambda x:abs(x-q)
         )
 
-
-        q = quantize(q)
-
+        n.duration.quarterLength = closest
 
 
-        # 太長直接拆
 
-        while current + q > 4:
+    # -------------------------
+    # 建立新小節
+    # -------------------------
 
-
-            remain = 4-current
-
-
-            if remain > 0:
+    print("rebuild measures")
 
 
-                new = old.clone()
+    new_score = music21.stream.Score()
 
-                new.duration.quarterLength = remain
 
-                m.append(
-                    new
+    for part in score.parts:
+
+
+        new_part = music21.stream.Part()
+
+        current_measure = music21.stream.Measure(
+            number=1
+        )
+
+        beat = 0
+        measure_no = 1
+
+
+        for n in part.notesAndRests:
+
+
+            dur = float(n.duration.quarterLength)
+
+
+
+            # 超過小節
+            if beat + dur > 4:
+
+                remain = 4 - beat
+
+
+                if remain > 0:
+
+                    copy = n.__deepcopy__({})
+                    copy.duration.quarterLength = remain
+                    current_measure.append(copy)
+
+
+                print(
+                    "split note at measure",
+                    measure_no
                 )
 
 
-            part.append(
-                m
-            )
+                new_part.append(
+                    current_measure
+                )
 
 
-            measure_no += 1
+                measure_no += 1
 
 
-            m = stream.Measure(
-                number=measure_no
-            )
+                current_measure = music21.stream.Measure(
+                    number=measure_no
+                )
+
+                beat = 0
 
 
-            current = 0
+                extra = dur - remain
 
 
-            q -= remain
+                if extra > 0:
+
+                    copy = n.__deepcopy__({})
+                    copy.duration.quarterLength = extra
+
+                    current_measure.append(copy)
+
+                    beat += extra
 
 
+            else:
 
-        new = old.clone()
+                current_measure.append(n)
 
-
-        new.duration.quarterLength = q
-
-
-        # 清除所有notation
-
-        new.tie = None
-
-
-        m.append(
-            new
-        )
-
-
-        current += q
+                beat += dur
 
 
 
-        if abs(current-4)<0.001:
+            if abs(beat-4)<0.001:
 
 
-            part.append(
-                m
-            )
+                new_part.append(
+                    current_measure
+                )
 
 
-            measure_no += 1
+                measure_no += 1
 
+                current_measure = music21.stream.Measure(
+                    number=measure_no
+                )
 
-            m = stream.Measure(
-                number=measure_no
-            )
-
-
-            current = 0
-
-
-
-    # 最後補滿
-
-    if len(m.notesAndRests)>0:
-
-
-        diff = 4-current
-
-
-        if diff > 0:
-
-
-            r = note.Rest()
-
-            r.duration.quarterLength = diff
-
-            m.append(r)
-
-
-        part.append(m)
+                beat=0
 
 
 
-    score.append(
-        part
-    )
+        if len(current_measure.notesAndRests)>0:
+
+            # 補休止
+            rest = music21.note.Rest()
+
+            rest.duration.quarterLength = 4-beat
+
+            if rest.duration.quarterLength>0:
+
+                current_measure.append(rest)
 
 
-    return score
+            new_part.append(current_measure)
 
 
 
-# -----------------------------
-# 最終檢查
-# -----------------------------
-
-def check(score):
+        new_score.append(new_part)
 
 
-    print(
-        "FINAL CHECK"
-    )
+
+    score = new_score
 
 
-    for m in score.parts[0].getElementsByClass(
-        stream.Measure
-    ):
+
+    # -------------------------
+    # 最終檢查
+    # -------------------------
+
+    print("FINAL CHECK")
 
 
-        total = sum(
-            float(
+    for part in score.parts:
+
+        for m in part.getElementsByClass("Measure"):
+
+
+            total=sum(
                 n.duration.quarterLength
+                for n in m.notesAndRests
             )
-            for n in m.notesAndRests
-        )
 
-
-        print(
-            "Measure",
-            m.number,
-            total
-        )
-
-
-        if abs(total-4)>0.01:
 
             print(
-                "WARNING",
-                m.number
+                "Measure",
+                m.number,
+                total
             )
 
 
+            if abs(total-4)>0.001:
 
-# -----------------------------
-# main
-# -----------------------------
-
-
-def main():
-
-
-    if len(sys.argv)<3:
-
-        print(
-            "python clean_musicxml.py input.musicxml output.musicxml"
-        )
-
-        return
+                print(
+                    "WARNING BAD MEASURE",
+                    m.number,
+                    total
+                )
 
 
-
-    infile=sys.argv[1]
-
-    outfile=sys.argv[2]
+    print("FINAL WRITE")
 
 
-    print(
-        "READ"
-    )
-
-
-    src = converter.parse(
-        infile
-    )
-
-
-    notes = extract_melody(
-        src
-    )
-
-
-    new_score = rebuild(
-        notes
-    )
-
-
-    check(
-        new_score
-    )
-
-
-    print(
-        "WRITE"
-    )
-
-
-    new_score.write(
+    score.write(
         "musicxml",
-        fp=outfile
+        fp=output_file
     )
 
 
-    print(
-        "DONE:"
-    )
-
-    print(
-        outfile
-    )
+    print("DONE")
+    print(output_file)
 
 
 
 if __name__=="__main__":
 
-    main()
+    if len(sys.argv)<3:
+
+        print(
+            "usage: python clean_musicxml.py input.musicxml output.musicxml"
+        )
+
+        sys.exit()
+
+
+    clean_musicxml(
+        sys.argv[1],
+        sys.argv[2]
+    )
