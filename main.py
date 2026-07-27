@@ -44,14 +44,14 @@ def home():
 
 
 
-# ==================================
-# jianpu_ly 前 MusicXML duration檢查
-# ==================================
+# ======================================
+# jianpu_ly 前 MusicXML duration debug
+# ======================================
 
 def debug_duration(xml_file):
 
     print("==============================")
-    print("JIANPU INPUT DURATION DEBUG")
+    print("FORCE XML DEBUG")
     print(xml_file)
     print("==============================")
 
@@ -63,7 +63,7 @@ def debug_duration(xml_file):
     except Exception as e:
 
         print(
-            "XML ERROR:",
+            "XML READ ERROR:",
             e
         )
 
@@ -71,8 +71,17 @@ def debug_duration(xml_file):
 
 
 
-    notes = tree.findall(
+    root = tree.getroot()
+
+
+    notes = root.findall(
         ".//note"
+    )
+
+
+    print(
+        "TOTAL NOTES:",
+        len(notes)
     )
 
 
@@ -81,13 +90,13 @@ def debug_duration(xml_file):
 
     for i, note in enumerate(notes):
 
-
         duration = note.find(
             "duration"
         )
 
 
         if duration is None:
+
             continue
 
 
@@ -96,23 +105,23 @@ def debug_duration(xml_file):
         )
 
 
-        if 45 <= pos <= 80:
+        pitch = note.find(
+            "pitch"
+        )
 
 
-            pitch = note.find(
-                "pitch"
+        if pitch is not None:
+
+            step = pitch.find(
+                "step"
+            )
+
+            octave = pitch.find(
+                "octave"
             )
 
 
-            if pitch is not None:
-
-                step = pitch.find(
-                    "step"
-                )
-
-                octave = pitch.find(
-                    "octave"
-                )
+            if step is not None and octave is not None:
 
                 name = (
                     step.text +
@@ -121,20 +130,26 @@ def debug_duration(xml_file):
 
             else:
 
-                name = "REST"
+                name = "UNKNOWN"
+
+        else:
+
+            name = "REST"
 
 
+
+        # 抓第4小節附近
+        if 45 <= pos <= 80:
 
             print(
                 "NOTE",
                 i,
-                "pitch=",
                 name,
-                "start=",
+                "START",
                 pos,
-                "duration=",
+                "DURATION",
                 d,
-                "end=",
+                "END",
                 pos+d
             )
 
@@ -144,11 +159,13 @@ def debug_duration(xml_file):
 
 
     print(
-        "TOTAL TICKS:",
+        "FINAL POS:",
         pos
     )
 
+
     print("==============================")
+
 
 
 
@@ -176,10 +193,12 @@ async def upload(
     )
 
 
+
     input_file = os.path.join(
         workdir,
         file.filename
     )
+
 
 
     with open(
@@ -200,10 +219,9 @@ async def upload(
 
 
 
-    # ==============================
-    # MusicXML clean
-    # ==============================
-
+    # ==========================
+    # MusicXML 清理
+    # ==========================
 
     clean_xml = os.path.join(
         workdir,
@@ -239,6 +257,7 @@ async def upload(
     )
 
 
+
     if clean_result.returncode != 0:
 
         return {
@@ -262,15 +281,16 @@ async def upload(
         "CHECK jianpu input:"
     )
 
+
     print(
         clean_xml
     )
 
 
 
-    # ==============================
-    # NEW DEBUG
-    # ==============================
+    # ==========================
+    # DEBUG
+    # ==========================
 
     debug_duration(
         clean_xml
@@ -278,9 +298,9 @@ async def upload(
 
 
 
-    # ==============================
+    # ==========================
     # jianpu_ly
-    # ==============================
+    # ==========================
 
 
     print(
@@ -307,6 +327,7 @@ async def upload(
     )
 
 
+
     result = subprocess.run(
 
         cmd,
@@ -320,9 +341,11 @@ async def upload(
     )
 
 
+
     print(
         result.stdout
     )
+
 
 
     if result.returncode != 0:
@@ -345,6 +368,7 @@ async def upload(
     )
 
 
+
     with open(
         ly_file,
         "w",
@@ -362,7 +386,7 @@ async def upload(
         "status":
         "ok",
 
-        "ly":
-        ly_file
+        "folder":
+        workdir
 
     }
