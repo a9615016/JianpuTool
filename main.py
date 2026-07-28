@@ -1,6 +1,6 @@
 # main.py
-# JianpuTool DEBUG VERSION
-# Find jianpu_ly barcheck error
+# JianpuTool v26 DEBUG
+# MP3 -> BasicPitch -> MIDI -> MusicXML -> Clean -> Jianpu
 
 
 from fastapi import FastAPI, UploadFile, File
@@ -9,8 +9,6 @@ from fastapi.responses import HTMLResponse
 import os
 import uuid
 import subprocess
-
-from music21 import converter
 
 
 app = FastAPI()
@@ -33,7 +31,7 @@ def home():
         <h1>JianpuTool 簡譜產生器</h1>
 
         <p>
-        MIDI → MusicXML → Jianpu PDF
+        MP3 → MIDI → MusicXML → Jianpu PDF
         </p>
 
         <form action="/upload"
@@ -57,7 +55,6 @@ async def upload(
     file: UploadFile = File(...)
 ):
 
-
     job_id = str(uuid.uuid4())
 
 
@@ -73,34 +70,63 @@ async def upload(
     )
 
 
-
-    input_file = os.path.join(
+    mp3_file = os.path.join(
         job_dir,
         file.filename
     )
 
 
-    with open(input_file, "wb") as f:
-
+    with open(mp3_file,"wb") as f:
         f.write(
             await file.read()
         )
 
 
-    print("================")
-    print("收到:")
-    print(file.filename)
-    print("================")
+    print("====================")
+    print("開始任務:",job_id)
+    print("收到:",file.filename)
+    print("MP3保存完成")
+    print(mp3_file)
 
 
 
-    #
-    # 你的 MIDI → MusicXML 流程
-    #
-    # 這裡保持原本產生:
-    #
-    # input.musicxml
-    #
+    #################################
+    # BasicPitch
+    #################################
+
+    midi_file = os.path.join(
+        job_dir,
+        "melody.mid"
+    )
+
+
+    cmd = [
+        "python",
+        "basicpitch_convert.py",
+        mp3_file,
+        midi_file
+    ]
+
+
+    print(
+        "RUN:",
+        " ".join(cmd)
+    )
+
+
+    subprocess.run(
+        cmd,
+        capture_output=False
+    )
+
+
+    print("MIDI完成")
+
+
+
+    #################################
+    # MIDI -> MusicXML
+    #################################
 
     musicxml_file = os.path.join(
         job_dir,
@@ -108,10 +134,33 @@ async def upload(
     )
 
 
+    cmd = [
+        "python",
+        "midi_to_musicxml.py",
+        midi_file,
+        musicxml_file
+    ]
 
-    #
-    # clean
-    #
+
+    print(
+        "RUN:",
+        " ".join(cmd)
+    )
+
+
+    subprocess.run(
+        cmd,
+        capture_output=False
+    )
+
+
+    print("MusicXML完成")
+
+
+
+    #################################
+    # CLEAN MUSICXML
+    #################################
 
     clean_xml = os.path.join(
         job_dir,
@@ -119,32 +168,24 @@ async def upload(
     )
 
 
-
-    cmd_clean = [
-
+    cmd = [
         "python",
-
         "clean_musicxml.py",
-
         musicxml_file,
-
         clean_xml
-
     ]
 
 
     print(
         "RUN:",
-        " ".join(cmd_clean)
+        " ".join(cmd)
     )
 
 
     subprocess.run(
-        cmd_clean,
-        capture_output=False,
-        text=True
+        cmd,
+        capture_output=False
     )
-
 
 
     print()
@@ -158,10 +199,9 @@ async def upload(
 
 
 
-    ####################################
+    #################################
     # DEBUG MUSICXML
-    ####################################
-
+    #################################
 
     print("================")
     print("DEBUG MUSICXML")
@@ -169,6 +209,9 @@ async def upload(
 
 
     try:
+
+        from music21 import converter
+
 
         score = converter.parse(
             clean_xml
@@ -191,24 +234,17 @@ async def upload(
 
 
                     print(
-
                         "offset=",
                         n.offset,
-
                         "duration=",
                         n.duration.quarterLength,
-
                         "end=",
-                        n.offset + n.duration.quarterLength,
-
+                        n.offset+n.duration.quarterLength,
                         n
-
                     )
 
 
-                print(
-                    "----------------"
-                )
+                print("----------------")
 
 
     except Exception as e:
@@ -220,10 +256,9 @@ async def upload(
 
 
 
-    ####################################
+    #################################
     # jianpu_ly
-    ####################################
-
+    #################################
 
     print("開始 jianpu_ly")
 
@@ -231,11 +266,8 @@ async def upload(
     cmd = [
 
         "python",
-
         "-m",
-
         "jianpu_ly",
-
         clean_xml
 
     ]
@@ -247,22 +279,16 @@ async def upload(
     )
 
 
-
     result = subprocess.run(
-
         cmd,
-
         capture_output=True,
-
         text=True
-
     )
 
 
-    print("================")
     print(result.stdout)
+
     print(result.stderr)
-    print("================")
 
 
 
