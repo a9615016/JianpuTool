@@ -2,28 +2,35 @@
 # -*- coding: utf-8 -*-
 
 """
-CLEAN MIDI V1
-For:
-BasicPitch MIDI -> MusicXML -> Jianpu
+clean_midi.py V1
+
+用途:
+BasicPitch melody.mid
+        ↓
+clean.mid
 
 功能:
-- remove overlap notes
-- remove tiny notes
-- quantize timing
-- rebuild melody track
+1. 移除重疊音符
+2. 移除過短音符
+3. 節奏量化
+4. 保留單旋律
+5. 修正 note start/end
+
 """
 
 import sys
-import mido
 from mido import MidiFile, MidiTrack, Message
 
 
-MIN_NOTE_LENGTH = 30     # ticks
-GRID = 120               # quantize ticks
+MIN_LENGTH = 30      # 最短音符 ticks
+GRID = 120           # quantize 格子
 
 
-def quantize(value):
-    return int(round(value / GRID) * GRID)
+
+def quantize(t):
+
+    return int(round(t / GRID) * GRID)
+
 
 
 def clean_midi(input_file, output_file):
@@ -32,20 +39,17 @@ def clean_midi(input_file, output_file):
     print("CLEAN MIDI V1")
     print("================")
 
-    print("read midi")
 
     mid = MidiFile(input_file)
 
-    ticks = mid.ticks_per_beat
 
-    print("ticks:", ticks)
+    print("ticks:", mid.ticks_per_beat)
 
 
     notes = []
 
-    current = {}
 
-    time = 0
+    active = {}
 
 
     print("collect notes")
@@ -53,42 +57,61 @@ def clean_midi(input_file, output_file):
 
     for track in mid.tracks:
 
-        time = 0
+        current_time = 0
+
 
         for msg in track:
 
-            time += msg.time
+            current_time += msg.time
 
 
             if msg.type == "note_on" and msg.velocity > 0:
 
-                current[msg.note] = {
-                    "start": time,
+                active[msg.note] = {
+                    "start": current_time,
                     "velocity": msg.velocity
                 }
 
 
-            elif msg.type in ["note_off","note_on"]:
+            elif (
+                msg.type == "note_off"
+                or
+                (
+                    msg.type == "note_on"
+                    and msg.velocity == 0
+                )
+            ):
 
-                if msg.note in current:
 
-                    n = current[msg.note]
+                if msg.note in active:
 
-                    end = time
+                    n = active[msg.note]
 
-                    if end > n["start"]:
+
+                    length = current_time - n["start"]
+
+
+                    if length > 0:
 
                         notes.append({
+
                             "pitch": msg.note,
+
                             "start": n["start"],
-                            "end": end,
+
+                            "end": current_time,
+
                             "velocity": n["velocity"]
+
                         })
 
-                    del current[msg.note]
+
+                    del active[msg.note]
+
 
 
     print("notes:", len(notes))
+
 
 
     print("remove tiny notes")
@@ -96,15 +119,20 @@ def clean_midi(input_file, output_file):
 
     cleaned=[]
 
+
     for n in notes:
 
-        length=n["end"]-n["start"]
+        if n["end"] - n["start"] >= MIN_LENGTH:
 
-        if length >= MIN_NOTE_LENGTH:
             cleaned.append(n)
 
 
-    print("after tiny remove:",len(cleaned))
+
+    print(
+        "after remove:",
+        len(cleaned)
+    )
+
 
 
     print("quantize")
@@ -112,11 +140,22 @@ def clean_midi(input_file, output_file):
 
     for n in cleaned:
 
-        n["start"]=quantize(n["start"])
-        n["end"]=quantize(n["end"])
+        n["start"] = quantize(
+            n["start"]
+        )
+
+        n["end"] = quantize(
+            n["end"]
+        )
+
 
         if n["end"] <= n["start"]:
-            n["end"]=n["start"]+GRID
+
+            n["end"] = (
+                n["start"]
+                +
+                GRID
+            )
 
 
 
@@ -124,47 +163,64 @@ def clean_midi(input_file, output_file):
 
 
     cleaned.sort(
-        key=lambda x:(x["start"],x["pitch"])
+        key=lambda x:
+        (
+            x["start"],
+            x["pitch"]
+        )
     )
 
 
     final=[]
 
+
     last_end={}
+
 
 
     for n in cleaned:
 
+
         pitch=n["pitch"]
+
 
         if pitch in last_end:
 
+
             if n["start"] < last_end[pitch]:
 
-                n["start"]=last_end[pitch]
+                n["start"] = last_end[pitch]
 
 
-        if n["end"]>n["start"]:
+
+        if n["end"] > n["start"]:
 
             final.append(n)
+
             last_end[pitch]=n["end"]
 
 
 
-    print("final notes:",len(final))
+    print(
+        "final notes:",
+        len(final)
+    )
+
 
 
     print("write midi")
 
 
     out=MidiFile(
-        ticks_per_beat=ticks
+        ticks_per_beat=mid.ticks_per_beat
     )
 
 
     track=MidiTrack()
 
+
     out.tracks.append(track)
+
 
 
     events=[]
@@ -172,9 +228,11 @@ def clean_midi(input_file, output_file):
 
     for n in final:
 
+
         events.append(
             (
                 n["start"],
+
                 Message(
                     "note_on",
                     note=n["pitch"],
@@ -188,6 +246,7 @@ def clean_midi(input_file, output_file):
         events.append(
             (
                 n["end"],
+
                 Message(
                     "note_off",
                     note=n["pitch"],
@@ -198,9 +257,11 @@ def clean_midi(input_file, output_file):
         )
 
 
+
     events.sort(
         key=lambda x:x[0]
     )
+
 
 
     last=0
@@ -208,12 +269,17 @@ def clean_midi(input_file, output_file):
 
     for t,msg in events:
 
+
         msg.time=t-last
+
         track.append(msg)
+
         last=t
 
 
+
     out.save(output_file)
+
 
 
     print("================")
@@ -223,15 +289,19 @@ def clean_midi(input_file, output_file):
 
 
 
-if __name__=="__main__":
 
-    if len(sys.argv)<3:
+if __name__ == "__main__":
+
+
+    if len(sys.argv) < 3:
 
         print(
-            "usage: python clean_midi.py input.mid output.mid"
+            "usage:"
+            " python clean_midi.py input.mid output.mid"
         )
 
-        sys.exit()
+        sys.exit(1)
+
 
 
     clean_midi(
