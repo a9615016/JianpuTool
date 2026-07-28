@@ -1,201 +1,225 @@
 # clean_musicxml.py
-# CLEAN MUSICXML V33 PDF COMPATIBLE
+# CLEAN MUSICXML V33
+# STRICT 4/4 BAR NORMALIZER
+# Jianpu compatible
 
-from music21 import converter, stream, note, chord, meter, bar
 import sys
+from music21 import converter, stream, note, chord, meter
 
 
-print("================")
-print("CLEAN MUSICXML V33 PDF COMPATIBLE")
-print("================")
+TARGET_BEATS = 4.0
 
 
-def quantize_duration(q):
+def remove_problem_elements(score):
 
-    allowed = [
-        0.25,   # 16分
-        0.5,    # 8分
-        1.0,    # 4分
-        2.0,    # 2分
-        4.0     # 全音
-    ]
-
-    return min(
-        allowed,
-        key=lambda x: abs(x-q)
-    )
-
-
-def clean_musicxml(src, dst):
-
-    print("read")
-
-    score = converter.parse(src)
-
-
-    # 只保留第一聲部
     print("remove voices")
-
-    if len(score.parts) > 1:
-        score = stream.Score(
-            [score.parts[0]]
-        )
-
-
-    part = score.parts[0]
-
+    for p in score.parts:
+        for el in list(p.recurse()):
+            if hasattr(el, "voice"):
+                try:
+                    el.voice = None
+                except:
+                    pass
 
     print("remove chords")
+    for p in score.parts:
+        for c in list(p.recurse().getElementsByClass('Chord')):
+            n = note.Note(c.pitches[0])
+            n.duration = c.duration
+            c.activeSite.replace(c, n)
 
-    # chord 改單音最高音
-    for c in list(part.recurse().getElementsByClass(chord.Chord)):
-
-        n = note.Note(
-            c.pitches[-1]
-        )
-
-        n.duration = c.duration
-
-        c.activeSite.replace(
-            c,
-            n
-        )
-
+    print("remove beams")
+    for n in score.recurse().notes:
+        try:
+            n.beams = None
+        except:
+            pass
 
     print("remove ties")
-    print("remove beams")
-
-
-    for n in part.recurse().notes:
-
-        if isinstance(n, note.Note):
-
+    for n in score.recurse().notes:
+        try:
             n.tie = None
-            n.beams = []
-
-            # 移除裝飾
-            n.articulations = []
-            n.expressions = []
+        except:
+            pass
 
 
-            # 節奏修正
-            n.duration.quarterLength = quantize_duration(
-                float(n.duration.quarterLength)
-            )
+def quantize_duration(score):
+
+    print("duration quantize")
+
+    allowed = [
+        4.0,
+        2.0,
+        1.0,
+        0.5,
+        0.25,
+        0.125
+    ]
+
+    for n in score.recurse().notesAndRests:
+
+        q = min(
+            allowed,
+            key=lambda x: abs(x - n.duration.quarterLength)
+        )
+
+        n.duration.quarterLength = q
 
 
 
-    print("force 4/4")
-
-
-    part.insert(
-        0,
-        meter.TimeSignature("4/4")
-    )
-
+def rebuild_measures(score):
 
     print("rebuild measures")
 
+    for p in score.parts:
 
-    score = score.makeMeasures()
+        p.insert(0, meter.TimeSignature("4/4"))
 
-
-    print("split cross measure notes")
-
-
-    # 再次切斷跨小節音符
-    score = score.makeMeasures(
-        inPlace=False
-    )
+        p.makeMeasures(inPlace=True)
 
 
-    print("fill measure rest")
+
+def strict_fix_bars(score):
+
+    print("STRICT BAR FIX")
+
+    for p in score.parts:
+
+        measures = list(p.getElementsByClass(
+            "Measure"
+        ))
+
+        for m in measures:
+
+            total = 0
+
+            new_elements = []
+
+            for el in m.notesAndRests:
+
+                length = el.duration.quarterLength
 
 
-    score.makeRests(
-        fillGaps=True,
-        inPlace=True
-    )
+                # 超過4拍直接停止
+                if total + length > TARGET_BEATS:
+
+                    remain = TARGET_BEATS - total
+
+                    if remain > 0:
+
+                        el.duration.quarterLength = remain
+                        new_elements.append(el)
+
+                    total = TARGET_BEATS
+                    break
 
 
-    print("clear notation cache")
+                new_elements.append(el)
+
+                total += length
 
 
-    for n in score.recurse().notes:
 
-        if hasattr(n, "beams"):
-            n.beams = []
+            # 不足補休止
+            if total < TARGET_BEATS:
 
-        if hasattr(n, "tie"):
-            n.tie = None
+                r = note.Rest()
+                r.duration.quarterLength = (
+                    TARGET_BEATS - total
+                )
+
+                new_elements.append(r)
 
 
+            m.clear()
+
+            for el in new_elements:
+                m.append(el)
+
+
+def final_check(score):
 
     print("FINAL CHECK")
 
+    ok = True
 
-    bad = False
-
-
-    for i,m in enumerate(
-        score.parts[0].getElementsByClass("Measure"),
-        1
+    for m in score.recurse().getElementsByClass(
+        "Measure"
     ):
 
-        length = float(
-            m.duration.quarterLength
+        length = sum(
+            x.duration.quarterLength
+            for x in m.notesAndRests
         )
 
         print(
             "Measure",
-            i,
+            m.number,
             length
         )
 
 
-        if length > 4.0001:
-            bad=True
+        if abs(length - 4.0) > 0.001:
+            ok = False
 
 
-
-    if bad:
-
-        print(
-            "WARNING measure mismatch"
-        )
+    if ok:
+        print("ALL MEASURES SAFE")
 
     else:
+        print("WARNING measure mismatch")
 
-        print(
-            "ALL MEASURES SAFE"
-        )
 
+
+def main():
+
+    infile = sys.argv[1]
+
+    outfile = (
+        sys.argv[2]
+        if len(sys.argv)>2
+        else "clean.musicxml"
+    )
+
+
+    print("================")
+    print(
+        "CLEAN MUSICXML V33 "
+        "STRICT 4/4"
+    )
+    print("================")
+
+
+    print("read")
+
+    score = converter.parse(infile)
+
+
+    remove_problem_elements(score)
+
+    quantize_duration(score)
+
+    rebuild_measures(score)
+
+    strict_fix_bars(score)
+
+    rebuild_measures(score)
+
+    final_check(score)
 
 
     print("FINAL WRITE")
 
-
     score.write(
         "musicxml",
-        fp=dst
+        fp=outfile
     )
 
 
     print("DONE")
-    print(dst)
+    print(outfile)
 
 
 
 if __name__ == "__main__":
-
-    if len(sys.argv)<3:
-        print(
-            "usage: python clean_musicxml.py input.musicxml output.musicxml"
-        )
-        sys.exit()
-
-
-    clean_musicxml(
-        sys.argv[1],
-        sys.argv[2]
-    )
+    main()
