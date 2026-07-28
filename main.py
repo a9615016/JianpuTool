@@ -1,6 +1,7 @@
 # main.py
-# JianpuTool v26 DEBUG VERSION
-# MP3/WAV -> MusicXML -> clean -> jianpu_ly
+# JianpuTool v26 DEBUG
+# FastAPI
+# MusicXML -> clean -> jianpu_ly
 
 
 from fastapi import FastAPI, UploadFile, File
@@ -13,9 +14,7 @@ import subprocess
 from music21 import converter
 
 
-
 app = FastAPI()
-
 
 
 OUTPUT_DIR = "/app/outputs"
@@ -32,56 +31,32 @@ def home():
 
     return HTMLResponse(
         """
-        <!DOCTYPE html>
-        <html>
-
-        <head>
-        <title>JianpuTool</title>
-        </head>
-
-        <body>
-
-        <h1>
-        JianpuTool 簡譜產生器
-        </h1>
+        <h1>JianpuTool 簡譜產生器</h1>
 
         <p>
-        MP3/WAV → MusicXML → 簡譜 PDF
+        MP3/WAV → MusicXML → Jianpu PDF
         </p>
-
 
         <form action="/upload"
               method="post"
               enctype="multipart/form-data">
 
+        <input type="file" name="file">
 
-        <input type="file"
-               name="file"
-               accept=".mp3,.wav">
-
-
-        <button type="submit">
+        <button>
         Upload
         </button>
 
-
         </form>
-
-
-        </body>
-
-        </html>
         """
     )
 
 
 
-
 @app.post("/upload")
 async def upload(
-        file: UploadFile = File(...)
+    file: UploadFile = File(...)
 ):
-
 
     job_id = str(uuid.uuid4())
 
@@ -96,7 +71,6 @@ async def upload(
         job_dir,
         exist_ok=True
     )
-
 
 
     input_file = os.path.join(
@@ -115,7 +89,6 @@ async def upload(
         )
 
 
-
     print("================")
     print("收到:")
     print(file.filename)
@@ -123,28 +96,19 @@ async def upload(
 
 
 
-    ################################################
-    # 1. 這裡接你的 MP3 -> MIDI -> MusicXML
-    ################################################
-
-
-    # 假設最後產生:
+    #
+    # 你的原流程
+    # MP3 -> MIDI -> MusicXML
+    #
+    # 這裡假設前面已產生：
     #
     # melody.musicxml
     #
-
 
     musicxml_file = os.path.join(
         job_dir,
         "melody.musicxml"
     )
-
-
-
-    ################################################
-    # 如果你已有 MusicXML
-    # 直接測試下面流程
-    ################################################
 
 
 
@@ -158,59 +122,39 @@ async def upload(
     print("開始 clean_musicxml")
 
 
-    cmd_clean = [
 
-        "python",
-
-        "clean_musicxml.py",
-
-        musicxml_file,
-
-        clean_xml
-
-    ]
-
-
-    print(
-        "RUN:",
-        " ".join(cmd_clean)
-    )
-
-
-    clean_result = subprocess.run(
-
-        cmd_clean,
-
-        capture_output=True,
-
+    subprocess.run(
+        [
+            "python",
+            "clean_musicxml.py",
+            musicxml_file,
+            clean_xml
+        ],
+        capture_output=False,
         text=True
-
     )
 
 
-    print(clean_result.stdout)
 
-    print(clean_result.stderr)
-
-
-
-
-    ################################################
-    # DEBUG MUSICXML
-    ################################################
+    print()
+    print("清理完成")
+    print()
 
 
-    print("================")
+
     print("CHECK jianpu input:")
     print(clean_xml)
+
+
+
+    ###################################
+    # DEBUG MUSICXML
+    ###################################
+
+
     print("================")
-
-
-
+    print("DEBUG MUSICXML")
     print("================")
-    print("DEBUG NOTES")
-    print("================")
-
 
 
     try:
@@ -218,7 +162,6 @@ async def upload(
         score = converter.parse(
             clean_xml
         )
-
 
 
         for part in score.parts:
@@ -233,9 +176,7 @@ async def upload(
                 )
 
 
-
                 total = 0
-
 
 
                 for n in measure.notesAndRests:
@@ -245,20 +186,14 @@ async def upload(
 
 
                     print(
-
                         "offset=",
                         n.offset,
-
                         "duration=",
                         dur,
-
                         "end=",
                         n.offset + dur,
-
                         n
-
                     )
-
 
 
                     total += dur
@@ -266,14 +201,12 @@ async def upload(
 
 
                 print(
-                    "MEASURE TOTAL:",
-                    measure.duration.quarterLength
+                    "TOTAL=",
+                    total
                 )
 
 
-
     except Exception as e:
-
 
         print(
             "DEBUG ERROR:",
@@ -282,18 +215,16 @@ async def upload(
 
 
 
-
-    ################################################
-    # 2. jianpu_ly
-    ################################################
-
+    ###################################
+    # jianpu_ly
+    ###################################
 
 
     print("開始 jianpu_ly")
 
 
 
-    cmd_jianpu = [
+    cmd = [
 
         "python",
 
@@ -306,68 +237,31 @@ async def upload(
     ]
 
 
-
     print(
-
         "RUN:",
-
-        " ".join(cmd_jianpu)
-
+        " ".join(cmd)
     )
-
 
 
     result = subprocess.run(
-
-        cmd_jianpu,
-
+        cmd,
         capture_output=True,
-
         text=True
-
     )
 
 
-
     print("================")
-    print("jianpu stdout")
+    print(result.stdout)
+    print(result.stderr)
     print("================")
-
-    print(
-        result.stdout
-    )
-
-
-
-    print("================")
-    print("jianpu stderr")
-    print("================")
-
-
-    print(
-        result.stderr
-    )
-
-
-
-
-    ################################################
-    # 回傳
-    ################################################
 
 
 
     return {
 
-
         "status":"done",
 
-
         "job_id":job_id,
-
-
-        "folder":job_dir,
-
 
         "clean_musicxml":clean_xml
 
