@@ -8,16 +8,12 @@ from fastapi.responses import FileResponse, HTMLResponse
 
 app = FastAPI()
 
-
-BASE_DIR = "/app"
-
 OUTPUT_DIR = "/app/outputs"
 
 os.makedirs(
     OUTPUT_DIR,
     exist_ok=True
 )
-
 
 
 def run(cmd):
@@ -34,43 +30,37 @@ def run(cmd):
 
     print(result.stdout)
 
-
     if result.returncode != 0:
-        raise Exception(
-            result.stdout
-        )
+        raise Exception(result.stdout)
 
 
 
 @app.get("/")
 def home():
 
-    return HTMLResponse(
-        """
-        <html>
-        <body>
+    return HTMLResponse("""
+    <html>
+    <body>
 
-        <h2>JianpuTool</h2>
+    <h2>JianpuTool</h2>
 
-        <p>MP3 → MIDI → MusicXML → 簡譜PDF</p>
+    <p>MP3 → MIDI → MusicXML → Jianpu PDF</p>
 
-        <form action="/upload"
-              method="post"
-              enctype="multipart/form-data">
+    <form action="/upload"
+    method="post"
+    enctype="multipart/form-data">
 
-        <input type="file"
-               name="file">
+    <input type="file" name="file">
 
-        <button>
-        Upload
-        </button>
+    <button>
+    Upload
+    </button>
 
-        </form>
+    </form>
 
-        </body>
-        </html>
-        """
-    )
+    </body>
+    </html>
+    """)
 
 
 
@@ -80,7 +70,6 @@ async def upload(
 ):
 
     task_id = str(uuid.uuid4())
-
 
     task_dir = os.path.join(
         OUTPUT_DIR,
@@ -98,15 +87,13 @@ async def upload(
     print("收到:", file.filename)
 
 
-
     mp3 = os.path.join(
         task_dir,
         file.filename
     )
 
 
-    with open(mp3,"wb") as f:
-
+    with open(mp3, "wb") as f:
         f.write(
             await file.read()
         )
@@ -117,7 +104,7 @@ async def upload(
 
 
 
-    # 1 MP3 -> MIDI
+    # MP3 -> MIDI
 
     midi = os.path.join(
         task_dir,
@@ -137,7 +124,7 @@ async def upload(
 
 
 
-    # 2 MIDI -> MusicXML
+    # MIDI -> MusicXML
 
     musicxml = os.path.join(
         task_dir,
@@ -157,7 +144,7 @@ async def upload(
 
 
 
-    # 3 clean
+    # clean
 
     clean = os.path.join(
         task_dir,
@@ -177,7 +164,8 @@ async def upload(
 
 
 
-    # 4 force fix measure
+    # NEW STEP
+    # 修正 jianpu_ly 小節錯誤
 
     safe = os.path.join(
         task_dir,
@@ -197,7 +185,15 @@ async def upload(
 
 
 
-    # 5 MusicXML -> Jianpu LY
+    print("CHECK jianpu input:")
+    print(safe)
+
+
+
+    # MusicXML -> Jianpu LilyPond
+
+    print("開始 jianpu_ly")
+
 
     run([
         "python",
@@ -207,49 +203,50 @@ async def upload(
     ])
 
 
+
     ly = safe.replace(
         ".musicxml",
         ".ly"
     )
 
 
-    print(
-        "LY:",
-        ly
+    print("LY:", ly)
+
+
+
+    # LilyPond PDF
+
+    print("開始 LilyPond")
+
+
+    output_base = os.path.join(
+        task_dir,
+        "jianpu"
     )
 
-
-
-    # 6 LilyPond PDF
 
     run([
         "lilypond",
         "-o",
-        os.path.join(
-            task_dir,
-            "jianpu"
-        ),
+        output_base,
         ly
     ])
 
 
-    pdf = os.path.join(
-        task_dir,
-        "jianpu.pdf"
-    )
+
+    pdf = output_base + ".pdf"
 
 
     if not os.path.exists(pdf):
 
         raise Exception(
-            "PDF沒有產生"
+            "PDF產生失敗"
         )
 
 
     print("====================")
     print("PDF完成")
     print(pdf)
-
 
 
     return FileResponse(
