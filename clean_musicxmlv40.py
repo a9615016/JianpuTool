@@ -1,213 +1,203 @@
-from music21 import converter, stream, meter, note, chord
+from music21 import converter, stream, note, meter
 import sys
-import os
 
 
-print("================")
-print("CLEAN MUSICXML V25 FINAL JIANPU COMPATIBLE")
-print("================")
+print("==============================")
+print("CLEAN MUSICXML V26 REBUILD TIME AXIS")
+print("==============================")
 
 
-if len(sys.argv) < 2:
+if len(sys.argv) < 3:
     print("usage: python clean_musicxml.py input.musicxml output.musicxml")
     sys.exit()
 
 
 input_file = sys.argv[1]
-
-if len(sys.argv) >= 3:
-    output_file = sys.argv[2]
-else:
-    output_file = "clean.musicxml"
+output_file = sys.argv[2]
 
 
-
-print("read")
+print("READ")
 
 score = converter.parse(input_file)
 
 
+# ==========================
+# 取得第一聲部
+# ==========================
 
-# =========================
-# remove extra voices
-# =========================
-
-print("remove voices")
-
-for part in score.parts:
-
-    for el in part.recurse():
-
-        if isinstance(el, note.NotRest):
-
-            if hasattr(el, "activeSite"):
-                pass
+part = score.parts[0]
 
 
-
-# =========================
-# remove chords
-# =========================
-
-print("remove chords")
-
-for part in score.parts:
-
-    for c in part.recurse().getElementsByClass('Chord'):
-
-        if len(c.pitches):
-
-            n = note.Note(c.pitches[0])
-            n.duration = c.duration
-
-            c.activeSite.replace(c, n)
+print("COLLECT NOTES")
 
 
-
-# =========================
-# remove beams ties
-# =========================
-
-print("remove beams")
-
-for n in score.recurse().notes:
-
-    n.beams = []
+events = []
 
 
+for n in part.recurse().notes:
 
-print("remove ties")
+    if isinstance(n, note.Note):
 
-for n in score.recurse().notes:
+        start = float(n.offset)
+        dur = float(n.duration.quarterLength)
 
-    n.tie = None
-
-
-
-# =========================
-# force 4/4
-# =========================
-
-print("force 4/4")
-
-for part in score.parts:
-
-    part.insert(0, meter.TimeSignature("4/4"))
+        events.append(
+            (
+                start,
+                dur,
+                n.pitch
+            )
+        )
 
 
+print("notes:", len(events))
 
-# =========================
-# duration quantize
-# =========================
 
-print("duration quantize 1/16")
+# ==========================
+# quantize 1/16
+# ==========================
+
+print("QUANTIZE")
 
 
 GRID = 0.25
 
 
-for n in score.recurse().notesAndRests:
-
-    old = n.duration.quarterLength
-
-    new = round(old / GRID) * GRID
+fixed=[]
 
 
-    if new <= 0:
-        new = GRID
+for start,dur,pitch in events:
+
+    start = round(start/GRID)*GRID
+    dur = round(dur/GRID)*GRID
 
 
-    n.duration.quarterLength = new
+    if dur <=0:
+        dur=GRID
 
 
-
-# =========================
-# remove empty measures
-# =========================
-
-print("remove empty measures")
-
-
-for part in score.parts:
-
-    measures = list(
-        part.getElementsByClass(stream.Measure)
+    fixed.append(
+        (
+            start,
+            dur,
+            pitch
+        )
     )
 
-    for m in measures:
-
-        if len(m.notesAndRests)==0:
-
-            part.remove(m)
 
 
+# ==========================
+# 建立新的 score
+# ==========================
 
-# =========================
-# rebuild measures
-# =========================
-
-print("rebuild measures")
-
-
-for part in score.parts:
-
-    part.makeMeasures(inPlace=True)
+print("REBUILD SCORE")
 
 
+new_score = stream.Score()
 
-# =========================
-# split crossing notes
-# =========================
+new_part = stream.Part()
 
-print("split cross measure notes")
-
-
-for part in score.parts:
-
-    part.makeMeasures(inPlace=True)
+new_part.insert(
+    0,
+    meter.TimeSignature("4/4")
+)
 
 
+# ==========================
+# 建立 4/4 measures
+# ==========================
 
-# =========================
-# fill measure rests
-# =========================
-
-print("fill measure rest")
-
-
-for part in score.parts:
-
-    for m in part.getElementsByClass(stream.Measure):
-
-        length = m.duration.quarterLength
+measure_map={}
 
 
-        if length < 4:
+for start,dur,pitch in fixed:
+
+
+    measure_no = int(start // 4)+1
+
+    pos = start % 4
+
+
+    if measure_no not in measure_map:
+
+        measure_map[measure_no]=[]
+
+
+    measure_map[measure_no].append(
+        (
+            pos,
+            dur,
+            pitch
+        )
+    )
+
+
+
+for m_no in sorted(measure_map):
+
+
+    m = stream.Measure(
+        number=m_no
+    )
+
+
+    current=0
+
+
+    notes = sorted(
+        measure_map[m_no],
+        key=lambda x:x[0]
+    )
+
+
+    for pos,dur,pitch in notes:
+
+
+        # 補空拍
+
+        if pos > current:
 
             r = note.Rest(
-                quarterLength=4-length
+                quarterLength=pos-current
             )
 
             m.append(r)
 
 
+        n = note.Note(pitch)
 
-# =========================
-# final rebuild
-# =========================
-
-print("final rebuild")
+        n.duration.quarterLength=dur
 
 
-for part in score.parts:
+        m.append(n)
 
-    part.makeMeasures(inPlace=True)
+
+        current = pos+dur
 
 
 
-# =========================
+    # 補滿4拍
+
+    if current < 4:
+
+        m.append(
+            note.Rest(
+                quarterLength=4-current
+            )
+        )
+
+
+    new_part.append(m)
+
+
+
+new_score.append(new_part)
+
+
+
+# ==========================
 # FINAL CHECK
-# =========================
+# ==========================
 
 print("FINAL CHECK")
 
@@ -215,46 +205,35 @@ print("FINAL CHECK")
 bad=False
 
 
-for i,m in enumerate(
-    score.parts[0].getElementsByClass(stream.Measure),
-    1
-):
+for m in new_part.getElementsByClass(stream.Measure):
 
     length=float(
         m.duration.quarterLength
     )
 
+
     print(
         "Measure",
-        i,
+        m.number,
         length
     )
 
 
-    if abs(length-4.0)>0.01:
-
+    if abs(length-4)>0.01:
         bad=True
 
 
 
 if bad:
-
-    print("WARNING measure mismatch")
-
+    print("WARNING")
 else:
-
     print("ALL MEASURES OK")
 
 
 
-# =========================
-# write
-# =========================
+print("WRITE")
 
-print("FINAL WRITE")
-
-
-score.write(
+new_score.write(
     "musicxml",
     fp=output_file
 )
