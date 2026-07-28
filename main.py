@@ -1,22 +1,28 @@
-from fastapi import FastAPI, UploadFile, File
-from fastapi.responses import FileResponse
 import os
 import uuid
 import subprocess
-import shutil
+
+from fastapi import FastAPI, UploadFile, File
+from fastapi.responses import FileResponse, HTMLResponse
 
 
 app = FastAPI()
 
 
-BASE = "/app/outputs"
+BASE_DIR = "/app"
 
-os.makedirs(BASE, exist_ok=True)
+OUTPUT_DIR = "/app/outputs"
+
+os.makedirs(
+    OUTPUT_DIR,
+    exist_ok=True
+)
 
 
 
 def run(cmd):
 
+    print("====================")
     print("RUN:", " ".join(cmd))
 
     result = subprocess.run(
@@ -28,23 +34,43 @@ def run(cmd):
 
     print(result.stdout)
 
+
     if result.returncode != 0:
-        raise Exception(result.stdout)
-
-
+        raise Exception(
+            result.stdout
+        )
 
 
 
 @app.get("/")
 def home():
 
-    return {
-        "status":"JianpuTool",
-        "pipeline":
-        "MP3 -> BasicPitch -> MIDI -> Jianpu LY -> PDF"
-    }
+    return HTMLResponse(
+        """
+        <html>
+        <body>
 
+        <h2>JianpuTool</h2>
 
+        <p>MP3 → MIDI → MusicXML → 簡譜PDF</p>
+
+        <form action="/upload"
+              method="post"
+              enctype="multipart/form-data">
+
+        <input type="file"
+               name="file">
+
+        <button>
+        Upload
+        </button>
+
+        </form>
+
+        </body>
+        </html>
+        """
+    )
 
 
 
@@ -53,40 +79,48 @@ async def upload(
     file: UploadFile = File(...)
 ):
 
-    job = str(uuid.uuid4())
+    task_id = str(uuid.uuid4())
 
-    folder = os.path.join(
-        BASE,
-        job
+
+    task_dir = os.path.join(
+        OUTPUT_DIR,
+        task_id
     )
 
-    os.makedirs(folder)
+    os.makedirs(
+        task_dir,
+        exist_ok=True
+    )
+
+
+    print("====================")
+    print("開始任務:", task_id)
+    print("收到:", file.filename)
+
 
 
     mp3 = os.path.join(
-        folder,
+        task_dir,
         file.filename
     )
 
 
     with open(mp3,"wb") as f:
-        shutil.copyfileobj(
-            file.file,
-            f
+
+        f.write(
+            await file.read()
         )
 
 
-    print("====================")
-    print("開始任務:",job)
-    print("收到:",file.filename)
+    print("MP3保存完成")
+    print(mp3)
 
 
-    #
-    # 1. MP3 -> MIDI
-    #
+
+    # 1 MP3 -> MIDI
 
     midi = os.path.join(
-        folder,
+        task_dir,
         "melody.mid"
     )
 
@@ -103,57 +137,118 @@ async def upload(
 
 
 
-    #
-    # 2. MIDI -> Jianpu Lilypond
-    #
+    # 2 MIDI -> MusicXML
 
-    ly = os.path.join(
-        folder,
-        "melody.ly"
+    musicxml = os.path.join(
+        task_dir,
+        "input.musicxml"
     )
 
 
     run([
         "python",
-        "midi_to_jianpu_ly.py",
+        "midi_to_musicxml.py",
         midi,
-        ly
+        musicxml
     ])
 
 
-
-    print("LY完成")
-
+    print("MusicXML完成")
 
 
-    #
-    # 3. LilyPond -> PDF
-    #
+
+    # 3 clean
+
+    clean = os.path.join(
+        task_dir,
+        "clean.musicxml"
+    )
+
+
+    run([
+        "python",
+        "clean_musicxml.py",
+        musicxml,
+        clean
+    ])
+
+
+    print("清理完成")
+
+
+
+    # 4 force fix measure
+
+    safe = os.path.join(
+        task_dir,
+        "safe.musicxml"
+    )
+
+
+    run([
+        "python",
+        "force_fix_measure.py",
+        clean,
+        safe
+    ])
+
+
+    print("小節修正完成")
+
+
+
+    # 5 MusicXML -> Jianpu LY
+
+    run([
+        "python",
+        "-m",
+        "jianpu_ly",
+        safe
+    ])
+
+
+    ly = safe.replace(
+        ".musicxml",
+        ".ly"
+    )
+
+
+    print(
+        "LY:",
+        ly
+    )
+
+
+
+    # 6 LilyPond PDF
 
     run([
         "lilypond",
         "-o",
-        folder,
+        os.path.join(
+            task_dir,
+            "jianpu"
+        ),
         ly
     ])
 
 
-
     pdf = os.path.join(
-        folder,
-        "melody.pdf"
+        task_dir,
+        "jianpu.pdf"
     )
 
 
     if not os.path.exists(pdf):
 
         raise Exception(
-            "PDF產生失敗"
+            "PDF沒有產生"
         )
 
 
-
+    print("====================")
     print("PDF完成")
+    print(pdf)
 
 
 
