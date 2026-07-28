@@ -3,7 +3,7 @@ import sys
 
 
 print("================")
-print("CLEAN MUSICXML V25 FINAL JIANPU FIX")
+print("CLEAN MUSICXML V25 JIANPU FIX")
 print("================")
 
 
@@ -24,23 +24,27 @@ score = converter.parse(src)
 
 
 
-# ==========================
-# 清理
-# ==========================
+# =========================
+# remove voices
+# =========================
 
 print("remove voices")
 
 for part in score.parts:
 
-    for el in list(part.recurse()):
+    for n in part.recurse():
 
-        if hasattr(el, "voice"):
+        if hasattr(n, "voice"):
             try:
-                el.voice = None
+                n.voice = None
             except:
                 pass
 
 
+
+# =========================
+# remove chords
+# =========================
 
 print("remove chords")
 
@@ -48,44 +52,41 @@ for part in score.parts:
 
     for c in list(part.recurse().getElementsByClass("Chord")):
 
-        n = note.Note(
-            c.pitches[0]
+        highest = c.notes[-1]
+
+        new = note.Note(
+            highest.pitch
         )
 
-        n.duration = c.duration
+        new.duration = c.duration
 
         c.activeSite.replace(
             c,
-            n
+            new
         )
 
 
 
+# =========================
+# remove notation
+# =========================
+
 print("remove beams")
-
-for n in score.recurse().notes:
-
-    try:
-        n.beams = []
-    except:
-        pass
-
-
-
 print("remove ties")
 
+
 for n in score.recurse().notes:
 
-    try:
+    n.beams = []
+
+    if n.tie:
         n.tie = None
-    except:
-        pass
 
 
 
-# ==========================
-# 4/4
-# ==========================
+# =========================
+# force 4/4
+# =========================
 
 print("force 4/4")
 
@@ -99,9 +100,9 @@ for part in score.parts:
 
 
 
-# ==========================
-# duration quantize
-# ==========================
+# =========================
+# quantize
+# =========================
 
 print("duration quantize")
 
@@ -110,8 +111,8 @@ for n in score.recurse().notesAndRests:
 
     q = float(n.duration.quarterLength)
 
-    # 16分音符
     q = round(q * 4) / 4
+
 
     if q <= 0:
         q = 0.25
@@ -121,9 +122,9 @@ for n in score.recurse().notesAndRests:
 
 
 
-# ==========================
+# =========================
 # rebuild measures
-# ==========================
+# =========================
 
 print("rebuild measures")
 
@@ -136,87 +137,71 @@ for part in score.parts:
 
 
 
-# ==========================
-# 修正超拍小節
-# ==========================
+# =========================
+# split cross measure
+# =========================
 
-print("fix measure length")
+print("split cross measure notes")
+
+
+for part in score.parts:
+
+    try:
+        part.makeNotation(
+            inPlace=True
+        )
+    except:
+        pass
+
+
+
+# =========================
+# V25 OFFSET FIX
+# =========================
+
+print("FINAL NORMALIZE OFFSET")
 
 
 for part in score.parts:
 
 
+    current = 0
+
+
+    for n in part.recurse().notesAndRests:
+
+
+        n.offset = current
+
+
+        current += n.duration.quarterLength
+
+
+
+# =========================
+# remove pickup padding
+# =========================
+
+print("REMOVE PICKUP")
+
+
+for part in score.parts:
+
     for m in part.getElementsByClass("Measure"):
 
-
-        total = float(
-            m.duration.quarterLength
-        )
-
-
-        print(
-            "Measure",
-            m.number,
-            total
-        )
-
-
-        while total > 4:
-
-
-            elems = list(
-                m.notesAndRests
-            )
-
-
-            if not elems:
-                break
-
-
-            last = elems[-1]
-
-
-            if isinstance(last, note.Note):
-
-                old = float(
-                    last.duration.quarterLength
-                )
-
-
-                last.duration.quarterLength = max(
-                    0.25,
-                    old - 0.25
-                )
-
-            else:
-
-                break
-
-
-            total = float(
-                m.duration.quarterLength
-            )
+        try:
+            m.paddingLeft = 0
+            m.paddingRight = 0
+        except:
+            pass
 
 
 
-        if total < 4:
-
-
-            r = note.Rest()
-
-            r.duration.quarterLength = (
-                4-total
-            )
-
-            m.append(r)
-
-
-
-# ==========================
+# =========================
 # rebuild again
-# ==========================
+# =========================
 
-print("rebuild measures again")
+print("rebuild measures")
 
 
 for part in score.parts:
@@ -227,27 +212,56 @@ for part in score.parts:
 
 
 
-score.clearCache()
+# =========================
+# fill empty measure
+# =========================
 
-
-
-# ==========================
-# FINAL CHECK
-# ==========================
-
-print("================")
-print("FINAL CHECK")
-print("================")
-
-
-bad = False
+print("fill measure rest")
 
 
 for part in score.parts:
 
     for m in part.getElementsByClass("Measure"):
 
-        q = float(
+
+        total = m.duration.quarterLength
+
+
+        if total < 4:
+
+            r = note.Rest()
+
+            r.duration.quarterLength = 4-total
+
+            m.append(r)
+
+
+
+# =========================
+# cache
+# =========================
+
+print("clear notation cache")
+
+score.clearCache()
+
+
+
+# =========================
+# FINAL CHECK
+# =========================
+
+print("FINAL CHECK")
+
+
+safe = True
+
+
+for part in score.parts:
+
+    for m in part.getElementsByClass("Measure"):
+
+        length = float(
             m.duration.quarterLength
         )
 
@@ -255,29 +269,29 @@ for part in score.parts:
         print(
             "Measure",
             m.number,
-            q
+            length
         )
 
 
-        if abs(q-4.0) > 0.01:
+        if abs(length-4) > 0.01:
 
-            bad = True
+            safe=False
 
 
 
-if bad:
+if safe:
 
-    print(
-        "WARNING measure mismatch"
-    )
+    print("ALL MEASURES SAFE")
 
 else:
 
-    print(
-        "ALL MEASURES SAFE"
-    )
+    print("WARNING measure mismatch")
 
 
+
+# =========================
+# WRITE
+# =========================
 
 print("FINAL WRITE")
 
