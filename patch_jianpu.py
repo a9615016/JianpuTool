@@ -1,63 +1,137 @@
+from music21 import converter, stream, note, chord, meter
+import sys
 import os
-import re
 
 
-JIANPU_FILE = "/usr/local/lib/python3.10/site-packages/jianpu_ly/__init__.py"
+STEP = 0.25   # 四分音符=1，16分格=0.25
 
 
-def patch_jianpu():
-
-    if not os.path.exists(JIANPU_FILE):
-        print("jianpu_ly not found")
-        return
-
-
-    print("Patching jianpu_ly...")
+def quantize_duration(q):
+    """
+    量化音長
+    """
+    return round(q / STEP) * STEP
 
 
-    with open(
-        JIANPU_FILE,
-        "r",
-        encoding="utf-8"
-    ) as f:
-        data = f.read()
+def patch_score(src, dst):
+
+    print("================")
+    print("PATCH JIANPU V1")
+    print("================")
+
+    print("read")
+    score = converter.parse(src)
 
 
-    old = """
-if self.barPos > self.barLength:
-"""
+    print("remove bad notation")
+
+    for part in score.parts:
+
+        # 強制 4/4
+        part.insert(0, meter.TimeSignature("4/4"))
 
 
-    new = """
-# PATCHED BY JianpuTool
-# allow timing overflow caused by MusicXML conversion
+        new_part = stream.Part()
 
-if self.barPos > self.barLength + 0.25:
-"""
+        current_measure = 1
+        current_pos = 0
 
 
-    if old in data:
+        print("rebuild notes")
 
-        data = data.replace(
-            old,
-            new
-        )
 
-        with open(
-            JIANPU_FILE,
-            "w",
-            encoding="utf-8"
-        ) as f:
-            f.write(data)
+        for el in part.flatten().notesAndRests:
 
-        print("jianpu_ly patched OK")
+            if isinstance(el, chord.Chord):
 
-    else:
+                # chord 取最高音
+                n = note.Note(
+                    el.pitches[-1]
+                )
+                n.duration.quarterLength = (
+                    el.duration.quarterLength
+                )
 
-        print(
-            "patch target not found"
-        )
+            else:
+                n = el
+
+
+            dur = n.duration.quarterLength
+
+
+            # 避免奇怪長度
+            if dur <= 0:
+                continue
+
+
+            dur = quantize_duration(dur)
+
+            if dur <= 0:
+                dur = STEP
+
+
+            # 避免超過小節
+            if current_pos + dur > 4:
+
+                rest = 4 - current_pos
+
+                if rest > 0:
+                    r = note.Rest()
+                    r.duration.quarterLength = rest
+                    new_part.append(r)
+
+                current_measure += 1
+                current_pos = 0
+
+
+            n.duration.quarterLength = dur
+
+            new_part.append(n)
+
+            current_pos += dur
+
+
+            if current_pos >= 4:
+
+                current_pos = 0
+                current_measure += 1
+
+
+
+        score.parts.remove(part)
+        score.insert(0,new_part)
+
+
+
+    print("remove ties")
+
+    for n in score.recurse().notes:
+        n.tie = None
+
+
+    print("write")
+
+    score.write(
+        "musicxml",
+        fp=dst
+    )
+
+
+    print("DONE")
+    print(dst)
+
 
 
 if __name__ == "__main__":
-    patch_jianpu()
+
+    if len(sys.argv) < 3:
+        print(
+            "python patch_jianpu.py input.musicxml output.musicxml"
+        )
+        sys.exit(1)
+
+
+    patch_score(
+        sys.argv[1],
+        sys.argv[2]
+    )
