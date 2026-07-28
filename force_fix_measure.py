@@ -7,7 +7,7 @@ dst = sys.argv[2]
 
 
 print("================")
-print("FORCE FIX MEASURE V25")
+print("FORCE FIX MEASURE V2")
 print("================")
 
 
@@ -16,82 +16,70 @@ score = converter.parse(src)
 
 for part in score.parts:
 
-    part.makeMeasures(inPlace=True)
+    print("Processing part")
+
+    # 重新建立單聲部
+    flat_notes = []
+
+    for n in part.flatten().notesAndRests:
+        flat_notes.append(n)
 
 
-    for m in part.getElementsByClass("Measure"):
+    new_part = stream.Part()
 
-        total = m.duration.quarterLength
+
+    for n in flat_notes:
+        new_part.append(n)
+
+
+    # 重新切小節
+    new_part.makeMeasures(
+        inPlace=True
+    )
+
+
+    for m in new_part.getElementsByClass("Measure"):
+
+        length = m.duration.quarterLength
 
 
         print(
             "Measure",
             m.number,
-            total
+            length
         )
 
 
-        # 超過4拍
-        if total > 4:
+        # 超過4拍處理
+        if length > 4:
 
             print(
-                "TRIM",
+                "WARNING too long:",
                 m.number,
-                total
+                length
             )
 
 
-            current = 0
-
-
-            for n in list(m.notesAndRests):
-
-                d = n.duration.quarterLength
-
-
-                if current + d > 4:
-
-                    remain = 4-current
-
-
-                    if remain > 0:
-                        n.duration.quarterLength = remain
-                        current = 4
-
-                    else:
-                        m.remove(n)
-
-                else:
-                    current += d
-
-
-
-        # 不足4拍補休止
-        total = m.duration.quarterLength
-
-
-        if total < 4:
+        # 不足補休止符
+        if length < 4:
 
             r = note.Rest()
 
-            r.duration.quarterLength = (
-                4-total
-            )
+            r.duration.quarterLength = 4 - length
 
             m.append(r)
 
 
+    # 回寫
+    part.clear()
 
-    # 重新整理
-    part.makeMeasures(
-        inPlace=True
-    )
+    for element in new_part:
+
+        part.append(element)
 
 
 
-print("================")
 print("FINAL CHECK")
-print("================")
 
 
 for part in score.parts:
@@ -112,3 +100,4 @@ score.write(
 
 
 print("DONE")
+print(dst)
