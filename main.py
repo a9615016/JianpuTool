@@ -162,6 +162,7 @@ async def upload(
 
     run([
         "python",
+        "jianpu_fix_musicxml.py",
         "clean_musicxml.py",
         musicxml,
         clean
