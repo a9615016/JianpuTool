@@ -1,10 +1,10 @@
 # clean_musicxml.py
 # CLEAN MUSICXML V62
-# Offset Reset Engine
-# BasicPitch + Render + jianpu_ly compatible
+# OFFSET RESET ENGINE
+# BasicPitch + Render + jianpu_ly
 
 import sys
-from music21 import converter, stream, note, chord, meter, bar
+from music21 import converter, stream, note, chord, meter
 
 print("================")
 print("CLEAN MUSICXML V62 OFFSET RESET ENGINE")
@@ -12,17 +12,12 @@ print("================")
 
 
 if len(sys.argv) < 2:
-    print("usage:")
-    print("python clean_musicxml.py input.musicxml output.musicxml")
+    print("usage: python clean_musicxml.py input.xml output.xml")
     sys.exit()
 
 
 src = sys.argv[1]
-
-if len(sys.argv) >= 3:
-    out = sys.argv[2]
-else:
-    out = "clean.musicxml"
+out = sys.argv[2] if len(sys.argv) > 2 else "clean.musicxml"
 
 
 print("read")
@@ -30,31 +25,50 @@ print("read")
 score = converter.parse(src)
 
 
-# -------------------------
-# remove unwanted objects
-# -------------------------
+# ------------------------
+# remove voices
+# ------------------------
 
 print("remove voices")
-for p in score.parts:
-    for v in p.recurse().getElementsByClass('Voice'):
-        v.activeSite.remove(v)
 
+for p in score.parts:
+    for v in list(p.recurse().getElementsByClass('Voice')):
+        try:
+            v.activeSite.remove(v)
+        except:
+            pass
+
+
+# ------------------------
+# remove chords
+# ------------------------
 
 print("remove chords")
 
-for p in score.parts:
-    for c in list(p.recurse().getElementsByClass('Chord')):
-        n = c.notes[0]
-        nn = note.Note(
-            n.pitch,
-            quarterLength=c.duration.quarterLength
-        )
-        c.activeSite.replace(c, nn)
+for c in list(score.recurse().getElementsByClass(chord.Chord)):
 
+    if len(c.notes) > 0:
+
+        n = note.Note(
+            c.notes[0].pitch
+        )
+
+        n.duration.quarterLength = c.duration.quarterLength
+
+        c.activeSite.replace(
+            c,
+            n
+        )
+
+
+# ------------------------
+# remove notation
+# ------------------------
 
 print("remove beams")
 
 for n in score.recurse().notes:
+
     try:
         n.beams = []
     except:
@@ -64,6 +78,7 @@ for n in score.recurse().notes:
 print("remove ties")
 
 for n in score.recurse().notes:
+
     try:
         n.tie = None
     except:
@@ -71,170 +86,171 @@ for n in score.recurse().notes:
 
 
 
-# -------------------------
-# force 4/4
-# -------------------------
+# ------------------------
+# 4/4
+# ------------------------
 
 print("force 4/4")
 
 for p in score.parts:
-    p.insert(0, meter.TimeSignature("4/4"))
+    p.insert(
+        0,
+        meter.TimeSignature("4/4")
+    )
 
 
 
-# -------------------------
-# quantize duration
-# -------------------------
+# ------------------------
+# quantize
+# ------------------------
 
 print("duration quantize")
 
 
-allowed = [
-    4,
-    2,
-    1,
-    0.5,
-    0.25,
-    0.125
-]
+def qgrid(x):
+
+    # quarter grid
+    return round(float(x) * 4) / 4
 
 
-def quantize(x):
 
-    return min(
-        allowed,
-        key=lambda a:abs(a-x)
+for n in score.recurse().notesAndRests:
+
+    n.duration.quarterLength = qgrid(
+        n.duration.quarterLength
     )
 
-
-for n in score.recurse().notes:
-
-    q = quantize(
-        float(n.duration.quarterLength)
-    )
-
-    n.duration.quarterLength = q
+    try:
+        n.offset = qgrid(n.offset)
+    except:
+        pass
 
 
 
-# -------------------------
-# OFFSET RESET ENGINE
-# -------------------------
+# ------------------------
+# rebuild measures
+# ------------------------
 
-print("offset reset")
+print("rebuild measures")
 
 
 for part in score.parts:
 
-    measures = list(
+
+    old = list(
         part.getElementsByClass(stream.Measure)
     )
 
-    new_measures=[]
+
+    if not old:
+        continue
 
 
-    for m in measures:
-
-        nm = stream.Measure(
-            number=m.number
-        )
-
-        current = 0.0
+    new=[]
 
 
-        for element in m.notesAndRests:
+    measure_no=1
+
+
+    current_measure = stream.Measure(
+        number=measure_no
+    )
+
+    pos=0.0
+
+
+    for m in old:
+
+
+        for el in m.notesAndRests:
+
 
             dur=float(
-                element.duration.quarterLength
+                el.duration.quarterLength
             )
 
-
-            # prevent overflow
-
-            remain = 4.0-current
+            dur=qgrid(dur)
 
 
-            if remain <= 0:
-                break
+            while dur > 0:
 
 
-            if dur > remain:
+                remain = 4.0-pos
 
-                # split note
 
-                first = element.clone()
-                first.duration.quarterLength = remain
-
-                nm.insert(
-                    current,
-                    first
+                take=min(
+                    dur,
+                    remain
                 )
 
-                current += remain
+
+                new_el = el.clone()
+
+                new_el.duration.quarterLength = take
 
 
-                second = element.clone()
-                second.duration.quarterLength = dur-remain
-
-                new_measures.append(nm)
-
-                nm = stream.Measure(
-                    number=m.number+1
+                current_measure.insert(
+                    pos,
+                    new_el
                 )
 
-                current=0
 
-                nm.insert(
-                    0,
-                    second
-                )
-
-                current += second.duration.quarterLength
-
-            else:
-
-                nm.insert(
-                    current,
-                    element
-                )
-
-                current += dur
+                pos += take
+                dur -= take
 
 
 
-        # fill empty area
+                if pos >= 4.0-0.001:
 
-        if current < 4:
+                    new.append(
+                        current_measure
+                    )
 
-            r = note.Rest(
-                quarterLength=4-current
-            )
+                    measure_no += 1
 
-            nm.insert(
-                current,
-                r
-            )
+                    current_measure = stream.Measure(
+                        number=measure_no
+                    )
+
+                    pos=0.0
 
 
-        new_measures.append(nm)
+
+    if pos > 0:
+
+        rest = note.Rest(
+            quarterLength=4-pos
+        )
+
+        current_measure.insert(
+            pos,
+            rest
+        )
+
+        new.append(
+            current_measure
+        )
 
 
 
     part.remove(
-        list(part.getElementsByClass(stream.Measure))
+        old
     )
 
-    for nm in new_measures:
-        part.append(nm)
+
+    for m in new:
+        part.append(m)
 
 
 
-# -------------------------
-# FINAL CHECK
-# -------------------------
+# ------------------------
+# final check
+# ------------------------
+
+print("clear notation cache")
+
 
 print("FINAL CHECK")
-
 
 safe=True
 
@@ -254,7 +270,7 @@ for p in score.parts:
         )
 
 
-        if abs(length-4)>0.01:
+        if abs(length-4.0)>0.01:
             safe=False
 
 
@@ -262,7 +278,8 @@ for p in score.parts:
 if safe:
     print("ALL MEASURES SAFE")
 else:
-    print("WARNING")
+    print("WARNING measure mismatch")
+
 
 
 print("FINAL WRITE")
