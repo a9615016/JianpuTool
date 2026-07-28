@@ -1,9 +1,7 @@
-from music21 import converter, note, stream
+from music21 import converter
+from music21 import note
+from music21 import stream
 import sys
-
-
-src = sys.argv[1]
-dst = sys.argv[2]
 
 
 print("================")
@@ -11,86 +9,108 @@ print("FORCE FIX MEASURE V2")
 print("================")
 
 
-score = converter.parse(src)
+src=sys.argv[1]
+dst=sys.argv[2]
+
+
+score=converter.parse(src)
+
 
 
 for part in score.parts:
 
-    print("Processing part")
 
-    # 重新建立單聲部
-    flat_notes = []
-
-    for n in part.flatten().notesAndRests:
-        flat_notes.append(n)
-
-
-    new_part = stream.Part()
-
-
-    for n in flat_notes:
-        new_part.append(n)
+    print("PROCESS PART")
 
 
     # 重新切小節
-    new_part.makeMeasures(
+    part.makeMeasures(
         inPlace=True
     )
 
 
-    for m in new_part.getElementsByClass("Measure"):
+    newPart=stream.Part()
 
-        length = m.duration.quarterLength
-
-
-        print(
-            "Measure",
-            m.number,
-            length
-        )
-
-
-        # 超過4拍處理
-        if length > 4:
-
-            print(
-                "WARNING too long:",
-                m.number,
-                length
-            )
-
-
-        # 不足補休止符
-        if length < 4:
-
-            r = note.Rest()
-
-            r.duration.quarterLength = 4 - length
-
-            m.append(r)
-
-
-    # 回寫
-    part.clear()
-
-    for element in new_part:
-
-        part.append(element)
-
-
-
-print("FINAL CHECK")
-
-
-for part in score.parts:
 
     for m in part.getElementsByClass("Measure"):
 
+
+        current=0
+
+
+        notes=list(
+            m.notesAndRests
+        )
+
+
+        newMeasure=stream.Measure(
+            number=m.number
+        )
+
+
+        for n in notes:
+
+
+            dur=float(
+                n.duration.quarterLength
+            )
+
+
+            # 強制量化
+            dur=round(
+                dur*4
+            )/4
+
+
+            if dur<=0:
+                continue
+
+
+            if dur>1:
+                dur=1
+
+
+            n.duration.quarterLength=dur
+
+
+            newMeasure.append(n)
+
+
+
+        total=float(
+            newMeasure.duration.quarterLength
+        )
+
+
         print(
             "Measure",
             m.number,
-            m.duration.quarterLength
+            total
         )
+
+
+        # 補滿4拍
+
+        if total < 4:
+
+            r=note.Rest()
+
+            r.duration.quarterLength=4-total
+
+            newMeasure.append(r)
+
+
+        newPart.append(
+            newMeasure
+        )
+
+
+
+    part.replace(
+        part.recurse().getElementsByClass("Measure"),
+        newPart
+    )
+
 
 
 score.write(
@@ -100,4 +120,3 @@ score.write(
 
 
 print("DONE")
-print(dst)
