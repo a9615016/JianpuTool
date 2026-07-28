@@ -1,321 +1,117 @@
-from music21 import converter, stream, note, meter, tempo
+from music21 import converter, stream, note, meter
 import sys
 
 
-print("==============================")
-print("MIDI TO MUSICXML V2.1")
-print("BASICPITCH COMPATIBLE")
-print("==============================")
+print("MIDI TO MUSICXML V2.2")
 
 
-if len(sys.argv) < 3:
-    print(
-        "usage: python midi_to_musicxml.py input.mid output.musicxml"
+inp = sys.argv[1]
+out = sys.argv[2]
+
+
+score = converter.parse(inp)
+
+
+new_score = stream.Score()
+
+
+for part in score.parts:
+
+    new_part = stream.Part()
+
+    new_part.insert(
+        0,
+        meter.TimeSignature("4/4")
     )
-    sys.exit()
 
 
-input_file = sys.argv[1]
-output_file = sys.argv[2]
+    current_measure = stream.Measure(
+        number=1
+    )
+
+    pos = 0
 
 
-print("開始 MIDI → MusicXML")
-print("輸入:", input_file)
+    for n in part.recurse().notes:
 
 
-
-# ==========================
-# read midi
-# ==========================
-
-print("讀取 MIDI...")
+        dur = round(
+            float(n.duration.quarterLength)
+            * 4
+        ) / 4
 
 
-midi_score = converter.parse(
-    input_file
-)
+        if dur <= 0:
+            dur = 0.25
 
 
 
-# ==========================
-# get notes
-# ==========================
+        # 超過小節切開
 
-print("整理音符...")
+        while dur > 0:
 
 
-events=[]
+            remain = 4 - pos
 
 
-part = midi_score.parts[0]
-
-
-for n in part.recurse().notes:
-
-
-    if isinstance(n, note.Note):
-
-        start=float(n.offset)
-
-        dur=float(
-            n.duration.quarterLength
-        )
-
-
-        pitch=n.pitch
-
-
-        events.append(
-            (
-                start,
+            length = min(
                 dur,
-                pitch
+                remain
             )
-        )
 
 
-
-print(
-    "notes:",
-    len(events)
-)
-
-
-
-# ==========================
-# quantize
-# ==========================
-
-print("節奏量化")
-
-
-GRID=0.25
-
-
-fixed=[]
-
-
-for start,dur,pitch in events:
-
-
-    start=round(start/GRID)*GRID
-
-    dur=round(dur/GRID)*GRID
-
-
-    if dur<=0:
-
-        dur=GRID
-
-
-    fixed.append(
-        (
-            start,
-            dur,
-            pitch
-        )
-    )
-
-
-
-# ==========================
-# create score
-# ==========================
-
-print("建立 MusicXML")
-
-
-score=stream.Score()
-
-
-new_part=stream.Part()
-
-
-new_part.insert(
-    0,
-    meter.TimeSignature("4/4")
-)
-
-
-# tempo
-
-new_part.insert(
-    0,
-    tempo.MetronomeMark(
-        number=80
-    )
-)
-
-
-
-# ==========================
-# split measure
-# ==========================
-
-print("切割跨小節音符")
-
-
-measures={}
-
-
-
-for start,dur,pitch in fixed:
-
-
-    remaining=dur
-
-    current=start
-
-
-    while remaining>0:
-
-
-        measure_no=int(
-            current//4
-        )+1
-
-
-        pos=current%4
-
-
-        available=4-pos
-
-
-        length=min(
-            remaining,
-            available
-        )
-
-
-        if measure_no not in measures:
-
-            measures[measure_no]=[]
-
-
-
-        measures[measure_no].append(
-            (
-                pos,
-                length,
-                pitch
+            new_note = note.Note(
+                n.pitch,
+                quarterLength=length
             )
-        )
 
 
-        remaining-=length
+            current_measure.append(
+                new_note
+            )
 
 
-        current+=length
+            pos += length
+            dur -= length
 
 
 
-# ==========================
-# write measures
-# ==========================
-
-print("建立小節")
+            if pos >= 4:
 
 
-for m_no in sorted(measures):
-
-
-    m=stream.Measure(
-        number=m_no
-    )
-
-
-    current=0
-
-
-    notes=sorted(
-        measures[m_no],
-        key=lambda x:x[0]
-    )
-
-
-    for pos,length,pitch in notes:
-
-
-        # 補休止
-
-        if pos>current:
-
-            m.append(
-                note.Rest(
-                    quarterLength=pos-current
+                new_part.append(
+                    current_measure
                 )
-            )
+
+
+                current_measure = stream.Measure(
+                    number=current_measure.number+1
+                )
+
+
+                pos = 0
 
 
 
-        n=note.Note(
-            pitch
+    if len(current_measure.notes):
+
+        new_part.append(
+            current_measure
         )
 
 
-        n.duration.quarterLength=length
-
-
-        m.append(n)
-
-
-        current=pos+length
-
-
-
-    # 補滿4拍
-
-    if current<4:
-
-
-        m.append(
-            note.Rest(
-                quarterLength=4-current
-            )
-        )
-
-
-
-    new_part.append(m)
-
-
-
-score.append(new_part)
-
-
-
-# ==========================
-# final check
-# ==========================
-
-print("FINAL CHECK")
-
-
-for m in new_part.getElementsByClass(
-    stream.Measure
-):
-
-
-    print(
-        "Measure",
-        m.number,
-        float(m.duration.quarterLength)
+    new_score.append(
+        new_part
     )
 
 
-
-# ==========================
-# write
-# ==========================
-
-print("寫入 MusicXML")
+print("WRITE MUSICXML")
 
 
-score.write(
+new_score.write(
     "musicxml",
-    fp=output_file
+    fp=out
 )
 
 
-print("完成:")
-print(output_file)
+print("DONE")
