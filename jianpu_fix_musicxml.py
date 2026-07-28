@@ -1,249 +1,264 @@
+# jianpu_fix_musicxml.py
+# V8.0 STRICT JIANPU COMPATIBLE
+
 import sys
-from music21 import converter, stream, note, chord, meter, clef
-from fractions import Fraction
+from music21 import converter, stream, note, meter, duration, chord
 
 
-print("================")
-print("JIANPU FIX MUSICXML V7.0")
-print("FINAL NOTE SPLITTER")
-print("================")
+def remove_bad_elements(score):
+
+    print("remove voices")
+
+    for part in score.parts:
+
+        for el in list(part.recurse()):
+
+            if isinstance(el, chord.Chord):
+                print("remove chord")
+                n = note.Note(
+                    el.pitches[0],
+                    quarterLength=el.duration.quarterLength
+                )
+                el.activeSite.replace(el, n)
+
+            elif isinstance(el, note.Note):
+
+                if el.tie:
+                    el.tie = None
+
+                el.beams = None
 
 
-INPUT = sys.argv[1]
-OUTPUT = sys.argv[2]
+def quantize_note(n):
 
+    q = n.duration.quarterLength
 
-print("read:", INPUT)
-
-
-score = converter.parse(INPUT)
-
-
-# =========================
-# 基本清理
-# =========================
-
-print("remove voices")
-print("remove chords")
-print("remove beams")
-print("remove ties")
-
-
-for part in score.parts:
-
-    # 移除 chord
-    for c in list(part.recurse().getElementsByClass('Chord')):
-        n = c.sortAscending().notes[-1]
-        c.replace(n)
-
-
-    # 清 tie
-    for n in part.recurse().notes:
-        n.tie = None
-
-
-    # 清 beam
-    for n in part.recurse().notes:
-        try:
-            n.beams = []
-        except:
-            pass
-
-
-
-# =========================
-# 強制4/4
-# =========================
-
-print("force 4/4")
-
-
-for part in score.parts:
-
-    ts = meter.TimeSignature("4/4")
-
-    part.insert(0, ts)
-
-
-# =========================
-# duration quantize
-# =========================
-
-
-ALLOWED = [
-    Fraction(4),
-    Fraction(2),
-    Fraction(1),
-    Fraction(1,2),
-    Fraction(1,4),
-    Fraction(1,8)
-]
-
-
-def quantize(x):
+    table = [
+        0.25,
+        0.5,
+        0.75,
+        1.0,
+        1.5,
+        2.0,
+        3.0,
+        4.0
+    ]
 
     best = min(
-        ALLOWED,
-        key=lambda a: abs(float(a)-float(x))
+        table,
+        key=lambda x: abs(x-q)
     )
 
-    return best
+    n.duration = duration.Duration(best)
 
 
 
-print("duration quantize")
+def rebuild_part(part):
 
-
-for n in score.recurse().notesAndRests:
-
-    q = quantize(Fraction(n.duration.quarterLength))
-
-    n.duration.quarterLength = float(q)
-
-
-
-# =========================
-# FINAL NOTE SPLITTER
-# =========================
-
-
-print("split notes by measure")
-
-
-new_score = stream.Score()
-
-
-for part in score.parts:
-
+    print("STRICT REBUILD MEASURES")
 
     new_part = stream.Part()
 
-    beat = Fraction(0)
+    new_part.append(
+        meter.TimeSignature("4/4")
+    )
+
+
+    current_measure = stream.Measure()
+    current_measure.number = 1
+
+    used = 0
 
 
     for n in part.recurse().notesAndRests:
 
+        if isinstance(n, note.Rest):
+            continue
 
-        dur = Fraction(
-            n.duration.quarterLength
+
+        quantize_note(n)
+
+        length = n.duration.quarterLength
+
+
+        while length > 0:
+
+            remain = 4 - used
+
+
+            if length <= remain:
+
+                nn = n.clone()
+                nn.duration = duration.Duration(length)
+
+                current_measure.append(nn)
+
+                used += length
+                length = 0
+
+
+            else:
+
+                nn = n.clone()
+
+                nn.duration = duration.Duration(remain)
+
+                current_measure.append(nn)
+
+
+                print(
+                    "split note",
+                    remain
+                )
+
+
+                length -= remain
+
+                new_part.append(current_measure)
+
+                current_measure = stream.Measure()
+
+                current_measure.number += 1
+
+                used = 0
+
+
+        if used == 4:
+
+            new_part.append(current_measure)
+
+            current_measure = stream.Measure()
+
+            current_measure.number += 1
+
+            used = 0
+
+
+
+    # 補最後小節
+
+    if used < 4:
+
+        r = note.Rest(
+            quarterLength=4-used
+        )
+
+        current_measure.append(r)
+
+
+    if len(current_measure.notesAndRests)>0:
+        new_part.append(current_measure)
+
+
+    return new_part
+
+
+
+def final_check(score):
+
+    print("FINAL CHECK")
+
+    ok=True
+
+    for m in score.parts[0].getElementsByClass(
+        "Measure"
+    ):
+
+        total = sum(
+            x.duration.quarterLength
+            for x in m.notesAndRests
+        )
+
+        print(
+            "Measure",
+            m.number,
+            total
+        )
+
+        if abs(total-4)>0.01:
+            ok=False
+
+
+    if ok:
+        print(
+            "ALL MEASURES SAFE"
+        )
+    else:
+        print(
+            "WARNING measure mismatch"
         )
 
 
-        while dur > 0:
 
+def fix(input_file, output_file):
 
-            remain = Fraction(4) - beat
-
-
-            take = min(
-                dur,
-                remain
-            )
-
-
-            new_n = n.clone()
-
-
-            new_n.duration.quarterLength = float(take)
-
-
-            new_part.append(new_n)
-
-
-            beat += take
-            dur -= take
-
-
-            if beat >= 4:
-
-                beat = Fraction(0)
-
-
-
-    new_score.append(new_part)
-
-
-
-score = new_score
-
-
-
-# =========================
-# 補 metadata
-# =========================
-
-for part in score.parts:
-
-    part.insert(
-        0,
-        clef.TrebleClef()
-    )
-
-
-
-# =========================
-# rebuild measure
-# =========================
-
-
-print("rebuild measures")
-
-
-score = score.makeMeasures()
-
-
-# =========================
-# FINAL CHECK
-# =========================
-
-
-print("FINAL CHECK")
-
-
-ok = True
-
-
-for i,m in enumerate(score.parts[0].measure(1,1000)):
-
-    total = sum(
-        Fraction(
-            n.duration.quarterLength
-        )
-        for n in m.notesAndRests
-    )
-
+    print("================")
     print(
-        "Measure",
-        m.number,
-        float(total)
+        "JIANPU FIX MUSICXML V8.0"
+    )
+    print("================")
+
+
+    score = converter.parse(
+        input_file
     )
 
 
-    if total != 4:
-        ok=False
+    print("read")
+
+
+    score.remove(
+        score.parts[0].recurse().getElementsByClass(
+            meter.TimeSignature
+        )
+    )
+
+
+    remove_bad_elements(score)
+
+
+    fixed = stream.Score()
+
+
+    for p in score.parts:
+
+        np = rebuild_part(p)
+
+        fixed.append(np)
 
 
 
-if ok:
-    print("ALL MEASURES SAFE")
-else:
-    print("WARNING")
+    print("clear cache")
+
+
+    fixed.write(
+        "musicxml",
+        fp=output_file
+    )
+
+
+    final_check(
+        fixed
+    )
+
+
+    print("DONE")
+    print(output_file)
 
 
 
-# =========================
-# write
-# =========================
+if __name__=="__main__":
+
+    if len(sys.argv)<3:
+
+        print(
+            "python jianpu_fix_musicxml.py input.musicxml output.musicxml"
+        )
+
+        sys.exit()
 
 
-print("FINAL WRITE")
-
-
-score.write(
-    "musicxml",
-    fp=OUTPUT
-)
-
-
-print("DONE")
-print(OUTPUT)
+    fix(
+        sys.argv[1],
+        sys.argv[2]
+    )
