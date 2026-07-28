@@ -1,137 +1,185 @@
-from music21 import converter, stream, note, chord, meter
+# patch_jianpu_v2.py
+# Fix MusicXML for jianpu_ly
+# clean.musicxml -> jianpu_ready.musicxml
+
 import sys
-import os
+from music21 import converter
+from music21 import stream
+from music21 import note
+from music21 import meter
+from music21 import chord
 
 
-STEP = 0.25   # 四分音符=1，16分格=0.25
+BAR_LENGTH = 4.0
 
 
-def quantize_duration(q):
-    """
-    量化音長
-    """
-    return round(q / STEP) * STEP
+def fix_measure(measure):
+
+    new_measure = stream.Measure(
+        number=measure.number
+    )
+
+    new_measure.append(
+        meter.TimeSignature("4/4")
+    )
 
 
-def patch_score(src, dst):
+    current = 0.0
+
+
+    for element in measure.flat.notesAndRests:
+
+
+        # chord 轉最高音
+        if isinstance(element, chord.Chord):
+
+            n = note.Note(
+                element.highestNote.pitch
+            )
+
+        elif isinstance(element, note.Note):
+
+            n = note.Note(
+                element.pitch
+            )
+
+        elif isinstance(element, note.Rest):
+
+            n = note.Rest()
+
+        else:
+            continue
+
+
+        dur = float(
+            element.duration.quarterLength
+        )
+
+
+        # 超過小節直接裁切
+        if current + dur > BAR_LENGTH:
+
+            dur = BAR_LENGTH - current
+
+
+        if dur <= 0:
+            continue
+
+
+        n.duration.quarterLength = dur
+
+
+        new_measure.append(
+            n
+        )
+
+
+        current += dur
+
+
+        if current >= BAR_LENGTH:
+            break
+
+
+
+    # 不足補休止
+
+    if current < BAR_LENGTH:
+
+        r = note.Rest()
+
+        r.duration.quarterLength = (
+            BAR_LENGTH-current
+        )
+
+        new_measure.append(
+            r
+        )
+
+
+    return new_measure
+
+
+
+def patch_musicxml(src, out):
 
     print("================")
-    print("PATCH JIANPU V1")
+    print("PATCH JIANPU V2")
     print("================")
 
-    print("read")
-    score = converter.parse(src)
+
+    score = converter.parse(
+        src
+    )
 
 
-    print("remove bad notation")
+    result = stream.Score()
+
 
     for part in score.parts:
 
-        # 強制 4/4
-        part.insert(0, meter.TimeSignature("4/4"))
-
-
         new_part = stream.Part()
 
-        current_measure = 1
-        current_pos = 0
+
+        measures = part.getElementsByClass(
+            stream.Measure
+        )
 
 
-        print("rebuild notes")
+        for m in measures:
+
+            fixed = fix_measure(
+                m
+            )
+
+            print(
+                "Measure",
+                m.number,
+                fixed.duration.quarterLength
+            )
 
 
-        for el in part.flatten().notesAndRests:
-
-            if isinstance(el, chord.Chord):
-
-                # chord 取最高音
-                n = note.Note(
-                    el.pitches[-1]
-                )
-                n.duration.quarterLength = (
-                    el.duration.quarterLength
-                )
-
-            else:
-                n = el
+            new_part.append(
+                fixed
+            )
 
 
-            dur = n.duration.quarterLength
+        result.append(
+            new_part
+        )
 
 
-            # 避免奇怪長度
-            if dur <= 0:
-                continue
-
-
-            dur = quantize_duration(dur)
-
-            if dur <= 0:
-                dur = STEP
-
-
-            # 避免超過小節
-            if current_pos + dur > 4:
-
-                rest = 4 - current_pos
-
-                if rest > 0:
-                    r = note.Rest()
-                    r.duration.quarterLength = rest
-                    new_part.append(r)
-
-                current_measure += 1
-                current_pos = 0
-
-
-            n.duration.quarterLength = dur
-
-            new_part.append(n)
-
-            current_pos += dur
-
-
-            if current_pos >= 4:
-
-                current_pos = 0
-                current_measure += 1
-
-
-
-        score.parts.remove(part)
-        score.insert(0,new_part)
-
-
-
-    print("remove ties")
-
-    for n in score.recurse().notes:
-        n.tie = None
-
-
-    print("write")
-
-    score.write(
+    result.write(
         "musicxml",
-        fp=dst
+        fp=out
     )
 
 
     print("DONE")
-    print(dst)
+    print(out)
 
 
 
-if __name__ == "__main__":
+def main():
 
-    if len(sys.argv) < 3:
+    if len(sys.argv)<3:
+
         print(
-            "python patch_jianpu.py input.musicxml output.musicxml"
+            "Usage:"
         )
-        sys.exit(1)
+
+        print(
+            "python patch_jianpu_v2.py input.musicxml output.musicxml"
+        )
+
+        return
 
 
-    patch_score(
+    patch_musicxml(
         sys.argv[1],
         sys.argv[2]
     )
+
+
+if __name__=="__main__":
+    main()
