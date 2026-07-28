@@ -1,265 +1,213 @@
-from music21 import converter, stream, note, meter
 import sys
+import xml.etree.ElementTree as ET
+from fractions import Fraction
 
 
 print("================")
-print("CLEAN MUSICXML V26 FINAL JIANPU SAFE")
+print("CLEAN MUSICXML V26 FINAL JIANPU COMPATIBLE")
 print("================")
-
-
-if len(sys.argv) < 3:
-    print(
-        "usage: python clean_musicxml.py input.musicxml output.musicxml"
-    )
-    sys.exit()
 
 
 input_file = sys.argv[1]
 output_file = sys.argv[2]
 
 
-print("read")
-
-score = converter.parse(input_file)
-
+tree = ET.parse(input_file)
+root = tree.getroot()
 
 
-# =====================
-# remove voices
-# =====================
+ns = {
+    "m": "http://www.musicxml.org/ns/musicxml"
+}
+
+
+# 移除 namespace
+for elem in root.iter():
+    if "}" in elem.tag:
+        elem.tag = elem.tag.split("}",1)[1]
+
 
 print("remove voices")
 
-for p in score.parts:
-    for n in p.recurse():
-        if hasattr(n, "voice"):
-            n.voice = None
+for voice in root.findall(".//voice"):
+    voice.text = None
+    parent = None
 
-
-
-# =====================
-# remove chords
-# =====================
 
 print("remove chords")
 
-for p in score.parts:
+for chord in root.findall(".//chord"):
+    parent = None
 
-    for c in list(p.recurse().getElementsByClass("Chord")):
-
-        pitches = c.pitches
-
-        if len(pitches):
-
-            n = note.Note(
-                pitches[0],
-                quarterLength=c.duration.quarterLength
-            )
-
-            c.activeSite.replace(c,n)
-
-
-
-# =====================
-# remove notation
-# =====================
 
 print("remove beams")
+
+for beam in root.findall(".//beam"):
+    beam.text = None
+
+
 print("remove ties")
 
-
-for n in score.recurse().notes:
-
-    if hasattr(n,"beams"):
-        n.beams = []
-
-    n.tie = None
+for tie in root.findall(".//tie"):
+    tie.text = None
 
 
-
-# =====================
-# force 4/4
-# =====================
 
 print("force 4/4")
 
+for time in root.findall(".//time"):
+    for child in list(time):
+        time.remove(child)
 
-for p in score.parts:
+    beats = ET.SubElement(time,"beats")
+    beats.text="4"
 
-    p.insert(
-        0,
-        meter.TimeSignature("4/4")
-    )
-
-
-
-# =====================
-# duration quantize FINAL
-# =====================
-
-print("duration quantize FINAL")
+    beat_type = ET.SubElement(time,"beat-type")
+    beat_type.text="4"
 
 
-SAFE = [
-    4.0,
-    2.0,
-    1.0,
-    0.5,
-    0.25
+
+print("duration quantize")
+
+
+# divisions
+divisions = 16
+
+for div in root.findall(".//divisions"):
+    div.text=str(divisions)
+
+
+
+allowed = [
+    16,
+    8,
+    4,
+    2,
+    1
 ]
 
 
-for n in score.recurse().notesAndRests:
+for duration in root.findall(".//duration"):
 
-    d=float(
-        n.duration.quarterLength
-    )
+    try:
+        value=int(duration.text)
 
-    best=min(
-        SAFE,
-        key=lambda x:abs(x-d)
-    )
+        closest=min(
+            allowed,
+            key=lambda x:abs(x-value)
+        )
 
-    n.duration.quarterLength=best
+        duration.text=str(closest)
+
+    except:
+        pass
 
 
 
-# =====================
-# rebuild measures
-# =====================
+print("remove invalid rests")
+
+for measure in root.findall(".//measure"):
+
+    notes=list(measure.findall("note"))
+
+    total=0
+
+    for note in notes:
+
+        dur=note.find("duration")
+
+        if dur is not None:
+            try:
+                total+=int(dur.text)
+            except:
+                pass
+
+
+    # 超過小節直接刪最後音符
+    while total>64 and notes:
+
+        note=notes.pop()
+
+        dur=note.find("duration")
+
+        if dur is not None:
+            total-=int(dur.text)
+
+        measure.remove(note)
+
+
 
 print("rebuild measures")
 
+# 補 rest 到 64
 
-for p in score.parts:
+for measure in root.findall(".//measure"):
 
-    p.makeMeasures(
-        inPlace=True
-    )
+    total=0
 
+    for dur in measure.findall(".//duration"):
 
-
-# =====================
-# fix every measure 4 beats
-# =====================
-
-print("fix measures")
+        try:
+            total+=int(dur.text)
+        except:
+            pass
 
 
-for p in score.parts:
+    if total < 64:
 
-    for m in p.getElementsByClass(stream.Measure):
+        rest=ET.Element("note")
 
-        total=sum(
-            float(x.duration.quarterLength)
-            for x in m.notesAndRests
-        )
+        ET.SubElement(rest,"rest")
 
+        d=ET.SubElement(rest,"duration")
 
-        if total < 4:
+        d.text=str(64-total)
 
-            rest=note.Rest(
-                quarterLength=4-total
-            )
-
-            m.append(rest)
+        measure.append(rest)
 
 
-
-        elif total > 4:
-
-            print(
-                "TRIM measure",
-                m.number,
-                total
-            )
-
-            remain=4.0
-
-            for x in list(m.notesAndRests):
-
-                if remain<=0:
-                    m.remove(x)
-                    continue
-
-
-                d=float(
-                    x.duration.quarterLength
-                )
-
-
-                if d>remain:
-
-                    x.duration.quarterLength=remain
-
-                remain-=d
-
-
-
-# =====================
-# rebuild again
-# =====================
-
-print("rebuild measures again")
-
-
-for p in score.parts:
-
-    p.makeMeasures(
-        inPlace=True
-    )
-
-
-
-# =====================
-# final check
-# =====================
 
 print("FINAL CHECK")
 
 
 ok=True
 
+for i,m in enumerate(root.findall(".//measure"),1):
 
-for p in score.parts:
+    total=0
 
-    for m in p.getElementsByClass(stream.Measure):
+    for d in m.findall(".//duration"):
 
-        total=sum(
-            float(x.duration.quarterLength)
-            for x in m.notesAndRests
-        )
+        try:
+            total+=int(d.text)
+        except:
+            pass
 
-        print(
-            "Measure",
-            m.number,
-            total
-        )
 
-        if abs(total-4)>0.001:
-            ok=False
+    beat=total/16
 
+    print(
+        "Measure",
+        i,
+        beat
+    )
+
+    if beat!=4:
+        ok=False
 
 
 if ok:
     print("ALL MEASURES SAFE")
 else:
-    print("WARNING measure mismatch")
-
-
-
-print("clear notation cache")
-
-score.clearCache()
-
+    print("WARNING")
 
 
 print("FINAL WRITE")
 
-
-score.write(
-    "musicxml",
-    fp=output_file
+tree.write(
+    output_file,
+    encoding="utf-8",
+    xml_declaration=True
 )
 
 
