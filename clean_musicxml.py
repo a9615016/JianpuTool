@@ -1,240 +1,269 @@
 import sys
-import copy
 import xml.etree.ElementTree as ET
+from fractions import Fraction
 
+print("==============================")
+print("CLEAN MUSICXML V70")
+print("ABSOLUTE QUANTIZE ENGINE")
+print("==============================")
 
-print("================")
-print("CLEAN MUSICXML V66")
-print("MEASURE SPLITTER ENGINE")
-print("================")
 
+STEP = 4       # 16th note tick
+BAR = 64       # 4/4 with divisions=16
 
-INPUT = sys.argv[1]
-OUTPUT = sys.argv[2] if len(sys.argv) > 2 else "clean.musicxml"
 
+def q(v):
+    return int(round(v / STEP) * STEP)
 
-NS = "http://www.musicxml.org/ns/musicxml"
 
-ET.register_namespace("", NS)
+def duration_to_tick(note):
+    dur = note.find("duration")
+    if dur is None:
+        return STEP
+    return int(dur.text)
 
 
-tree = ET.parse(INPUT)
-root = tree.getroot()
+def make_rest(duration):
+    note = ET.Element("note")
 
+    ET.SubElement(note, "rest")
 
-def tag(name):
-    return "{%s}%s" % (NS, name)
+    d = ET.SubElement(note, "duration")
+    d.text = str(duration)
 
+    return note
 
 
-# -------------------------
-# remove bad notation
-# -------------------------
+def process(input_file, output_file):
 
-print("remove voices")
-for e in root.findall(".//"+tag("voice")):
-    e.text = None
+    tree = ET.parse(input_file)
+    root = tree.getroot()
 
+    divisions = root.find(".//divisions")
 
-print("remove chords")
-for parent in root.iter():
-    for child in list(parent):
-        if child.tag == tag("chord"):
-            parent.remove(child)
+    if divisions is not None:
+        divisions.text = "16"
 
 
-print("remove beams")
-for e in root.findall(".//"+tag("beam")):
-    for p in root.iter():
-        if e in list(p):
-            p.remove(e)
+    print("remove voices")
 
+    for v in root.findall(".//voice"):
+        parent = v.getparent() if hasattr(v,"getparent") else None
 
-print("remove ties")
-for e in root.findall(".//"+tag("tie")):
-    for p in root.iter():
-        if e in list(p):
-            p.remove(e)
 
+    print("ABSOLUTE TIMELINE")
 
 
-# -------------------------
-# divisions = 16
-# -------------------------
+    for part in root.findall(".//part"):
 
-for attr in root.findall(".//"+tag("attributes")):
+        measures = list(part.findall("measure"))
 
-    div = attr.find(tag("divisions"))
+        notes=[]
 
-    if div is not None:
-        div.text="16"
+        absolute=0
 
 
+        # collect notes
+        for m in measures:
 
-# -------------------------
-# copy note
-# -------------------------
+            for n in m.findall("note"):
 
-def clone_note(note, duration):
+                dur=n.find("duration")
 
-    n = copy.deepcopy(note)
+                if dur is None:
+                    continue
 
-    d = n.find(tag("duration"))
+                d=int(dur.text)
 
-    if d is None:
-        d = ET.SubElement(n, tag("duration"))
+                notes.append(
+                    {
+                    "note":n,
+                    "start":absolute,
+                    "dur":d
+                    }
+                )
 
-    d.text=str(duration)
+                absolute+=d
 
-    return n
 
 
-
-# -------------------------
-# split measure
-# -------------------------
-
-print("split cross measure notes")
-
-
-for measure in root.findall(".//"+tag("measure")):
-
-    notes = list(measure.findall(tag("note")))
-
-
-    # remove originals
-    for n in notes:
-        measure.remove(n)
-
-
-    cursor = 0
-
-
-    for note in notes:
-
-        dur_node = note.find(tag("duration"))
-
-        if dur_node is None:
-            continue
-
-
-        try:
-            duration=int(dur_node.text)
-
-        except:
-            continue
-
-
-
-        remain = duration
-
-
-        while remain > 0:
-
-
-            available = 64 - cursor
-
-
-            take = min(
-                remain,
-                available
-            )
-
-
-            new_note = clone_note(
-                note,
-                take
-            )
-
-
-            measure.append(new_note)
-
-
-            cursor += take
-            remain -= take
-
-
-
-            if cursor >= 64:
-
-                cursor = 0
-
-
-
-    # fill rest
-
-    if cursor > 0:
-
-        rest = ET.Element(tag("note"))
-
-        ET.SubElement(
-            rest,
-            tag("rest")
+        print(
+            "notes:",
+            len(notes),
+            "ticks:",
+            absolute
         )
 
-        ET.SubElement(
-            rest,
-            tag("duration")
-        ).text=str(64-cursor)
+
+        # quantize
+
+        for item in notes:
+
+            old=item["start"]
+
+            new=q(old)
+
+            diff=new-old
+
+            item["start"]=new
+
+            item["dur"]=max(
+                STEP,
+                q(item["dur"])
+            )
 
 
-        measure.append(rest)
+
+        print("rebuild measures")
+
+
+        # remove old measures
+
+        for m in measures:
+            part.remove(m)
+
+
+        max_time=0
+
+        for n in notes:
+            max_time=max(
+                max_time,
+                n["start"]+n["dur"]
+            )
+
+
+        measure_count=max(
+            1,
+            (max_time+BAR-1)//BAR
+        )
+
+
+        print(
+            "new measures:",
+            measure_count
+        )
+
+
+        # create empty measures
+
+        measure_notes=[[] for _ in range(measure_count)]
+
+
+        for item in notes:
+
+            index=item["start"]//BAR
+
+            if index >= measure_count:
+                index=measure_count-1
+
+            measure_notes[index].append(item)
 
 
 
-# -------------------------
-# final check
-# -------------------------
+        # write measures
 
-print("FINAL CHECK")
+        for i,items in enumerate(measure_notes):
 
-
-safe=True
-
-
-for i,measure in enumerate(
-        root.findall(".//"+tag("measure"))
-    ):
-
-    total=0
-
-    for n in measure.findall(tag("note")):
-
-        d=n.find(tag("duration"))
-
-        if d is not None:
-            total += int(d.text)
+            m=ET.Element(
+                "measure",
+                {
+                    "number":str(i+1)
+                }
+            )
 
 
-    beats=total/16
+            used=0
 
-    print(
-        "Measure",
-        i+1,
-        beats
+
+            for item in sorted(
+                items,
+                key=lambda x:x["start"]
+            ):
+
+                local=item["start"]%BAR
+
+                gap=local-used
+
+                if gap>0:
+                    r=make_rest(gap)
+                    m.append(r)
+                    used+=gap
+
+
+                n=item["note"]
+
+                dur=n.find("duration")
+
+                if dur is not None:
+                    dur.text=str(
+                        min(
+                            item["dur"],
+                            BAR-local
+                        )
+                    )
+
+                m.append(n)
+
+                used+=item["dur"]
+
+
+
+            remain=BAR-used
+
+            if remain>0:
+                m.append(make_rest(remain))
+
+
+            part.append(m)
+
+
+
+    print("FINAL CHECK")
+
+
+    for m in root.findall(".//measure"):
+
+        total=0
+
+        for n in m.findall("note"):
+
+            d=n.find("duration")
+
+            if d is not None:
+                total+=int(d.text)
+
+
+        print(
+            "Measure",
+            m.attrib.get("number"),
+            total
+        )
+
+
+    print("FINAL WRITE")
+
+    tree.write(
+        output_file,
+        encoding="utf-8",
+        xml_declaration=True
     )
 
 
-    if total != 64:
-        safe=False
+    print("DONE")
+    print(output_file)
 
 
 
-if safe:
-    print("ALL MEASURES SAFE")
-    print("ALL NOTES INSIDE BAR")
-else:
-    print("WARNING")
+if __name__=="__main__":
+
+    if len(sys.argv)<3:
+        print(
+        "usage: python clean_musicxml.py input.musicxml output.musicxml"
+        )
+        sys.exit()
 
 
-
-tree.write(
-    OUTPUT,
-    encoding="utf-8",
-    xml_declaration=True
-)
-
-
-print("FINAL WRITE")
-print("DONE")
-print(OUTPUT)
+    process(
+        sys.argv[1],
+        sys.argv[2]
+    )
