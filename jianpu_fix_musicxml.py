@@ -1,170 +1,175 @@
-from music21 import converter, stream, note, meter, tempo
+from music21 import converter, stream, note, meter, tempo, tie
 import sys
 
 
-VERSION = "V12 REBUILD"
+VERSION = "V12.1 SPLIT ENGINE"
 
 
-def rebuild_musicxml(input_file, output_file):
+def rebuild(input_file, output_file):
 
-    print("======================")
+    print("====================")
     print("JIANPU FIX MUSICXML")
     print(VERSION)
-    print("======================")
+    print("====================")
 
-    print("read input")
 
     old = converter.parse(input_file)
 
-    # 建立全新 Score
-    new_score = stream.Score()
+    score = stream.Score()
 
     part = stream.Part()
 
-    # 4/4
     part.append(meter.TimeSignature("4/4"))
-
-    # tempo
     part.append(tempo.MetronomeMark(number=100))
 
 
+    events = []
+
     print("extract notes")
 
-    notes = []
 
     for n in old.recurse().notesAndRests:
 
         if isinstance(n, note.Note):
 
-            notes.append(
+            events.append(
                 (
+                    "note",
                     n.pitch,
-                    n.duration.quarterLength
+                    float(n.duration.quarterLength)
                 )
             )
 
         elif isinstance(n, note.Rest):
 
-            notes.append(
+            events.append(
                 (
+                    "rest",
                     None,
-                    n.duration.quarterLength
+                    float(n.duration.quarterLength)
                 )
             )
 
 
-    print("total events:", len(notes))
+    print("events:", len(events))
 
 
-    print("rebuild measures")
+    measure_no = 1
+    current_measure = stream.Measure(number=measure_no)
 
-    measure = stream.Measure()
-    measure.number = 1
-
-    current = 0.0
+    used = 0.0
 
 
-    for pitch, duration in notes:
+    def add_measure():
+
+        nonlocal current_measure
+        nonlocal measure_no
+
+        if current_measure.notesAndRests:
+
+            # 補滿4拍
+
+            remain = 4.0 - current_measure.duration.quarterLength
+
+            if remain > 0.001:
+
+                r = note.Rest()
+                r.duration.quarterLength = remain
+                current_measure.append(r)
 
 
-        # 防止超過4拍
-        if current + duration > 4.0:
-
-            remain = 4.0 - current
-
-            if remain > 0:
-
-                if pitch:
-
-                    nn = note.Note(pitch)
-                else:
-                    nn = note.Rest()
-
-                nn.duration.quarterLength = remain
-                measure.append(nn)
-
-
-            part.append(measure)
-
+            part.append(current_measure)
 
             print(
                 "Measure",
-                measure.number,
-                measure.duration.quarterLength
+                measure_no,
+                current_measure.duration.quarterLength
             )
 
 
-            measure = stream.Measure()
-            measure.number += 1
+        measure_no += 1
 
-            current = 0
-
-
-            duration -= remain
+        current_measure = stream.Measure(
+            number=measure_no
+        )
 
 
-        if pitch:
-
-            nn = note.Note(pitch)
-
-        else:
-
-            nn = note.Rest()
+    print("split crossing notes")
 
 
-        nn.duration.quarterLength = duration
-
-        measure.append(nn)
-
-        current += duration
+    for typ, pitch, dur in events:
 
 
-        if abs(current - 4.0) < 0.0001:
+        remain_note = dur
 
 
-            part.append(measure)
+        while remain_note > 0:
 
 
-            print(
-                "Measure",
-                measure.number,
-                measure.duration.quarterLength
-            )
+            space = 4.0 - current_measure.duration.quarterLength
 
 
-            measure = stream.Measure()
-            measure.number += 1
-
-            current = 0
+            take = min(space, remain_note)
 
 
+            if typ == "note":
 
-    # 最後不足補休止
+                n = note.Note(pitch)
 
-    if measure.notesAndRests:
+            else:
 
-        remain = 4.0 - current
-
-        if remain > 0:
-
-            r = note.Rest()
-            r.duration.quarterLength = remain
-            measure.append(r)
+                n = note.Rest()
 
 
-        part.append(measure)
+            n.duration.quarterLength = take
+
+
+            # 跨小節標記tie
+
+            if typ == "note" and take < remain_note:
+
+                n.tie = tie.Tie("start")
+
+
+            elif typ == "note" and remain_note < dur:
+
+                n.tie = tie.Tie("stop")
+
+
+            current_measure.append(n)
+
+
+            remain_note -= take
+
+
+            if current_measure.duration.quarterLength >= 4.0 - 0.001:
+
+                add_measure()
 
 
 
-    new_score.append(part)
+    if current_measure.notesAndRests:
+
+        add_measure()
 
 
+
+    score.append(part)
+
+
+
+    print()
     print("FINAL CHECK")
+
+
+    ok = True
 
 
     for m in part.getElementsByClass(stream.Measure):
 
-        length = float(m.duration.quarterLength)
+        length = float(
+            m.duration.quarterLength
+        )
 
         print(
             "Measure",
@@ -172,18 +177,25 @@ def rebuild_musicxml(input_file, output_file):
             length
         )
 
-        if abs(length-4.0)>0.001:
 
-            print(
-                "WARNING",
-                m.number,
-                length
-            )
+        if abs(length-4.0) > 0.001:
+
+            ok=False
 
 
-    print("write MusicXML")
 
-    new_score.write(
+    if ok:
+
+        print("ALL MEASURES SAFE")
+
+    else:
+
+        print("WARNING")
+
+
+    print("WRITE")
+
+    score.write(
         "musicxml",
         fp=output_file
     )
@@ -196,11 +208,8 @@ def rebuild_musicxml(input_file, output_file):
 
 if __name__ == "__main__":
 
-    if len(sys.argv)<3:
 
-        print(
-            "usage:"
-        )
+    if len(sys.argv)<3:
 
         print(
             "python jianpu_fix_musicxml.py input.musicxml output.musicxml"
@@ -209,7 +218,7 @@ if __name__ == "__main__":
         sys.exit()
 
 
-    rebuild_musicxml(
+    rebuild(
         sys.argv[1],
         sys.argv[2]
     )
