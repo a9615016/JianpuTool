@@ -1,11 +1,11 @@
-from music21 import converter, stream, note, meter
+from music21 import converter, stream, note, meter, clef
 import sys
 
 
-VERSION = "######## CLEAN MUSICXML V87 PURE JIANPU XML SANITIZER ########"
+VERSION = "CLEAN MUSICXML V88 PURE JIANPU XML SANITIZER"
 
 
-QUANTIZE = [
+ALLOWED_DURATIONS = [
     4.0,
     2.0,
     1.0,
@@ -15,176 +15,143 @@ QUANTIZE = [
 ]
 
 
-def quantize_duration(x):
+def clean_duration(x):
 
-    x=float(x)
+    x = float(x)
 
     return min(
-        QUANTIZE,
-        key=lambda v:abs(v-x)
+        ALLOWED_DURATIONS,
+        key=lambda d: abs(d-x)
     )
 
 
+def rebuild_from_zero(score):
 
-def rebuild_notes(score):
+    print("PURE REBUILD FROM ZERO")
 
-    result=[]
-
-
-    for n in score.recurse().notesAndRests:
-
-
-        if isinstance(n, note.Rest):
-
-            r = note.Rest()
-
-            r.duration.quarterLength = quantize_duration(
-                n.duration.quarterLength
-            )
-
-            result.append(r)
-
-
-
-        elif isinstance(n, note.Note):
-
-
-            new = note.Note(
-                n.pitch
-            )
-
-
-            new.duration.quarterLength = quantize_duration(
-                n.duration.quarterLength
-            )
-
-
-            result.append(new)
-
-
-    return result
-
-
-
-
-def rebuild_score(notes):
-
-
-    print("PURE XML REBUILD")
-
-
-    score = stream.Score()
+    result = stream.Score()
 
     part = stream.Part()
-
 
     part.insert(
         0,
         meter.TimeSignature("4/4")
     )
 
+    part.insert(
+        0,
+        clef.TrebleClef()
+    )
 
-    measure_no=1
+
+    measure_no = 1
 
     m = stream.Measure(
         number=measure_no
     )
 
 
-    beat=0.0
+    beat = 0.0
 
 
+    for old in score.recurse().notesAndRests:
 
-    for n in notes:
 
-
-        dur=float(
-            n.duration.quarterLength
+        dur = clean_duration(
+            old.duration.quarterLength
         )
 
 
-        while beat + dur > 4.0:
+        # create totally new object
 
+        if old.isRest:
 
-            remain = 4.0-beat
+            obj = note.Rest()
 
+        else:
 
-            if remain>0:
-
-
-                left = n.__class__(
-                    n.pitch
-                ) if isinstance(n,note.Note) else note.Rest()
-
-
-                left.duration.quarterLength=remain
-
-
-                m.append(left)
-
-
-
-            part.append(m)
-
-
-            measure_no+=1
-
-
-            m=stream.Measure(
-                number=measure_no
+            obj = note.Note(
+                old.pitch
             )
 
 
-            beat=0.0
+        obj.duration.quarterLength = dur
 
 
-            dur-=remain
+        remain = dur
+
+
+        while remain > 0:
+
+
+            space = 4.0 - beat
+
+
+            use = min(
+                remain,
+                space
+            )
+
+
+            new_obj = obj.clone()
+
+
+            new_obj.duration.quarterLength = use
+
+
+            m.append(
+                new_obj
+            )
+
+
+            beat += use
+            remain -= use
 
 
 
-        if dur>0:
+            if beat >= 4.0 - 0.0001:
 
 
-            new=n.__class__(
-                n.pitch
-            ) if isinstance(n,note.Note) else note.Rest()
+                part.append(m)
 
 
-            new.duration.quarterLength=dur
+                measure_no += 1
 
 
-            m.append(new)
+                m = stream.Measure(
+                    number=measure_no
+                )
+
+                beat = 0.0
 
 
-            beat+=dur
+
+    # fill last bar
+
+    if beat > 0:
 
 
+        r = note.Rest()
 
-    if beat<4:
-
-
-        r=note.Rest()
-
-        r.duration.quarterLength=4-beat
+        r.duration.quarterLength = 4-beat
 
         m.append(r)
 
 
-
-    part.append(m)
-
-    score.append(part)
+        part.append(m)
 
 
-    return score
 
+    result.append(part)
+
+
+    return result
 
 
 
 def check(score):
 
-
-    print("FINAL CHECK")
+    print("V88 FINAL CHECK")
 
 
     for m in score.parts[0].getElementsByClass(
@@ -193,22 +160,26 @@ def check(score):
 
 
         total=sum(
-            float(x.duration.quarterLength)
-            for x in m.notesAndRests
+            n.duration.quarterLength
+            for n in m.notesAndRests
         )
 
 
         print(
             "Measure",
             m.number,
-            total
+            float(total)
         )
 
 
-    print(
-        "ALL MEASURES SAFE"
-    )
+        if abs(total-4)>0.001:
 
+            raise Exception(
+                "BAD BAR "+str(m.number)
+            )
+
+
+    print("V88 SAFE")
 
 
 
@@ -220,36 +191,21 @@ def clean(inp,out):
     print("================")
 
 
-    print("READ")
-
-    old=converter.parse(inp)
+    old = converter.parse(inp)
 
 
+    print("remove EVERYTHING")
 
-    print("REMOVE ALL XML METADATA")
-
-
-    notes=rebuild_notes(
-        old
-    )
+    new = rebuild_from_zero(old)
 
 
-
-    new_score=rebuild_score(
-        notes
-    )
+    check(new)
 
 
-    check(
-        new_score
-    )
+    print("WRITE XML")
 
 
-
-    print("WRITE PURE XML")
-
-
-    new_score.write(
+    new.write(
         "musicxml",
         fp=out
     )
@@ -257,7 +213,6 @@ def clean(inp,out):
 
     print("DONE")
     print(out)
-
 
 
 
@@ -270,8 +225,7 @@ if __name__=="__main__":
             "python clean_musicxml.py input.musicxml output.musicxml"
         )
 
-        sys.exit()
-
+        exit()
 
 
     clean(
