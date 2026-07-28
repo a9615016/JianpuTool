@@ -1,287 +1,280 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
-"""
-clean_musicxml.py
-V80 TRUE ABSOLUTE GRID ENGINE
-
-MIDI/MusicXML -> Jianpu compatible MusicXML
-"""
+# clean_musicxml.py
+# CLEAN MUSICXML V81 FINAL
+# Absolute Beat Grid Engine
+# Jianpu_ly Compatible
 
 import sys
-from music21 import converter, stream, meter, note, chord, duration
+from music21 import converter, stream, note, meter, duration, clef, chord
 
 
-print("================")
-print("CLEAN MUSICXML V80 TRUE ABSOLUTE GRID ENGINE")
-print("================")
+VERSION = "CLEAN MUSICXML V81 FINAL ABSOLUTE GRID ENGINE"
 
 
-if len(sys.argv) < 2:
-    print("usage:")
-    print("python clean_musicxml.py input.musicxml output.musicxml")
-    sys.exit()
+TARGET_BEATS = 4
+DIVISIONS = 4   # quarter note = 1 beat
 
 
-input_file = sys.argv[1]
+def quantize_length(q):
 
-if len(sys.argv) >= 3:
-    output_file = sys.argv[2]
-else:
-    output_file = "clean.musicxml"
+    allowed = [
+        4.0,
+        2.0,
+        1.0,
+        0.5,
+        0.25
+    ]
 
+    best = min(
+        allowed,
+        key=lambda x: abs(x-q)
+    )
 
-print("read")
-
-score = converter.parse(input_file)
-
-
-# -------------------------
-# remove voices
-# -------------------------
-print("remove voices")
-
-for p in score.parts:
-    for el in list(p.recurse()):
-        if hasattr(el, "voice"):
-            try:
-                el.voice = None
-            except:
-                pass
+    return best
 
 
-# -------------------------
-# remove chords
-# -------------------------
-print("remove chords")
 
-for p in score.parts:
-    for c in list(p.recurse().getElementsByClass(chord.Chord)):
-        notes = c.notes
+def split_notes(notes):
 
-        if len(notes):
-            n = notes[0]
-            c.activeSite.replace(c, n)
+    result = []
 
+    current = 0
 
-# -------------------------
-# remove notation
-# -------------------------
-print("remove beams")
-print("remove ties")
+    for n in notes:
 
-for n in score.recurse().notes:
-
-    try:
-        n.beams = []
-    except:
-        pass
-
-    try:
-        n.tie = None
-    except:
-        pass
+        dur = quantize_length(
+            n.duration.quarterLength
+        )
 
 
-# -------------------------
-# force 4/4
-# -------------------------
-print("force 4/4")
+        while dur > 0:
 
-for p in score.parts:
-    p.insert(
+            remain = TARGET_BEATS - current
+
+            take = min(
+                dur,
+                remain
+            )
+
+
+            if isinstance(n, note.Note):
+
+                nn = note.Note(
+                    n.pitch
+                )
+
+            else:
+                nn = note.Rest()
+
+
+            nn.duration = duration.Duration(
+                take
+            )
+
+
+            result.append(nn)
+
+            current += take
+            dur -= take
+
+
+            if current >= TARGET_BEATS:
+
+                result.append("BAR")
+                current = 0
+
+
+    if current > 0:
+
+        result.append(
+            note.Rest(
+                quarterLength=TARGET_BEATS-current
+            )
+        )
+
+        result.append("BAR")
+
+
+    return result
+
+
+
+def rebuild_part(part):
+
+    new_part = stream.Part()
+
+    new_part.insert(
         0,
         meter.TimeSignature("4/4")
     )
 
 
-# =========================
-# V80 ABSOLUTE GRID ENGINE
-# =========================
-
-print("absolute offset quantize")
-
-GRID = 0.25
+    notes=[]
 
 
-def quantize(value):
-    return round(float(value) / GRID) * GRID
+    for n in part.recurse():
+
+        if isinstance(n, note.Note):
+
+            notes.append(n)
 
 
-for p in score.parts:
+        elif isinstance(n, chord.Chord):
 
-    for n in p.recurse().notesAndRests:
+            # 只留最高音旋律
+            nn = note.Note(
+                n.sortAscending().notes[-1].pitch
+            )
 
-        # offset snap
-        try:
-            n.offset = quantize(n.offset)
-        except:
-            pass
+            nn.duration = n.duration
 
-
-print("absolute duration quantize")
+            notes.append(nn)
 
 
-valid = [
-    4.0,
-    2.0,
-    1.0,
-    0.5,
-    0.25
-]
+
+    rebuilt = split_notes(notes)
 
 
-def nearest_duration(x):
-
-    return min(
-        valid,
-        key=lambda y: abs(y-x)
+    m = stream.Measure(
+        number=1
     )
 
-
-for n in score.recurse().notes:
-
-    q = nearest_duration(
-        float(n.duration.quarterLength)
-    )
-
-    n.duration = duration.Duration(q)
+    beat=0
+    measure_no=1
 
 
-
-# -------------------------
-# rebuild measures
-# -------------------------
-
-print("rebuild measures")
+    for item in rebuilt:
 
 
-new_score = stream.Score()
+        if item=="BAR":
 
+            new_part.append(m)
 
-for part in score.parts:
+            measure_no +=1
 
-    new_part = stream.Part()
-
-    for n in part.recurse().notesAndRests:
-
-        new_part.append(n)
-
-    new_score.append(new_part)
-
-
-score = new_score
-
-
-
-# -------------------------
-# split cross measure notes
-# -------------------------
-
-print("split cross measure notes")
-
-
-for p in score.parts:
-
-    try:
-        p.makeMeasures(
-            inPlace=True
-        )
-    except:
-        pass
-
-
-
-# -------------------------
-# fill rests
-# -------------------------
-
-print("fill measure rest")
-
-
-for p in score.parts:
-
-    for m in p.getElementsByClass("Measure"):
-
-        try:
-            m.makeRests(
-                inPlace=True
+            m = stream.Measure(
+                number=measure_no
             )
-        except:
-            pass
+
+            beat=0
+
+            continue
+
+
+        m.append(item)
+
+        beat += item.duration.quarterLength
 
 
 
-# -------------------------
-# final rebuild
-# -------------------------
+    return new_part
 
-print("rebuild measures")
 
-for p in score.parts:
-    try:
-        p.makeMeasures(
-            inPlace=True
+
+def check(score):
+
+    print("FINAL CHECK")
+
+    ok=True
+
+    for i,m in enumerate(
+        score.parts[0].getElementsByClass("Measure"),
+        1
+    ):
+
+        total=sum(
+            x.duration.quarterLength
+            for x in m.notesAndRests
         )
-    except:
-        pass
-
-
-
-print("clear notation cache")
-
-
-# -------------------------
-# FINAL CHECK
-# -------------------------
-
-print("FINAL CHECK")
-
-
-safe = True
-
-
-for p in score.parts:
-
-    for m in p.getElementsByClass("Measure"):
-
-        total = 0
-
-        for n in m.notesAndRests:
-            total += float(
-                n.duration.quarterLength
-            )
 
         print(
             "Measure",
-            m.number,
+            i,
             total
         )
 
+        if abs(total-4)>0.001:
 
-        if abs(total-4.0) > 0.001:
-            safe = False
-
-
-
-if safe:
-
-    print("ALL MEASURES SAFE")
-
-else:
-
-    print("WARNING measure mismatch")
+            ok=False
 
 
+    if ok:
 
-print("FINAL WRITE")
+        print(
+            "ALL MEASURES SAFE"
+        )
+
+    else:
+
+        print(
+            "MEASURE ERROR"
+        )
 
 
-score.write(
-    "musicxml",
-    fp=output_file
-)
+    return ok
 
 
-print("DONE")
-print(output_file)
+
+def main():
+
+    print("================")
+    print(VERSION)
+    print("================")
+
+
+    infile=sys.argv[1]
+
+
+    outfile = (
+        sys.argv[2]
+        if len(sys.argv)>2
+        else "clean.musicxml"
+    )
+
+
+    print("read")
+
+    score=converter.parse(
+        infile
+    )
+
+
+    print("remove voices")
+    print("remove chords")
+    print("remove beams")
+    print("remove ties")
+
+
+    new_score=stream.Score()
+
+
+    for p in score.parts:
+
+        new_score.append(
+            rebuild_part(p)
+        )
+
+
+    print("clear notation cache")
+
+
+    check(
+        new_score
+    )
+
+
+    print("FINAL WRITE")
+
+
+    new_score.write(
+        "musicxml",
+        fp=outfile
+    )
+
+
+    print("DONE")
+    print(outfile)
+
+
+
+if __name__=="__main__":
+    main()
