@@ -1,168 +1,195 @@
-# ==========================================
-# jianpu_fix_musicxml.py V10.0
-# FORCE SPLIT + QUANTIZE FOR JIANPU_LY
-# ==========================================
+# jianpu_fix_musicxml.py
+# V10 FINAL
+# Brutal 4/4 rebuild for jianpu_ly compatibility
 
-from music21 import converter, meter, note, stream, chord
 import sys
+from music21 import converter, stream, note, meter, duration, clef
 
 
-def quantize_length(x):
+INPUT = sys.argv[1]
+OUTPUT = sys.argv[2]
 
-    table = [
-        (0.25, 0.25),
-        (0.333, 0.25),
-        (0.5, 0.5),
-        (0.666, 0.5),
-        (0.75, 0.75),
-        (1.0, 1.0),
-        (1.333, 1.25),
-        (1.5, 1.5),
-        (2.0, 2.0),
-        (3.0, 3.0),
-        (4.0, 4.0),
-    ]
 
-    for a,b in table:
-        if abs(x-a)<0.05:
-            return b
+print("================")
+print("JIANPU FIX MUSICXML V10 FINAL")
+print("BRUTAL 4/4 REBUILD")
+print("================")
 
-    if x < 0.25:
-        return 0.25
 
-    if x > 4:
-        return 4
+score = converter.parse(INPUT)
 
-    return round(x*4)/4
+print("read")
 
 
+# -------------------------
+# extract notes only
+# -------------------------
 
-def remove_bad_elements(score):
+notes = []
 
-    print("remove ties beams voices")
+for n in score.recurse().notes:
 
-    for el in score.recurse():
+    if isinstance(n, note.Note):
 
-        if hasattr(el,"tie"):
-            el.tie=None
+        notes.append({
+            "pitch": n.pitch,
+            "offset": float(n.offset),
+            "quarterLength": float(n.quarterLength)
+        })
 
-        if hasattr(el,"beams"):
-            try:
-                el.beams.clear()
-            except:
-                pass
+    elif isinstance(n, note.Rest):
 
-        if hasattr(el,"voice"):
-            el.voice=None
+        notes.append({
+            "rest": True,
+            "offset": float(n.offset),
+            "quarterLength": float(n.quarterLength)
+        })
 
 
+print("notes:", len(notes))
 
-def fix_notes(score):
 
-    print("duration quantize")
+# sort time
 
-    for n in score.recurse().notesAndRests:
+notes.sort(key=lambda x:x["offset"])
 
-        q=n.duration.quarterLength
 
-        nq=quantize_length(q)
+# -------------------------
+# create new score
+# -------------------------
 
-        n.duration.quarterLength=nq
+new_score = stream.Score()
 
+part = stream.Part()
 
+part.insert(0, meter.TimeSignature("4/4"))
 
-def rebuild(score):
+part.insert(0, clef.TrebleClef())
 
-    print("rebuild measures")
 
-    for p in score.parts:
+BAR = 4.0
 
-        p.makeMeasures(inPlace=True)
 
+current_time = 0.0
 
 
-def check(score):
+print("rebuild timeline")
 
-    print("FINAL CHECK")
 
-    ok=True
+for item in notes:
 
-    for p in score.parts:
+    start = item["offset"]
+    length = item["quarterLength"]
 
-        for m in p.getElementsByClass("Measure"):
+    if length <= 0:
+        continue
 
-            q=m.duration.quarterLength
 
-            print(
-                "Measure",
-                m.number,
-                q
-            )
+    # quantize
+    length = round(length * 16) / 16
 
-            if abs(q-4)>0.01:
-                ok=False
 
+    # minimum
+    if length <= 0:
+        length = 0.25
 
-    if ok:
-        print("ALL MEASURES SAFE")
-    else:
-        print("WARNING measure mismatch")
 
+    pos = start
 
-    return ok
 
+    while length > 0:
 
 
-def fix(src,dst):
+        bar_pos = pos % BAR
 
-    print("================")
-    print("JIANPU FIX V10")
-    print("================")
 
-    score=converter.parse(src)
+        remain = BAR - bar_pos
 
 
-    print("force 4/4")
+        use = min(length, remain)
 
-    for p in score.parts:
-        p.insert(
-            0,
-            meter.TimeSignature("4/4")
-        )
 
+        # quantize again
+        use = round(use * 16) / 16
 
-    remove_bad_elements(score)
 
-    fix_notes(score)
+        if use <= 0:
+            break
 
-    rebuild(score)
 
+        if item.get("rest"):
 
-    # 第二輪
-    fix_notes(score)
+            r = note.Rest()
+            r.duration = duration.Duration(use)
+            part.insert(pos, r)
 
-    rebuild(score)
 
+        else:
 
-    check(score)
+            n = note.Note(item["pitch"])
+            n.duration = duration.Duration(use)
+            part.insert(pos, n)
 
 
-    print("FINAL WRITE")
 
-    score.write(
-        "musicxml",
-        fp=dst
-    )
+        pos += use
+        length -= use
 
 
-    print("DONE")
-    print(dst)
 
+# -------------------------
+# rebuild measures
+# -------------------------
 
+print("make measures")
 
-if __name__=="__main__":
+part.makeMeasures(inPlace=True)
 
-    fix(
-        sys.argv[1],
-        sys.argv[2]
-    )
+
+# -------------------------
+# force 4/4
+# -------------------------
+
+for m in part.getElementsByClass("Measure"):
+
+    m.timeSignature = meter.TimeSignature("4/4")
+
+
+# -------------------------
+# fill empty beat
+# -------------------------
+
+print("final check")
+
+
+for i,m in enumerate(part.getElementsByClass("Measure"),1):
+
+    q = m.duration.quarterLength
+
+    print("Measure",i,q)
+
+    if q < 4:
+
+        rest = note.Rest()
+        rest.duration = duration.Duration(4-q)
+        m.append(rest)
+
+
+# rebuild
+
+part.makeMeasures(inPlace=True)
+
+
+new_score.insert(0,part)
+
+
+print("write")
+
+new_score.write(
+    "musicxml",
+    fp=OUTPUT
+)
+
+
+print("DONE")
+print(OUTPUT)
