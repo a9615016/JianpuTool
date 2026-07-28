@@ -1,283 +1,237 @@
-# CLEAN MUSICXML V64
-# Absolute Timeline Rebuilder
-# BasicPitch + Render + jianpu_ly FINAL
-
 import sys
-from music21 import converter, stream, note, meter, tempo, clef
+import xml.etree.ElementTree as ET
+from fractions import Fraction
+
+print("================")
+print("CLEAN MUSICXML V65")
+print("ABSOLUTE QUANTIZE ENGINE")
+print("================")
 
 
-TARGET_BEATS = 4.0
+INPUT = sys.argv[1]
+OUTPUT = sys.argv[2] if len(sys.argv)>2 else "clean.musicxml"
 
 
-def quantize_duration(q):
+tree = ET.parse(INPUT)
+root = tree.getroot()
 
-    allowed = [
-        4.0,
-        2.0,
-        1.0,
-        0.5,
-        0.25
-    ]
+ns = {"m":"http://www.musicxml.org/ns/musicxml"}
 
-    best = min(
-        allowed,
-        key=lambda x: abs(x-q)
-    )
+ET.register_namespace("", "http://www.musicxml.org/ns/musicxml")
+
+
+# -------------------------
+# force divisions
+# -------------------------
+
+for attr in root.findall(".//attributes"):
+
+    div = attr.find("divisions")
+
+    if div is not None:
+        div.text="16"
+
+
+
+# -------------------------
+# quantize table
+# -------------------------
+
+GRID = [
+    (64,64),
+    (48,64),
+    (32,32),
+    (24,32),
+    (16,16),
+    (12,16),
+    (8,8),
+    (6,8),
+    (4,4),
+    (2,4),
+    (1,4)
+]
+
+
+def quantize(x):
+
+    best=4
+    diff=999
+
+    for value,q in GRID:
+        d=abs(x-value)
+
+        if d<diff:
+            diff=d
+            best=q
 
     return best
 
 
 
-def split_note(n, remain):
+# -------------------------
+# remove bad notation
+# -------------------------
 
-    result=[]
+for tag in [
+    "voice",
+    "beam",
+    "tie",
+    "notations",
+    "chord"
+]:
 
-    dur=n.duration.quarterLength
+    for e in root.findall(".//"+tag):
+        parent=None
 
-    while dur > remain:
-
-        x=n.__deepcopy__()
-
-        x.duration.quarterLength=remain
-
-        result.append(x)
-
-        dur -= remain
-
-        remain=TARGET_BEATS
-
-
-    if dur>0:
-        x=n.__deepcopy__()
-        x.duration.quarterLength=dur
-        result.append(x)
-
-    return result
-
-
-
-def rebuild(part):
-
-    notes=[]
-
-    for n in part.flatten().notesAndRests:
-
-        if isinstance(n,note.Note):
-
-            d=quantize_duration(
-                float(n.duration.quarterLength)
-            )
-
-            n.duration.quarterLength=d
-
-            notes.append(n)
-
-
-        elif isinstance(n,note.Rest):
-
-            r=n.__deepcopy__()
-
-            r.duration.quarterLength=quantize_duration(
-                float(r.duration.quarterLength)
-            )
-
-            notes.append(r)
-
-
-
-    new_part=stream.Part()
-
-    measure=stream.Measure(
-        number=1
-    )
-
-    beat=0
-
-
-    for n in notes:
-
-        dur=float(n.duration.quarterLength)
-
-
-        # 超過小節，自動切割
-        while beat+dur > TARGET_BEATS:
-
-            remain=TARGET_BEATS-beat
-
-
-            if remain>0:
-
-                pieces=split_note(
-                    n,
-                    remain
-                )
-
-                first=pieces[0]
-
-                measure.append(first)
-
-
-                dur-=remain
-
-                beat=TARGET_BEATS
-
-
-            new_part.append(measure)
-
-
-            measure=stream.Measure(
-                number=measure.number+1
-            )
-
-            beat=0
-
-
-            if dur<=0:
+        for p in root.iter():
+            if e in list(p):
+                parent=p
                 break
 
-
-            n=n.__deepcopy__()
-            n.duration.quarterLength=dur
-
-
-
-        if dur>0:
-
-            measure.append(n)
-
-            beat+=dur
+        if parent is not None:
+            parent.remove(e)
 
 
 
-        if abs(beat-TARGET_BEATS)<0.001:
-
-            new_part.append(measure)
-
-            measure=stream.Measure(
-                number=measure.number+1
-            )
-
-            beat=0
+print("quantizing notes")
 
 
+# -------------------------
+# quantize duration
+# -------------------------
 
-    # 最後補滿
-    if beat>0:
+for note in root.findall(".//note"):
 
-        rest=note.Rest()
+    dur=note.find("duration")
 
-        rest.duration.quarterLength=TARGET_BEATS-beat
+    if dur is None:
+        continue
+
+
+    try:
+        old=int(dur.text)
+
+    except:
+        continue
+
+
+    new=quantize(old)
+
+    dur.text=str(new)
+
+
+
+# -------------------------
+# remove invalid rests
+# -------------------------
+
+for rest in root.findall(".//rest"):
+
+    dur=rest.find("../duration")
+
+
+
+# -------------------------
+# rebuild measure timeline
+# -------------------------
+
+print("rebuild measures")
+
+
+for measure in root.findall(".//measure"):
+
+    current=0
+
+    notes=list(measure.findall("note"))
+
+
+    for note in notes:
+
+        dur=note.find("duration")
+
+        if dur is None:
+            continue
+
+
+        d=int(dur.text)
+
+
+        if current+d>64:
+
+            # shorten note
+            d=64-current
+            dur.text=str(d)
+
+
+        current+=d
+
+
+
+    # fill empty
+
+    if current<64:
+
+        rest=ET.Element("note")
+
+        ET.SubElement(rest,"rest")
+
+        ET.SubElement(
+            rest,
+            "duration"
+        ).text=str(64-current)
+
 
         measure.append(rest)
 
-        new_part.append(measure)
 
 
-    return new_part
+# -------------------------
+# final check
+# -------------------------
+
+print("FINAL CHECK")
 
 
+safe=True
 
 
-def clean(inp,out):
+for i,m in enumerate(root.findall(".//measure")):
 
-    print("================")
-    print("CLEAN MUSICXML V64")
-    print("ABSOLUTE TIMELINE REBUILDER")
-    print("================")
+    total=0
 
+    for n in m.findall("note"):
 
-    score=converter.parse(inp)
+        d=n.find("duration")
 
-
-    result=stream.Score()
+        if d is not None:
+            total+=int(d.text)
 
 
-    for p in score.parts:
-
-        print("rebuild part")
-
-        np=rebuild(p)
-
-        result.insert(0,np)
-
-
-
-    # 強制4/4
-
-    for p in result.parts:
-
-        p.insert(
-            0,
-            meter.TimeSignature("4/4")
-        )
-
-        p.insert(
-            0,
-            tempo.MetronomeMark(number=80)
-        )
-
-
-
-    print()
-    print("FINAL CHECK")
-
-
-    ok=True
-
-
-    for i,m in enumerate(
-        result.parts[0].getElementsByClass(stream.Measure),
-        1
-    ):
-
-        length=sum(
-            x.duration.quarterLength
-            for x in m.notesAndRests
-        )
-
-        print(
-            "Measure",
-            i,
-            float(length)
-        )
-
-
-        if abs(length-4)>0.01:
-            ok=False
-
-
-
-    if ok:
-        print("ALL MEASURES SAFE")
-    else:
-        print("WARNING")
-
-
-    print("FINAL WRITE")
-
-    result.write(
-        "musicxml",
-        fp=out
+    print(
+        "Measure",
+        i+1,
+        total/16
     )
 
 
-    print("DONE")
-    print(out)
+    if total!=64:
+        safe=False
 
 
 
-if __name__=="__main__":
-
-    if len(sys.argv)<3:
-
-        print(
-            "usage: python clean_musicxml.py input.musicxml output.musicxml"
-        )
-
-        sys.exit()
+if safe:
+    print("ALL MEASURES SAFE")
+else:
+    print("WARNING")
 
 
-    clean(
-        sys.argv[1],
-        sys.argv[2]
-    )
+tree.write(
+    OUTPUT,
+    encoding="utf-8",
+    xml_declaration=True
+)
+
+
+print("FINAL WRITE")
+print("DONE")
+print(OUTPUT)
