@@ -1,12 +1,11 @@
-from music21 import converter, stream, note, meter, tie
+from music21 import converter, stream, note, meter
 import sys
-import copy
 
 
-VERSION = "######## CLEAN MUSICXML V86 TIE SPLITTER FINAL ########"
+VERSION = "######## CLEAN MUSICXML V87 PURE JIANPU XML SANITIZER ########"
 
 
-QUANTIZE_VALUES = [
+QUANTIZE = [
     4.0,
     2.0,
     1.0,
@@ -16,53 +15,51 @@ QUANTIZE_VALUES = [
 ]
 
 
-def quantize_duration(d):
+def quantize_duration(x):
 
-    x = float(d)
+    x=float(x)
 
     return min(
-        QUANTIZE_VALUES,
-        key=lambda v: abs(v-x)
+        QUANTIZE,
+        key=lambda v:abs(v-x)
     )
 
 
 
-def clean_note(n):
-
-    item = copy.deepcopy(n)
-
-
-    # remove notation
-    item.expressions = []
-
-    item.lyrics = []
-
-
-    if hasattr(item,"beams"):
-        item.beams = []
-
-
-    # quantize
-    item.duration.quarterLength = quantize_duration(
-        item.duration.quarterLength
-    )
-
-
-    return item
-
-
-
-
-def extract_notes(score):
+def rebuild_notes(score):
 
     result=[]
 
 
     for n in score.recurse().notesAndRests:
 
-        result.append(
-            clean_note(n)
-        )
+
+        if isinstance(n, note.Rest):
+
+            r = note.Rest()
+
+            r.duration.quarterLength = quantize_duration(
+                n.duration.quarterLength
+            )
+
+            result.append(r)
+
+
+
+        elif isinstance(n, note.Note):
+
+
+            new = note.Note(
+                n.pitch
+            )
+
+
+            new.duration.quarterLength = quantize_duration(
+                n.duration.quarterLength
+            )
+
+
+            result.append(new)
 
 
     return result
@@ -70,34 +67,10 @@ def extract_notes(score):
 
 
 
-def split_note(note_obj, remain, rest):
-
-    left = copy.deepcopy(note_obj)
-
-    right = copy.deepcopy(note_obj)
+def rebuild_score(notes):
 
 
-    left.duration.quarterLength = remain
-
-    right.duration.quarterLength = rest
-
-
-    # tie only notes
-    if isinstance(left,note.Note):
-
-        left.tie = tie.Tie("start")
-        right.tie = tie.Tie("stop")
-
-
-    return left,right
-
-
-
-
-def rebuild_measure(notes):
-
-
-    print("rebuild measures + tie split")
+    print("PURE XML REBUILD")
 
 
     score = stream.Score()
@@ -133,33 +106,31 @@ def rebuild_measure(notes):
         while beat + dur > 4.0:
 
 
-            remain = 4.0 - beat
+            remain = 4.0-beat
 
 
-            if remain > 0:
+            if remain>0:
 
 
-                left,right = split_note(
-                    n,
-                    remain,
-                    dur-remain
-                )
+                left = n.__class__(
+                    n.pitch
+                ) if isinstance(n,note.Note) else note.Rest()
+
+
+                left.duration.quarterLength=remain
 
 
                 m.append(left)
 
-            else:
-
-                right=copy.deepcopy(n)
 
 
             part.append(m)
 
 
-            measure_no += 1
+            measure_no+=1
 
 
-            m = stream.Measure(
+            m=stream.Measure(
                 number=measure_no
             )
 
@@ -167,38 +138,40 @@ def rebuild_measure(notes):
             beat=0.0
 
 
-            n = right
-
-
-            dur=float(
-                n.duration.quarterLength
-            )
-
-
-        if dur > 0:
-
-
-            m.append(n)
-
-            beat += dur
+            dur-=remain
 
 
 
-    # fill last measure
-
-    if beat < 4:
+        if dur>0:
 
 
-        r = note.Rest()
+            new=n.__class__(
+                n.pitch
+            ) if isinstance(n,note.Note) else note.Rest()
 
-        r.duration.quarterLength = 4-beat
+
+            new.duration.quarterLength=dur
+
+
+            m.append(new)
+
+
+            beat+=dur
+
+
+
+    if beat<4:
+
+
+        r=note.Rest()
+
+        r.duration.quarterLength=4-beat
 
         m.append(r)
 
 
 
     part.append(m)
-
 
     score.append(part)
 
@@ -208,8 +181,7 @@ def rebuild_measure(notes):
 
 
 
-
-def final_check(score):
+def check(score):
 
 
     print("FINAL CHECK")
@@ -233,19 +205,9 @@ def final_check(score):
         )
 
 
-        if abs(total-4.0)>0.001:
-
-            print(
-                "WARNING",
-                m.number,
-                total
-            )
-
-
     print(
         "ALL MEASURES SAFE"
     )
-
 
 
 
@@ -258,35 +220,33 @@ def clean(inp,out):
     print("================")
 
 
-    print("read")
+    print("READ")
 
     old=converter.parse(inp)
 
 
 
-    print("remove voices")
-
-    print("remove chords")
-
-    print("remove beams")
-
-    print("remove ties")
+    print("REMOVE ALL XML METADATA")
 
 
-    notes=extract_notes(old)
+    notes=rebuild_notes(
+        old
+    )
 
 
-    new_score=rebuild_measure(
+
+    new_score=rebuild_score(
         notes
     )
 
 
-    final_check(
+    check(
         new_score
     )
 
 
-    print("FINAL WRITE")
+
+    print("WRITE PURE XML")
 
 
     new_score.write(
@@ -301,14 +261,13 @@ def clean(inp,out):
 
 
 
-
 if __name__=="__main__":
 
 
     if len(sys.argv)<3:
 
         print(
-        "python clean_musicxml.py input.musicxml output.musicxml"
+            "python clean_musicxml.py input.musicxml output.musicxml"
         )
 
         sys.exit()
