@@ -1,269 +1,287 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+"""
+clean_musicxml.py
+V80 TRUE ABSOLUTE GRID ENGINE
+
+MIDI/MusicXML -> Jianpu compatible MusicXML
+"""
+
 import sys
-import xml.etree.ElementTree as ET
-from fractions import Fraction
-
-print("==============================")
-print("CLEAN MUSICXML V70")
-print("ABSOLUTE QUANTIZE ENGINE")
-print("==============================")
+from music21 import converter, stream, meter, note, chord, duration
 
 
-STEP = 4       # 16th note tick
-BAR = 64       # 4/4 with divisions=16
+print("================")
+print("CLEAN MUSICXML V80 TRUE ABSOLUTE GRID ENGINE")
+print("================")
 
 
-def q(v):
-    return int(round(v / STEP) * STEP)
+if len(sys.argv) < 2:
+    print("usage:")
+    print("python clean_musicxml.py input.musicxml output.musicxml")
+    sys.exit()
 
 
-def duration_to_tick(note):
-    dur = note.find("duration")
-    if dur is None:
-        return STEP
-    return int(dur.text)
+input_file = sys.argv[1]
+
+if len(sys.argv) >= 3:
+    output_file = sys.argv[2]
+else:
+    output_file = "clean.musicxml"
 
 
-def make_rest(duration):
-    note = ET.Element("note")
+print("read")
 
-    ET.SubElement(note, "rest")
-
-    d = ET.SubElement(note, "duration")
-    d.text = str(duration)
-
-    return note
+score = converter.parse(input_file)
 
 
-def process(input_file, output_file):
+# -------------------------
+# remove voices
+# -------------------------
+print("remove voices")
 
-    tree = ET.parse(input_file)
-    root = tree.getroot()
-
-    divisions = root.find(".//divisions")
-
-    if divisions is not None:
-        divisions.text = "16"
-
-
-    print("remove voices")
-
-    for v in root.findall(".//voice"):
-        parent = v.getparent() if hasattr(v,"getparent") else None
+for p in score.parts:
+    for el in list(p.recurse()):
+        if hasattr(el, "voice"):
+            try:
+                el.voice = None
+            except:
+                pass
 
 
-    print("ABSOLUTE TIMELINE")
+# -------------------------
+# remove chords
+# -------------------------
+print("remove chords")
+
+for p in score.parts:
+    for c in list(p.recurse().getElementsByClass(chord.Chord)):
+        notes = c.notes
+
+        if len(notes):
+            n = notes[0]
+            c.activeSite.replace(c, n)
 
 
-    for part in root.findall(".//part"):
+# -------------------------
+# remove notation
+# -------------------------
+print("remove beams")
+print("remove ties")
 
-        measures = list(part.findall("measure"))
+for n in score.recurse().notes:
 
-        notes=[]
+    try:
+        n.beams = []
+    except:
+        pass
 
-        absolute=0
-
-
-        # collect notes
-        for m in measures:
-
-            for n in m.findall("note"):
-
-                dur=n.find("duration")
-
-                if dur is None:
-                    continue
-
-                d=int(dur.text)
-
-                notes.append(
-                    {
-                    "note":n,
-                    "start":absolute,
-                    "dur":d
-                    }
-                )
-
-                absolute+=d
+    try:
+        n.tie = None
+    except:
+        pass
 
 
+# -------------------------
+# force 4/4
+# -------------------------
+print("force 4/4")
 
-        print(
-            "notes:",
-            len(notes),
-            "ticks:",
-            absolute
+for p in score.parts:
+    p.insert(
+        0,
+        meter.TimeSignature("4/4")
+    )
+
+
+# =========================
+# V80 ABSOLUTE GRID ENGINE
+# =========================
+
+print("absolute offset quantize")
+
+GRID = 0.25
+
+
+def quantize(value):
+    return round(float(value) / GRID) * GRID
+
+
+for p in score.parts:
+
+    for n in p.recurse().notesAndRests:
+
+        # offset snap
+        try:
+            n.offset = quantize(n.offset)
+        except:
+            pass
+
+
+print("absolute duration quantize")
+
+
+valid = [
+    4.0,
+    2.0,
+    1.0,
+    0.5,
+    0.25
+]
+
+
+def nearest_duration(x):
+
+    return min(
+        valid,
+        key=lambda y: abs(y-x)
+    )
+
+
+for n in score.recurse().notes:
+
+    q = nearest_duration(
+        float(n.duration.quarterLength)
+    )
+
+    n.duration = duration.Duration(q)
+
+
+
+# -------------------------
+# rebuild measures
+# -------------------------
+
+print("rebuild measures")
+
+
+new_score = stream.Score()
+
+
+for part in score.parts:
+
+    new_part = stream.Part()
+
+    for n in part.recurse().notesAndRests:
+
+        new_part.append(n)
+
+    new_score.append(new_part)
+
+
+score = new_score
+
+
+
+# -------------------------
+# split cross measure notes
+# -------------------------
+
+print("split cross measure notes")
+
+
+for p in score.parts:
+
+    try:
+        p.makeMeasures(
+            inPlace=True
         )
+    except:
+        pass
 
 
-        # quantize
 
-        for item in notes:
+# -------------------------
+# fill rests
+# -------------------------
 
-            old=item["start"]
+print("fill measure rest")
 
-            new=q(old)
 
-            diff=new-old
+for p in score.parts:
 
-            item["start"]=new
+    for m in p.getElementsByClass("Measure"):
 
-            item["dur"]=max(
-                STEP,
-                q(item["dur"])
+        try:
+            m.makeRests(
+                inPlace=True
             )
+        except:
+            pass
 
 
 
-        print("rebuild measures")
+# -------------------------
+# final rebuild
+# -------------------------
 
+print("rebuild measures")
 
-        # remove old measures
-
-        for m in measures:
-            part.remove(m)
-
-
-        max_time=0
-
-        for n in notes:
-            max_time=max(
-                max_time,
-                n["start"]+n["dur"]
-            )
-
-
-        measure_count=max(
-            1,
-            (max_time+BAR-1)//BAR
+for p in score.parts:
+    try:
+        p.makeMeasures(
+            inPlace=True
         )
-
-
-        print(
-            "new measures:",
-            measure_count
-        )
-
-
-        # create empty measures
-
-        measure_notes=[[] for _ in range(measure_count)]
-
-
-        for item in notes:
-
-            index=item["start"]//BAR
-
-            if index >= measure_count:
-                index=measure_count-1
-
-            measure_notes[index].append(item)
+    except:
+        pass
 
 
 
-        # write measures
+print("clear notation cache")
 
-        for i,items in enumerate(measure_notes):
 
-            m=ET.Element(
-                "measure",
-                {
-                    "number":str(i+1)
-                }
+# -------------------------
+# FINAL CHECK
+# -------------------------
+
+print("FINAL CHECK")
+
+
+safe = True
+
+
+for p in score.parts:
+
+    for m in p.getElementsByClass("Measure"):
+
+        total = 0
+
+        for n in m.notesAndRests:
+            total += float(
+                n.duration.quarterLength
             )
-
-
-            used=0
-
-
-            for item in sorted(
-                items,
-                key=lambda x:x["start"]
-            ):
-
-                local=item["start"]%BAR
-
-                gap=local-used
-
-                if gap>0:
-                    r=make_rest(gap)
-                    m.append(r)
-                    used+=gap
-
-
-                n=item["note"]
-
-                dur=n.find("duration")
-
-                if dur is not None:
-                    dur.text=str(
-                        min(
-                            item["dur"],
-                            BAR-local
-                        )
-                    )
-
-                m.append(n)
-
-                used+=item["dur"]
-
-
-
-            remain=BAR-used
-
-            if remain>0:
-                m.append(make_rest(remain))
-
-
-            part.append(m)
-
-
-
-    print("FINAL CHECK")
-
-
-    for m in root.findall(".//measure"):
-
-        total=0
-
-        for n in m.findall("note"):
-
-            d=n.find("duration")
-
-            if d is not None:
-                total+=int(d.text)
-
 
         print(
             "Measure",
-            m.attrib.get("number"),
+            m.number,
             total
         )
 
 
-    print("FINAL WRITE")
-
-    tree.write(
-        output_file,
-        encoding="utf-8",
-        xml_declaration=True
-    )
-
-
-    print("DONE")
-    print(output_file)
+        if abs(total-4.0) > 0.001:
+            safe = False
 
 
 
-if __name__=="__main__":
+if safe:
 
-    if len(sys.argv)<3:
-        print(
-        "usage: python clean_musicxml.py input.musicxml output.musicxml"
-        )
-        sys.exit()
+    print("ALL MEASURES SAFE")
+
+else:
+
+    print("WARNING measure mismatch")
 
 
-    process(
-        sys.argv[1],
-        sys.argv[2]
-    )
+
+print("FINAL WRITE")
+
+
+score.write(
+    "musicxml",
+    fp=output_file
+)
+
+
+print("DONE")
+print(output_file)
