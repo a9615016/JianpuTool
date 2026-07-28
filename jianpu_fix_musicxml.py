@@ -1,110 +1,87 @@
-# jianpu_fix_musicxml.py V9.0
-# FORCE QUANTIZE ALL MEASURES
+# ==========================================
+# jianpu_fix_musicxml.py V10.0
+# FORCE SPLIT + QUANTIZE FOR JIANPU_LY
+# ==========================================
 
-from music21 import converter, stream, note, meter, duration
+from music21 import converter, meter, note, stream, chord
 import sys
 
 
-def fix_musicxml(src, dst):
+def quantize_length(x):
 
-    print("================")
-    print("JIANPU FIX MUSICXML V9.0")
-    print("================")
+    table = [
+        (0.25, 0.25),
+        (0.333, 0.25),
+        (0.5, 0.5),
+        (0.666, 0.5),
+        (0.75, 0.75),
+        (1.0, 1.0),
+        (1.333, 1.25),
+        (1.5, 1.5),
+        (2.0, 2.0),
+        (3.0, 3.0),
+        (4.0, 4.0),
+    ]
 
-    score = converter.parse(src)
+    for a,b in table:
+        if abs(x-a)<0.05:
+            return b
 
-    print("remove voices")
-    for p in score.parts:
-        for el in p.recurse():
-            if hasattr(el, "voice"):
-                el.voice = None
+    if x < 0.25:
+        return 0.25
 
+    if x > 4:
+        return 4
 
-    print("remove chords")
-    for p in score.parts:
-        for c in p.recurse().getElementsByClass('Chord'):
-            n = c.notes[0]
-            c.activeSite.replace(c, n)
+    return round(x*4)/4
 
 
-    print("force 4/4")
-    for p in score.parts:
-        p.insert(0, meter.TimeSignature("4/4"))
+
+def remove_bad_elements(score):
+
+    print("remove ties beams voices")
+
+    for el in score.recurse():
+
+        if hasattr(el,"tie"):
+            el.tie=None
+
+        if hasattr(el,"beams"):
+            try:
+                el.beams.clear()
+            except:
+                pass
+
+        if hasattr(el,"voice"):
+            el.voice=None
 
 
-    print("quantize")
 
-    for p in score.parts:
+def fix_notes(score):
 
-        notes = list(p.recurse().notesAndRests)
+    print("duration quantize")
 
-        for n in notes:
+    for n in score.recurse().notesAndRests:
 
-            q = n.duration.quarterLength
+        q=n.duration.quarterLength
 
-            # 強制吸附
-            if q <= 0.26:
-                n.duration.quarterLength = 0.25
+        nq=quantize_length(q)
 
-            elif q <= 0.75:
-                n.duration.quarterLength = 0.5
+        n.duration.quarterLength=nq
 
-            elif q <= 1.5:
-                n.duration.quarterLength = 1
 
-            elif q <= 3:
-                n.duration.quarterLength = 2
 
-            else:
-                n.duration.quarterLength = 4
-
+def rebuild(score):
 
     print("rebuild measures")
 
-    score.makeMeasures(inPlace=True)
-
-
-    # 第二次修正
-    print("check measures")
-
     for p in score.parts:
 
-        for m in p.getElementsByClass("Measure"):
-
-            length = m.duration.quarterLength
-
-            print(
-                "Measure",
-                m.number,
-                length
-            )
-
-            # 超過4拍直接縮短
-            if length > 4:
-
-                diff = length - 4
-
-                for n in reversed(
-                    list(m.notesAndRests)
-                ):
-
-                    if diff <=0:
-                        break
-
-                    cut=min(
-                        diff,
-                        n.duration.quarterLength
-                    )
-
-                    n.duration.quarterLength -= cut
-                    diff-=cut
+        p.makeMeasures(inPlace=True)
 
 
 
-    print("FINAL rebuild")
-
-    score.makeMeasures(inPlace=True)
-
+def check(score):
 
     print("FINAL CHECK")
 
@@ -114,23 +91,63 @@ def fix_musicxml(src, dst):
 
         for m in p.getElementsByClass("Measure"):
 
-            x=m.duration.quarterLength
+            q=m.duration.quarterLength
 
             print(
                 "Measure",
                 m.number,
-                x
+                q
             )
 
-            if abs(x-4)>0.001:
+            if abs(q-4)>0.01:
                 ok=False
 
 
     if ok:
         print("ALL MEASURES SAFE")
     else:
-        print("WARNING")
+        print("WARNING measure mismatch")
 
+
+    return ok
+
+
+
+def fix(src,dst):
+
+    print("================")
+    print("JIANPU FIX V10")
+    print("================")
+
+    score=converter.parse(src)
+
+
+    print("force 4/4")
+
+    for p in score.parts:
+        p.insert(
+            0,
+            meter.TimeSignature("4/4")
+        )
+
+
+    remove_bad_elements(score)
+
+    fix_notes(score)
+
+    rebuild(score)
+
+
+    # 第二輪
+    fix_notes(score)
+
+    rebuild(score)
+
+
+    check(score)
+
+
+    print("FINAL WRITE")
 
     score.write(
         "musicxml",
@@ -145,7 +162,7 @@ def fix_musicxml(src, dst):
 
 if __name__=="__main__":
 
-    fix_musicxml(
+    fix(
         sys.argv[1],
         sys.argv[2]
     )
