@@ -1,10 +1,8 @@
-from fastapi import FastAPI, UploadFile, File
-from fastapi.responses import FileResponse, JSONResponse
-
 import os
 import uuid
 import subprocess
-import shutil
+from fastapi import FastAPI, UploadFile, File
+from fastapi.responses import FileResponse, HTMLResponse
 
 
 app = FastAPI()
@@ -16,36 +14,38 @@ BASE = "/app/outputs"
 os.makedirs(BASE, exist_ok=True)
 
 
-
-def run(cmd):
-
-    print("RUN:", " ".join(cmd))
-
-    result = subprocess.run(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True
-    )
-
-    print(result.stdout)
-
-    if result.returncode != 0:
-        raise Exception(result.stdout)
-
-    return result.stdout
-
-
-
-
 @app.get("/")
 def home():
 
-    return {
-        "name":"JianpuTool",
-        "status":"running"
-    }
+    return HTMLResponse("""
+    <html>
+    <head>
+    <title>JianpuTool</title>
+    </head>
 
+    <body>
+
+    <h2>JianpuTool</h2>
+
+    <p>
+    MP3 → MIDI → MusicXML → 簡譜 PDF
+    </p>
+
+    <form action="/upload" 
+          method="post" 
+          enctype="multipart/form-data">
+
+    <input type="file" name="file">
+
+    <button type="submit">
+    Upload
+    </button>
+
+    </form>
+
+    </body>
+    </html>
+    """)
 
 
 
@@ -53,187 +53,206 @@ def home():
 async def upload(file: UploadFile = File(...)):
 
 
-    task_id = str(uuid.uuid4())
+    job = str(uuid.uuid4())
 
-
-    work = os.path.join(
+    outdir = os.path.join(
         BASE,
-        task_id
+        job
+    )
+
+    os.makedirs(
+        outdir,
+        exist_ok=True
     )
 
 
-    os.makedirs(work, exist_ok=True)
-
-
-    print("====================")
-    print("開始任務:",task_id)
-    print("收到:",file.filename)
-
-
-
     mp3 = os.path.join(
-        work,
+        outdir,
         file.filename
     )
 
 
     with open(mp3,"wb") as f:
 
-        shutil.copyfileobj(
-            file.file,
-            f
+        f.write(
+            await file.read()
         )
 
 
-    print("MP3保存完成")
+    print("================")
+    print("收到:")
+    print(mp3)
+    print("================")
 
 
+    # -----------------------
+    # MP3 → MIDI
+    # -----------------------
 
     midi = os.path.join(
-        work,
+        outdir,
         "melody.mid"
     )
 
 
-    # MP3 -> MIDI
+    print("開始 BasicPitch")
 
-    run([
-        "python",
-        "basicpitch_convert.py",
-        mp3,
-        midi
-    ])
+
+    subprocess.run(
+        [
+            "python",
+            "basicpitch_convert.py",
+            mp3,
+            midi
+        ],
+        check=True
+    )
 
 
     print("MIDI完成")
 
 
 
+    # -----------------------
+    # MIDI → MusicXML
+    # -----------------------
+
     musicxml = os.path.join(
-        work,
+        outdir,
         "input.musicxml"
     )
 
 
-    # MIDI -> MusicXML
-
-    run([
-        "python",
-        "midi_to_musicxml.py",
-        midi,
-        musicxml
-    ])
+    subprocess.run(
+        [
+            "python",
+            "midi_to_musicxml.py",
+            midi,
+            musicxml
+        ],
+        check=True
+    )
 
 
     print("MusicXML完成")
 
 
 
+    # -----------------------
+    # clean
+    # -----------------------
+
     clean = os.path.join(
-        work,
+        outdir,
         "clean.musicxml"
     )
 
 
-    # MusicXML清理
-
-    run([
-        "python",
-        "clean_musicxml.py",
-        musicxml,
-        clean
-    ])
+    subprocess.run(
+        [
+            "python",
+            "clean_musicxml.py",
+            musicxml,
+            clean
+        ],
+        check=True
+    )
 
 
     print("清理完成")
 
 
 
-    safe = os.path.join(
-        work,
-        "jianpu_safe.musicxml"
+    # -----------------------
+    # jianpu prepare
+    # -----------------------
+
+    ready = os.path.join(
+        outdir,
+        "jianpu_ready.musicxml"
     )
 
 
-    # ★ 最後 jianpu_ly 前處理
-
-    run([
-        "python",
-        "jianpu_preprocess.py",
-        clean,
-        safe
-    ])
-
-
-
-    print("CHECK jianpu input:")
-    print(safe)
+    subprocess.run(
+        [
+            "python",
+            "jianpu_prepare.py",
+            clean,
+            ready
+        ],
+        check=True
+    )
 
 
+    print("Jianpu Prepare 完成")
 
-    # MusicXML -> LilyPond
+
+
+    # -----------------------
+    # jianpu_ly
+    # -----------------------
 
     ly = os.path.join(
-        work,
+        outdir,
         "output.ly"
     )
 
 
-    result = subprocess.run(
-        [
-            "python",
-            "-m",
-            "jianpu_ly",
-            safe
-        ],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True
-    )
+    print("開始 jianpu_ly")
 
 
-    print(result.stdout)
+    with open(
+        ly,
+        "w",
+        encoding="utf-8"
+    ) as f:
 
 
-
-    if result.returncode != 0:
-
-        return JSONResponse(
-            {
-                "error":"jianpu_ly失敗",
-                "log":result.stdout
-            }
+        subprocess.run(
+            [
+                "python",
+                "-m",
+                "jianpu_ly",
+                ready
+            ],
+            stdout=f,
+            stderr=subprocess.STDOUT,
+            check=True
         )
 
 
+    print("LY完成")
 
-    # 找 ly
 
-    for f in os.listdir(work):
 
-        if f.endswith(".ly"):
+    # -----------------------
+    # LilyPond PDF
+    # -----------------------
 
-            ly=os.path.join(
-                work,
-                f
-            )
+    print("開始 LilyPond")
 
+
+    subprocess.run(
+        [
+            "lilypond",
+            "-o",
+            os.path.join(
+                outdir,
+                "jianpu"
+            ),
+            ly
+        ],
+        check=True
+    )
 
 
     pdf = os.path.join(
-        work,
+        outdir,
         "jianpu.pdf"
     )
 
 
-    # LilyPond PDF
-
-    run([
-        "lilypond",
-        "-o",
-        pdf.replace(".pdf",""),
-        ly
-    ])
+    print("PDF完成")
 
 
 
