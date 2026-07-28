@@ -1,9 +1,13 @@
+# main.py
+# JianpuTool V31
+# MP3 -> BasicPitch -> Clean MIDI -> MusicXML -> Jianpu PDF
+
 import os
 import uuid
 import subprocess
 
 from fastapi import FastAPI, UploadFile, File
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 
 
 app = FastAPI()
@@ -11,10 +15,8 @@ app = FastAPI()
 
 BASE_DIR = "/app"
 
-OUTPUT_DIR = os.path.join(
-    BASE_DIR,
-    "outputs"
-)
+OUTPUT_DIR = "/app/outputs"
+
 
 os.makedirs(
     OUTPUT_DIR,
@@ -23,7 +25,50 @@ os.makedirs(
 
 
 
-def run_cmd(cmd):
+@app.get("/")
+def home():
+
+    return HTMLResponse("""
+    <html>
+    <head>
+    <title>JianpuTool</title>
+    </head>
+
+    <body>
+
+    <h2>
+    JianpuTool
+    </h2>
+
+    <p>
+    MP3 → 簡譜 PDF
+    </p>
+
+
+    <form action="/upload"
+    method="post"
+    enctype="multipart/form-data">
+
+    <input type="file"
+    name="file"
+    accept=".mp3,.wav">
+
+    <br><br>
+
+    <button type="submit">
+    Convert
+    </button>
+
+    </form>
+
+
+    </body>
+    </html>
+    """)
+
+
+
+def run(cmd):
 
     print("RUN:", " ".join(cmd))
 
@@ -34,7 +79,9 @@ def run_cmd(cmd):
         text=True
     )
 
+
     print(result.stdout)
+
 
     if result.returncode != 0:
 
@@ -43,16 +90,7 @@ def run_cmd(cmd):
         )
 
 
-
-@app.get("/")
-def home():
-
-    return {
-        "service":
-        "JianpuTool MP3 -> Jianpu PDF",
-        "version":
-        "v1.0"
-    }
+    return result.stdout
 
 
 
@@ -63,9 +101,7 @@ async def upload(
 ):
 
 
-    task_id = str(
-        uuid.uuid4()
-    )
+    task_id = str(uuid.uuid4())
 
 
     workdir = os.path.join(
@@ -85,21 +121,17 @@ async def upload(
     print("收到:", file.filename)
 
 
-
-    # =====================
+    # -----------------
     # save mp3
-    # =====================
+    # -----------------
 
-    mp3_file = os.path.join(
+    mp3 = os.path.join(
         workdir,
         file.filename
     )
 
 
-    with open(
-        mp3_file,
-        "wb"
-    ) as f:
+    with open(mp3,"wb") as f:
 
         f.write(
             await file.read()
@@ -107,24 +139,25 @@ async def upload(
 
 
     print("MP3保存完成")
+    print(mp3)
 
 
 
-    # =====================
+    # -----------------
     # BasicPitch
-    # =====================
+    # -----------------
 
-    midi_file = os.path.join(
+    melody_mid = os.path.join(
         workdir,
         "melody.mid"
     )
 
 
-    run_cmd([
+    run([
         "python",
         "basicpitch_convert.py",
-        mp3_file,
-        midi_file
+        mp3,
+        melody_mid
     ])
 
 
@@ -132,43 +165,43 @@ async def upload(
 
 
 
-    # =====================
-    # CLEAN MIDI
-    # =====================
+    # -----------------
+    # clean MIDI
+    # -----------------
 
-    clean_midi = os.path.join(
+    clean_mid = os.path.join(
         workdir,
         "clean.mid"
     )
 
 
-    run_cmd([
+    run([
         "python",
         "clean_midi.py",
-        midi_file,
-        clean_midi
+        melody_mid,
+        clean_mid
     ])
 
 
-    print("clean MIDI完成")
+    print("MIDI CLEAN完成")
 
 
 
-    # =====================
+    # -----------------
     # MIDI -> MusicXML
-    # =====================
+    # -----------------
 
-    musicxml_file = os.path.join(
+    musicxml = os.path.join(
         workdir,
         "input.musicxml"
     )
 
 
-    run_cmd([
+    run([
         "python",
         "midi_to_musicxml.py",
-        clean_midi,
-        musicxml_file
+        clean_mid,
+        musicxml
     ])
 
 
@@ -176,20 +209,20 @@ async def upload(
 
 
 
-    # =====================
-    # CLEAN MUSICXML
-    # =====================
+    # -----------------
+    # Clean MusicXML
+    # -----------------
 
-    clean_xml = os.path.join(
+    clean_xml=os.path.join(
         workdir,
         "clean.musicxml"
     )
 
 
-    run_cmd([
+    run([
         "python",
         "clean_musicxml.py",
-        musicxml_file,
+        musicxml,
         clean_xml
     ])
 
@@ -198,66 +231,76 @@ async def upload(
 
 
 
-    # =====================
+    # -----------------
     # jianpu_ly
-    # =====================
+    # -----------------
 
-    ly_file = os.path.join(
+    ly=os.path.join(
         workdir,
         "jianpu.ly"
     )
 
 
-    run_cmd([
-        "python",
-        "-m",
-        "jianpu_ly",
-        clean_xml
-    ])
+    print("開始 jianpu_ly")
 
 
-    print("jianpu完成")
+    with open(
+        ly,
+        "w",
+        encoding="utf-8"
+    ) as f:
+
+
+        subprocess.run(
+            [
+                "python",
+                "-m",
+                "jianpu_ly",
+                clean_xml
+            ],
+            stdout=f,
+            stderr=subprocess.STDOUT
+        )
 
 
 
-    # jianpu_ly 預設輸出 stdout
-    # 若需要寫檔，可以改成自行保存
+    print("LY完成")
 
 
 
-    # =====================
+    # -----------------
     # LilyPond
-    # =====================
+    # -----------------
 
-    run_cmd([
+    run([
         "lilypond",
-        ly_file
+        "-o",
+        os.path.join(workdir,"jianpu"),
+        ly
     ])
 
 
 
-    pdf_file = os.path.join(
+    pdf=os.path.join(
         workdir,
         "jianpu.pdf"
     )
 
 
-    if not os.path.exists(pdf_file):
+    if not os.path.exists(pdf):
 
         raise Exception(
-            "PDF沒有產生"
+            "PDF產生失敗"
         )
 
 
 
-    print("====================")
-    print("完成")
-    print(pdf_file)
+    print("SUCCESS")
 
 
 
     return FileResponse(
-        pdf_file,
+        pdf,
         media_type="application/pdf",
         filename="jianpu.pdf"
     )
