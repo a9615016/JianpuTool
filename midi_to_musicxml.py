@@ -1,14 +1,14 @@
 # midi_to_musicxml.py
-# V2.2
+# V2.3
 # MIDI -> MusicXML
-# Jianpu compatible version
+# Jianpu compatible
 
-from music21 import converter, stream, note, meter, tempo
+from music21 import converter, stream, note, meter
 import sys
 
 
 print("================")
-print("MIDI TO MUSICXML V2.2")
+print("MIDI TO MUSICXML V2.3")
 print("================")
 
 
@@ -27,27 +27,25 @@ print("讀取 MIDI...")
 score = converter.parse(input_mid)
 
 
-new_score = stream.Score()
 
+def quantize_duration(value):
 
-# 量化到簡譜常用節奏
-def quantize_duration(x):
-
-    values = [
-        0.25,   # 四分之一拍
+    allowed = [
+        0.25,
         0.5,
         0.75,
-        1.0,
-        1.5,
-        2.0,
-        3.0,
-        4.0
+        1.0
     ]
 
     return min(
-        values,
-        key=lambda v: abs(v-x)
+        allowed,
+        key=lambda x: abs(x-value)
     )
+
+
+
+new_score = stream.Score()
+
 
 
 for old_part in score.parts:
@@ -56,52 +54,59 @@ for old_part in score.parts:
 
     new_part = stream.Part()
 
-    new_part.append(
+
+    new_part.insert(
+        0,
         meter.TimeSignature("4/4")
     )
 
 
-    current_measure = stream.Measure(
-        number=1
+    measure_no = 1
+
+    measure = stream.Measure(
+        number=measure_no
     )
 
 
-    beat_position = 0
+    beat = 0
 
 
-    notes = list(
-        old_part.recurse().notes
-    )
 
-
-    for n in notes:
+    for n in old_part.recurse().notes:
 
 
         if not isinstance(n, note.Note):
             continue
 
 
-        dur = float(
+        raw_duration = float(
             n.duration.quarterLength
         )
 
 
-        dur = quantize_duration(
-            dur
+        # 防止超長音
+
+        if raw_duration > 1:
+            raw_duration = 1
+
+
+        duration = quantize_duration(
+            raw_duration
         )
 
 
-        remain = dur
+        remaining = duration
 
 
-        while remain > 0:
+
+        while remaining > 0:
 
 
-            space = 4 - beat_position
+            space = 4 - beat
 
 
             length = min(
-                remain,
+                remaining,
                 space
             )
 
@@ -114,55 +119,60 @@ for old_part in score.parts:
             new_note.duration.quarterLength = length
 
 
-            current_measure.append(
+            measure.append(
                 new_note
             )
 
 
-            beat_position += length
-            remain -= length
+            beat += length
+            remaining -= length
 
 
 
-            # 小節完成
+            # 完成小節
 
-            if beat_position >= 4:
+            if beat >= 4:
 
 
                 new_part.append(
-                    current_measure
+                    measure
                 )
 
 
-                current_measure = stream.Measure(
-                    number=current_measure.number + 1
+                measure_no += 1
+
+
+                measure = stream.Measure(
+                    number=measure_no
                 )
 
 
-                beat_position = 0
+                beat = 0
 
 
 
-    # 補最後小節休止
+    # 補最後不足小節
 
-    if beat_position > 0:
+    if beat > 0:
 
         rest = note.Rest()
 
         rest.duration.quarterLength = (
-            4 - beat_position
+            4 - beat
         )
 
-        current_measure.append(rest)
+        measure.append(rest)
+
 
         new_part.append(
-            current_measure
+            measure
         )
 
 
     new_score.append(
         new_part
     )
+
 
 
 print("寫入 MusicXML...")
@@ -174,5 +184,7 @@ new_score.write(
 )
 
 
+print("================")
 print("完成:")
 print(output_xml)
+print("================")
