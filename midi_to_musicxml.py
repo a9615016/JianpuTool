@@ -1,37 +1,28 @@
-from music21 import converter, stream, note, meter, tempo, instrument
+from music21 import converter, stream, note, meter, instrument
 import sys
 
 
 print("================")
-print("MIDI TO MUSICXML V4 FINAL JIANPU")
+print("MIDI TO MUSICXML V5 JIANPU SAFE")
 print("================")
 
 
 if len(sys.argv) < 3:
-    print(
+    sys.exit(
         "usage: python midi_to_musicxml.py input.mid output.musicxml"
     )
-    sys.exit()
 
 
 midi_file = sys.argv[1]
 output_file = sys.argv[2]
 
 
-print("開始 MIDI → MusicXML")
-print("輸入:", midi_file)
-
-
-print("讀取 MIDI...")
-
+print("讀取 MIDI")
 score = converter.parse(midi_file)
 
 
-# =====================
-# 建立單旋律
-# =====================
 
-print("extract melody...")
+print("extract melody")
 
 
 melody = stream.Part()
@@ -42,77 +33,88 @@ melody.insert(
 )
 
 
-# =====================
-# quantize
-# =====================
 
-print("quantize notes...")
+print("quantize")
 
 
-notes = []
+raw_notes=[]
 
 
 for n in score.recurse().notes:
 
-    if isinstance(n, note.Note):
+    if isinstance(n,note.Note):
 
-        pitch = n.pitch
-
-        offset = float(n.offset)
-        dur = float(n.duration.quarterLength)
-
-
-        # 16分音符量化
-        offset = round(offset * 4) / 4
-
-
-        # duration限制
-        if dur < 0.25:
-            dur = 0.25
-
-        dur = round(dur * 4) / 4
-
-
-        nn = note.Note(
-            pitch,
-            quarterLength=dur
+        dur=float(
+            n.duration.quarterLength
         )
 
-        nn.offset = offset
 
-        notes.append(nn)
+        # 16分音符
+        dur=round(dur*4)/4
+
+
+        if dur < 0.25:
+            dur=0.25
+
+
+        raw_notes.append(
+            (
+                n.pitch,
+                dur
+            )
+        )
 
 
 
 print(
     "notes:",
-    len(notes)
+    len(raw_notes)
 )
 
 
 
-# =====================
-# 排序
-# =====================
+# =========================
+# 重新排列時間
+# =========================
 
-notes.sort(
-    key=lambda x:x.offset
-)
+print("rebuild timeline")
 
 
+current=0
 
-for n in notes:
 
-    melody.insert(
-        n.offset,
-        n
+for pitch,dur in raw_notes:
+
+
+    nn=note.Note(
+        pitch
     )
 
 
+    nn.duration.quarterLength=dur
 
-# =====================
-# meter
-# =====================
+
+    melody.insert(
+        current,
+        nn
+    )
+
+
+    current += dur
+
+
+
+print(
+    "total beats:",
+    current
+)
+
+
+
+# =========================
+# 4/4
+# =========================
+
 
 print("force 4/4")
 
@@ -124,11 +126,7 @@ melody.insert(
 
 
 
-# =====================
-# measures
-# =====================
-
-print("rebuild measures")
+print("make measures")
 
 
 melody.makeMeasures(
@@ -136,7 +134,22 @@ melody.makeMeasures(
 )
 
 
-final = stream.Score()
+
+print("CHECK MEASURES")
+
+
+for m in melody.getElementsByClass("Measure"):
+
+    print(
+        "Measure",
+        m.number,
+        m.duration.quarterLength
+    )
+
+
+
+final=stream.Score()
+
 
 final.insert(
     0,
@@ -144,15 +157,11 @@ final.insert(
 )
 
 
-
-# =====================
-# cache
-# =====================
-
 final.clearCache()
 
 
-print("寫入 MusicXML...")
+
+print("WRITE")
 
 
 final.write(
@@ -161,5 +170,5 @@ final.write(
 )
 
 
-print("完成:")
+print("DONE")
 print(output_file)
