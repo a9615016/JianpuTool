@@ -1,215 +1,181 @@
-# midi_to_musicxml_v3.py
-# Jianpu Stable Version
-# MIDI -> MusicXML -> jianpu_ly compatible
-
 import sys
-from music21 import converter, stream, note, meter, tempo, instrument
-from fractions import Fraction
+from pathlib import Path
+
+from music21 import converter, stream, meter, note, chord, tempo
 
 
-def quantize_duration(q):
-    """
-    quantize to 16th notes
-    """
-    steps = [
-        Fraction(1,16),
-        Fraction(2,16),
-        Fraction(3,16),
-        Fraction(4,16),
-        Fraction(6,16),
-        Fraction(8,16),
-        Fraction(12,16),
-        Fraction(16,16),
+def clean_midi_score(score):
+
+    print("重新整理樂譜...")
+
+    # 建立新的單聲部
+    new_score = stream.Score()
+    part = stream.Part()
+
+    part.insert(0, meter.TimeSignature("4/4"))
+
+    # 加 tempo
+    part.insert(0, tempo.MetronomeMark(number=80))
+
+
+    notes = []
+
+    for element in score.flatten().notes:
+
+        # chord 取最高音
+        if isinstance(element, chord.Chord):
+
+            n = element.sortAscending()[0]
+
+            new_note = note.Note(
+                n.pitch,
+                quarterLength=element.duration.quarterLength
+            )
+
+            notes.append(new_note)
+
+
+        elif isinstance(element, note.Note):
+
+            new_note = note.Note(
+                element.pitch,
+                quarterLength=element.duration.quarterLength
+            )
+
+            notes.append(new_note)
+
+
+
+    print("原始音符:", len(notes))
+
+
+    # =========================
+    # duration quantize
+    # =========================
+
+    print("duration quantize")
+
+
+    allowed = [
+        0.25,
+        0.5,
+        1.0,
+        2.0,
+        4.0
     ]
-
-    x = Fraction(q.quarterLength).limit_denominator()
-
-    best = min(
-        steps,
-        key=lambda a: abs(a-x)
-    )
-
-    return float(best)
-
-
-def rebuild_melody(midi_file):
-
-    print("讀取 MIDI...")
-
-    src = converter.parse(midi_file)
-
-
-    print("抽取旋律...")
-
-
-    notes=[]
-
-    for n in src.recurse().notes:
-
-        if isinstance(n, note.Note):
-
-            notes.append(n)
-
-
-        elif isinstance(n, note.Chord):
-
-            # chord 只取最高音
-            top=max(n.pitches)
-
-            nn=note.Note(top)
-
-            nn.duration=n.duration
-
-            nn.offset=n.offset
-
-            notes.append(nn)
-
-
-
-    if not notes:
-        raise Exception("沒有找到音符")
-
-
-    # 排序
-    notes.sort(
-        key=lambda x:x.offset
-    )
-
-
-    print("建立新 Score...")
-
-
-    score=stream.Score()
-
-    part=stream.Part()
-
-    part.insert(
-        0,
-        instrument.Piano()
-    )
-
-
-    part.insert(
-        0,
-        meter.TimeSignature("4/4")
-    )
-
-
-    part.insert(
-        0,
-        tempo.MetronomeMark(number=80)
-    )
-
-
-    current=0.0
-
-
-    print("重新量化...")
 
 
     for n in notes:
 
+        q = n.duration.quarterLength
 
-        # 填補空白 rest
-
-        if n.offset > current:
-
-            r=note.Rest()
-
-            r.duration.quarterLength = quantize_duration(
-                n.offset-current
-            )
-
-            part.append(r)
-
-            current += r.duration.quarterLength
-
-
-
-        nn=note.Note(
-            n.pitch
+        closest = min(
+            allowed,
+            key=lambda x: abs(x-q)
         )
 
-
-        nn.duration.quarterLength = quantize_duration(
-            n.duration
-        )
-
-
-        part.append(nn)
-
-
-        current += nn.duration.quarterLength
+        n.duration.quarterLength = closest
 
 
 
-    score.append(part)
+    # =========================
+    # 填入 part
+    # =========================
+
+    current = 0
+
+    for n in notes:
+
+        part.append(n)
+        current += n.duration.quarterLength
 
 
-    print("重新建立小節...")
+    new_score.append(part)
 
 
-    # 強制 measure
-    score.makeMeasures(
-        inPlace=True
+    # =========================
+    # rebuild measures
+    # =========================
+
+    print("rebuild measures")
+
+    new_score = new_score.makeMeasures(
+        inPlace=False
     )
 
 
-    # 每小節檢查
-    for m in score.parts[0].getElementsByClass("Measure"):
+    # =========================
+    # split cross measure
+    # =========================
 
-        total=sum(
-            x.duration.quarterLength
-            for x in m.notesAndRests
+    print("split cross measure notes")
+
+    try:
+        new_score = new_score.makeTies(
+            inPlace=False
         )
-
-        if abs(total-4.0)>0.01:
-
-            diff=4-total
-
-            if diff>0:
-
-                r=note.Rest()
-
-                r.duration.quarterLength=diff
-
-                m.append(r)
+    except:
+        pass
 
 
-
-    return score
+    return new_score
 
 
 
 def main():
 
-    if len(sys.argv)<3:
+    if len(sys.argv) < 3:
 
         print(
-            "使用方法:"
-        )
-
-        print(
+            "usage:\n"
             "python midi_to_musicxml_v3.py input.mid output.musicxml"
         )
 
         sys.exit(1)
 
 
-    midi=sys.argv[1]
-
-    output=sys.argv[2]
+    input_mid = sys.argv[1]
+    output_xml = sys.argv[2]
 
 
     print("================")
-    print("MIDI → MusicXML V3")
-    print("Jianpu Stable")
+    print("MIDI TO MUSICXML V3")
+    print("JIANPU STABLE VERSION")
     print("================")
 
 
-    score=rebuild_melody(
-        midi
+    print("輸入 MIDI:")
+    print(input_mid)
+
+
+    print("讀取 MIDI...")
+
+
+    score = converter.parse(
+        input_mid
     )
+
+
+    score = clean_midi_score(score)
+
+
+    print("FINAL CHECK")
+
+
+    measures = score.parts[0].getElementsByClass(
+        stream.Measure
+    )
+
+
+    for m in measures:
+
+        length = m.duration.quarterLength
+
+        print(
+            "Measure",
+            m.number,
+            length
+        )
 
 
     print("寫入 MusicXML...")
@@ -217,15 +183,14 @@ def main():
 
     score.write(
         "musicxml",
-        fp=output
+        fp=output_xml
     )
 
 
-    print()
     print("完成:")
-    print(output)
+    print(output_xml)
 
 
 
-if __name__=="__main__":
+if __name__ == "__main__":
     main()
