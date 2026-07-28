@@ -1,224 +1,209 @@
-from music21 import converter, stream, note, meter, tempo, tie
+# jianpu_fix_musicxml.py
+# V13 SPLIT ENGINE
+# 修正 jianpu_ly barcheck fail
+
 import sys
+from lxml import etree
+from fractions import Fraction
+
+DIVISIONS = 4
+BEAT = 4
+MEASURE_LEN = 16   # 4/4 = 16 divisions
 
 
-VERSION = "V12.1 SPLIT ENGINE"
+def q_duration(d):
+    """
+    強制量化 duration
+    """
+    allowed = [
+        1,2,4,8,16
+    ]
+
+    best = min(
+        allowed,
+        key=lambda x: abs(x-d)
+    )
+
+    return best
 
 
-def rebuild(input_file, output_file):
+def remove_tag(root, tag):
 
-    print("====================")
-    print("JIANPU FIX MUSICXML")
-    print(VERSION)
-    print("====================")
-
-
-    old = converter.parse(input_file)
-
-    score = stream.Score()
-
-    part = stream.Part()
-
-    part.append(meter.TimeSignature("4/4"))
-    part.append(tempo.MetronomeMark(number=100))
+    for e in root.xpath(f".//{{*}}{tag}"):
+        parent=e.getparent()
+        if parent is not None:
+            parent.remove(e)
 
 
-    events = []
+def fix_duration(root):
 
-    print("extract notes")
+    for note in root.xpath(".//{{*}}note"):
+
+        dur = note.find(".//{*}duration")
+
+        if dur is None:
+            continue
+
+        try:
+            value=int(dur.text)
+        except:
+            continue
 
 
-    for n in old.recurse().notesAndRests:
+        new=q_duration(value)
 
-        if isinstance(n, note.Note):
+        dur.text=str(new)
 
-            events.append(
-                (
-                    "note",
-                    n.pitch,
-                    float(n.duration.quarterLength)
+
+
+def split_measure_notes(root):
+
+    """
+    重新按照4/4切割
+    """
+
+    notes=root.xpath(".//{{*}}note")
+
+
+    pos=0
+
+
+    for note in notes:
+
+        dur=note.find(".//{*}duration")
+
+        if dur is None:
+            continue
+
+
+        d=int(dur.text)
+
+
+        # 超過小節
+        if pos+d > MEASURE_LEN:
+
+            remain=MEASURE_LEN-pos
+
+
+            if remain>0:
+
+                dur.text=str(remain)
+
+
+            # 剩餘部分
+            left=d-remain
+
+
+            if left>0:
+
+                clone=etree.fromstring(
+                    etree.tostring(note)
                 )
-            )
 
-        elif isinstance(n, note.Rest):
+                clone.find(".//{*}duration").text=str(left)
 
-            events.append(
-                (
-                    "rest",
-                    None,
-                    float(n.duration.quarterLength)
-                )
-            )
+                note.addnext(clone)
 
 
-    print("events:", len(events))
+            pos=left
 
 
-    measure_no = 1
-    current_measure = stream.Measure(number=measure_no)
+        else:
 
-    used = 0.0
+            pos+=d
 
 
-    def add_measure():
+        if pos>=MEASURE_LEN:
+            pos=0
 
-        nonlocal current_measure
-        nonlocal measure_no
 
-        if current_measure.notesAndRests:
 
-            # 補滿4拍
+def rebuild_measures(root):
 
-            remain = 4.0 - current_measure.duration.quarterLength
+    """
+    重新檢查小節長度
+    """
 
-            if remain > 0.001:
+    measures=root.xpath(".//{{*}}measure")
 
-                r = note.Rest()
-                r.duration.quarterLength = remain
-                current_measure.append(r)
 
+    for i,m in enumerate(measures,1):
 
-            part.append(current_measure)
+        total=0
 
-            print(
-                "Measure",
-                measure_no,
-                current_measure.duration.quarterLength
-            )
+        for d in m.xpath(".//{{*}}duration"):
 
+            try:
+                total+=int(d.text)
 
-        measure_no += 1
+            except:
+                pass
 
-        current_measure = stream.Measure(
-            number=measure_no
-        )
-
-
-    print("split crossing notes")
-
-
-    for typ, pitch, dur in events:
-
-
-        remain_note = dur
-
-
-        while remain_note > 0:
-
-
-            space = 4.0 - current_measure.duration.quarterLength
-
-
-            take = min(space, remain_note)
-
-
-            if typ == "note":
-
-                n = note.Note(pitch)
-
-            else:
-
-                n = note.Rest()
-
-
-            n.duration.quarterLength = take
-
-
-            # 跨小節標記tie
-
-            if typ == "note" and take < remain_note:
-
-                n.tie = tie.Tie("start")
-
-
-            elif typ == "note" and remain_note < dur:
-
-                n.tie = tie.Tie("stop")
-
-
-            current_measure.append(n)
-
-
-            remain_note -= take
-
-
-            if current_measure.duration.quarterLength >= 4.0 - 0.001:
-
-                add_measure()
-
-
-
-    if current_measure.notesAndRests:
-
-        add_measure()
-
-
-
-    score.append(part)
-
-
-
-    print()
-    print("FINAL CHECK")
-
-
-    ok = True
-
-
-    for m in part.getElementsByClass(stream.Measure):
-
-        length = float(
-            m.duration.quarterLength
-        )
 
         print(
             "Measure",
-            m.number,
-            length
+            i,
+            total/4
         )
 
 
-        if abs(length-4.0) > 0.001:
-
-            ok=False
-
-
-
-    if ok:
-
-        print("ALL MEASURES SAFE")
-
-    else:
-
-        print("WARNING")
-
-
-    print("WRITE")
-
-    score.write(
-        "musicxml",
-        fp=output_file
-    )
-
-
-    print("DONE")
-    print(output_file)
-
-
-
-if __name__ == "__main__":
-
+def main():
 
     if len(sys.argv)<3:
 
         print(
             "python jianpu_fix_musicxml.py input.musicxml output.musicxml"
         )
+        return
 
-        sys.exit()
+
+    inp=sys.argv[1]
+    out=sys.argv[2]
 
 
-    rebuild(
-        sys.argv[1],
-        sys.argv[2]
+    tree=etree.parse(inp)
+
+    root=tree.getroot()
+
+
+    print("remove chords")
+    remove_tag(root,"chord")
+
+
+    print("remove beams")
+    remove_tag(root,"beam")
+
+
+    print("remove ties")
+    remove_tag(root,"tie")
+
+
+    print("quantize duration")
+
+    fix_duration(root)
+
+
+    print("split cross measure notes")
+
+    split_measure_notes(root)
+
+
+    print("FINAL CHECK")
+
+    rebuild_measures(root)
+
+
+    tree.write(
+        out,
+        encoding="UTF-8",
+        xml_declaration=True
     )
+
+
+    print("DONE")
+    print(out)
+
+
+
+if __name__=="__main__":
+    main()
