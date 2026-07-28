@@ -1,267 +1,188 @@
-# clean_musicxml.py
-# V60 BASIC-PITCH + RENDER FINAL JIANPU COMPATIBLE
-
+from music21 import converter, stream, note, chord, meter, duration
 import sys
-from music21 import converter, meter, note, chord, stream, duration
+import copy
 
 
-print("================")
-print("CLEAN MUSICXML V60 FINAL")
-print("================")
+print("==============================")
+print("CLEAN MUSICXML V61 QUANTIZE ENGINE")
+print("==============================")
 
 
-if len(sys.argv) < 3:
-    print("usage: python clean_musicxml.py input.musicxml output.musicxml")
-    sys.exit(1)
+def quantize_length(q):
 
+    values = [
+        4.0,    # whole
+        2.0,    # half
+        1.0,    # quarter
+        0.5,    # eighth
+        0.25    # sixteenth
+    ]
 
-input_xml = sys.argv[1]
-output_xml = sys.argv[2]
-
-
-print("read")
-
-score = converter.parse(input_xml)
-
-
-# -------------------------
-# remove voices
-# -------------------------
-
-print("remove voices")
-
-for part in score.parts:
-    for v in part.voices:
-        part.remove(v)
-
-
-# -------------------------
-# remove chords
-# -------------------------
-
-print("remove chords")
-
-for part in score.parts:
-    for c in list(part.recurse().getElementsByClass("Chord")):
-        n = note.Note(c.root())
-        n.duration = c.duration
-        c.activeSite.replace(c, n)
-
-
-# -------------------------
-# remove beams
-# -------------------------
-
-print("remove beams")
-
-for n in score.recurse().notes:
-    n.beams = []
-
-
-# -------------------------
-# remove ties
-# -------------------------
-
-print("remove ties")
-
-for n in score.recurse().notes:
-    n.tie = None
-
-
-
-# -------------------------
-# force 4/4
-# -------------------------
-
-print("force 4/4")
-
-for part in score.parts:
-    part.insert(0, meter.TimeSignature("4/4"))
-
-
-
-# -------------------------
-# duration quantize
-# -------------------------
-
-print("duration quantize")
-
-
-allowed = [
-    4.0,
-    2.0,
-    1.0,
-    0.5,
-    0.25
-]
-
-
-for n in score.recurse().notesAndRests:
-
-    q = min(
-        allowed,
-        key=lambda x: abs(x - n.duration.quarterLength)
+    return min(
+        values,
+        key=lambda x: abs(x-q)
     )
 
-    n.duration = duration.Duration(q)
+
+def clean_notes(s):
+
+    result = stream.Part()
+
+    for el in s.flatten().notesAndRests:
+
+        if isinstance(el, chord.Chord):
+            # 保留最高音
+            n = note.Note(el[-1].pitch)
+        else:
+            n = copy.deepcopy(el)
+
+
+        old = n.duration.quarterLength
+
+        new = quantize_length(float(old))
+
+        n.duration = duration.Duration(new)
+
+        result.append(n)
+
+
+    return result
 
 
 
-# -------------------------
-# OFFSET QUANTIZE
-# -------------------------
+def rebuild_measure(part):
 
-print("offset quantize")
+    score = stream.Score()
+    p = stream.Part()
 
+    p.append(meter.TimeSignature("4/4"))
 
-for part in score.parts:
+    current = 0
 
-    for n in part.recurse().notesAndRests:
+    for n in part.notesAndRests:
 
-        new_offset = round(
-            n.offset * 4
-        ) / 4
-
-        n.offset = new_offset
+        length = float(n.duration.quarterLength)
 
 
+        # 超過小節直接切
+        if current + length > 4:
 
-# -------------------------
-# rebuild measures
-# -------------------------
+            rest_len = 4-current
 
-print("rebuild measures")
+            if rest_len > 0:
+                r = note.Rest()
+                r.duration = duration.Duration(rest_len)
+                p.append(r)
 
-score.makeMeasures()
-
-
-
-# -------------------------
-# split cross measure notes
-# -------------------------
-
-print("split cross measure notes")
-
-try:
-    score.splitAtDurations()
-except Exception:
-    pass
+            current = 0
 
 
+        p.append(n)
 
-# -------------------------
-# second offset cleanup
-# -------------------------
-
-print("second offset quantize")
+        current += length
 
 
-for part in score.parts:
+        if abs(current-4)<0.001:
 
-    for n in part.recurse().notesAndRests:
+            current = 0
 
-        n.offset = round(
-            n.offset * 4
-        ) / 4
+
+    # 最後補滿
+    if current > 0:
+
+        r = note.Rest()
+        r.duration = duration.Duration(4-current)
+        p.append(r)
 
 
 
-# -------------------------
-# rebuild again
-# -------------------------
+    p.makeMeasures(inPlace=True)
 
-print("rebuild measures")
+    score.append(p)
 
-score.makeMeasures()
+    return score
 
 
 
-# -------------------------
-# fill empty measures
-# -------------------------
+def check(score):
 
-print("fill measure rest")
+    print("FINAL CHECK")
 
+    ok=True
 
-for part in score.parts:
+    for i,m in enumerate(score.parts[0].getElementsByClass("Measure")):
 
-    for m in part.getElementsByClass("Measure"):
+        length=float(m.duration.quarterLength)
 
-        length = m.duration.quarterLength
+        print(
+            "Measure",
+            i+1,
+            length
+        )
 
-        if length < 4:
-
-            r = note.Rest()
-
-            r.duration = duration.Duration(
-                4 - length
-            )
-
-            m.append(r)
+        if abs(length-4)>0.01:
+            ok=False
 
 
-
-# -------------------------
-# final rebuild
-# -------------------------
-
-print("final rebuild")
-
-score.makeMeasures()
+    if ok:
+        print("ALL MEASURES SAFE")
+    else:
+        print("WARNING measure mismatch")
 
 
-print("clear notation cache")
+    return ok
 
 
-# -------------------------
-# FINAL CHECK
-# -------------------------
 
-print("FINAL CHECK")
+def main():
 
+    inp=sys.argv[1]
 
-safe = True
+    out=sys.argv[2]
 
 
-for i, m in enumerate(
-    score.parts[0].getElementsByClass("Measure"),
-    1
-):
+    print("read")
 
-    q = m.duration.quarterLength
+    score=converter.parse(inp)
 
-    print(
-        "Measure",
-        i,
-        q
+
+    print("remove voices")
+
+    score.removeByClass("Voice")
+
+
+    print("remove chords beams ties")
+
+    part=score.parts[0]
+
+
+    cleaned=clean_notes(part)
+
+
+    print("quantize")
+
+
+    final=rebuild_measure(cleaned)
+
+
+    final.stripTies()
+
+
+    check(final)
+
+
+    print("FINAL WRITE")
+
+    final.write(
+        "musicxml",
+        fp=out
     )
 
-    if abs(q-4.0) > 0.01:
-        safe = False
+
+    print("DONE")
+    print(out)
 
 
 
-if safe:
-
-    print("ALL MEASURES SAFE")
-
-else:
-
-    print("WARNING measure mismatch")
-
-
-
-# -------------------------
-# WRITE
-# -------------------------
-
-print("FINAL WRITE")
-
-score.write(
-    "musicxml",
-    fp=output_xml
-)
-
-
-print("DONE")
-print(output_xml)
+if __name__=="__main__":
+    main()
