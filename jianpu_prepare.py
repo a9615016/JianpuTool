@@ -1,197 +1,91 @@
-#!/usr/bin/env python3
-# ==========================================
-# Jianpu Prepare FINAL
-# MusicXML -> jianpu_ly compatible
-# ==========================================
-
 import sys
-from music21 import converter, stream, note, meter, chord
+import xml.etree.ElementTree as ET
 
 
-QUARTER = 0.25
+print("================")
+print("JIANPU PREPARE V1")
+print("================")
 
 
-def quantize_duration(q):
-    """
-    四分音符量化
-    """
-    return round(q / QUARTER) * QUARTER
+src=sys.argv[1]
+dst=sys.argv[2]
 
 
-def clean_measure(m):
+tree=ET.parse(src)
 
-    total = 0
+root=tree.getroot()
 
-    new_elements = []
 
-    for e in m.notesAndRests:
+for elem in root.iter():
 
-        # chord 取最高音
-        if isinstance(e, chord.Chord):
-            n = note.Note(e.pitches[-1])
-            n.duration.quarterLength = quantize_duration(
-                e.duration.quarterLength
-            )
-            e = n
+    if "}" in elem.tag:
+        elem.tag=elem.tag.split("}",1)[1]
 
 
-        if isinstance(e, note.Note):
 
-            dur = quantize_duration(
-                e.duration.quarterLength
-            )
+print("remove unsupported notation")
 
-            if dur <= 0:
-                continue
 
-            e.duration.quarterLength = dur
+remove_tags=[
+    "notations",
+    "articulations",
+    "ornaments",
+    "technical",
+    "dynamics"
+]
 
 
-        elif isinstance(e, note.Rest):
+for tag in remove_tags:
 
-            e.duration.quarterLength = quantize_duration(
-                e.duration.quarterLength
-            )
+    for x in root.findall(".//"+tag):
 
+        parent=None
 
-        # 移除 notation
-        if hasattr(e, "beams"):
-            e.beams = None
 
-        if hasattr(e, "tie"):
-            e.tie = None
 
+print("force note duration")
 
-        total += e.duration.quarterLength
 
-        new_elements.append(e)
 
+for duration in root.findall(".//duration"):
 
-    # 重建小節
-    m.clear()
+    try:
 
-    current = 0
+        value=int(duration.text)
 
-    for e in new_elements:
+        if value < 1:
+            duration.text="1"
 
-        if current >= 4:
-            break
+    except:
+        pass
 
 
-        remain = 4 - current
 
+print("remove empty measures")
 
-        if e.duration.quarterLength > remain:
 
-            e.duration.quarterLength = remain
+for measure in root.findall(".//measure"):
 
+    notes=measure.findall("note")
 
-        m.append(e)
+    if len(notes)==0:
 
-        current += e.duration.quarterLength
+        rest=ET.SubElement(measure,"note")
 
+        ET.SubElement(rest,"rest")
 
-    # 不足補休止
-    if current < 4:
+        d=ET.SubElement(rest,"duration")
 
-        r = note.Rest()
+        d.text="64"
 
-        r.duration.quarterLength = round(
-            4-current,
-            2
-        )
 
-        m.append(r)
 
+tree.write(
+    dst,
+    encoding="utf-8",
+    xml_declaration=True
+)
 
 
-def prepare(input_file, output_file):
-
-    print("================")
-    print("JIANPU PREPARE FINAL")
-    print("================")
-
-
-    print("read musicxml")
-
-    score = converter.parse(input_file)
-
-
-    print("remove voices")
-
-    for p in score.parts:
-
-        # 強制4/4
-        p.insert(
-            0,
-            meter.TimeSignature("4/4")
-        )
-
-
-        print("process measures")
-
-
-        for m in p.getElementsByClass(
-            stream.Measure
-        ):
-
-            clean_measure(m)
-
-
-    print("clear cache")
-
-    score.makeNotation(
-        inPlace=True
-    )
-
-
-    print("FINAL CHECK")
-
-
-    for p in score.parts:
-
-        for m in p.getElementsByClass(
-            stream.Measure
-        ):
-
-            length = sum(
-                x.duration.quarterLength
-                for x in m.notesAndRests
-            )
-
-
-            print(
-                "Measure",
-                m.number,
-                length
-            )
-
-
-    print("WRITE")
-
-    score.write(
-        "musicxml",
-        fp=output_file
-    )
-
-
-    print("DONE")
-    print(output_file)
-
-
-
-if __name__ == "__main__":
-
-    if len(sys.argv) < 3:
-
-        print(
-            "python jianpu_prepare.py input.musicxml output.musicxml"
-        )
-
-        sys.exit(1)
-
-
-    prepare(
-        sys.argv[1],
-        sys.argv[2]
-    )
+print("PREPARE DONE")
+print(dst)
