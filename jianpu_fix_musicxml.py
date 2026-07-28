@@ -1,262 +1,225 @@
 # ==========================================
-# jianpu_fix_musicxml.py V2.0
+# jianpu_fix_musicxml.py V3.0
 # Jianpu_ly compatibility fixer
 # ==========================================
 
 import sys
-from music21 import converter, stream, meter, note, chord
-from music21.musicxml import m21ToXml
+from music21 import converter, stream, note, meter, duration
 
 
-print("==========================")
-print("JIANPU FIX MUSICXML V2.0")
-print("==========================")
-
-
-if len(sys.argv) < 3:
-    print("usage:")
-    print("python jianpu_fix_musicxml.py input.musicxml output.musicxml")
-    sys.exit(1)
-
-
-src = sys.argv[1]
-dst = sys.argv[2]
-
-
-print("READ")
-score = converter.parse(src)
-
-
-# -------------------------------
-# remove voices/chords
-# -------------------------------
-
-print("remove voices chords")
-
-for part in score.parts:
-
-    for c in part.recurse().getElementsByClass(chord.Chord):
-        n = c.notes[0]
-        n.duration = c.duration
-        c.activeSite.replace(c, n)
-
-
-# -------------------------------
-# remove notation
-# -------------------------------
-
-print("remove beams ties")
-
-for n in score.recurse().notes:
-
-    if hasattr(n, "beams"):
-        n.beams = None
-
-    if n.tie:
-        n.tie = None
-
-
-
-# -------------------------------
-# force 4/4
-# -------------------------------
-
-print("force 4/4")
-
-
-for part in score.parts:
-
-    part.insert(
-        0,
-        meter.TimeSignature("4/4")
-    )
-
-
-
-# -------------------------------
-# quantize duration
-# -------------------------------
-
-print("duration quantize")
-
-
-allowed = [
+ALLOWED_DURATIONS = [
     4.0,
     2.0,
     1.0,
     0.5,
-    0.25
+    0.25,
+    0.125
 ]
 
 
-def quantize(x):
+def quantize_duration(q):
 
-    best = min(
-        allowed,
-        key=lambda a: abs(a-x)
+    closest = min(
+        ALLOWED_DURATIONS,
+        key=lambda x: abs(x - q)
     )
 
-    return best
+    return closest
+
+
+def clean_note(n):
+
+    if isinstance(n, note.Note):
+
+        q = float(n.duration.quarterLength)
+
+        q = quantize_duration(q)
+
+        n.duration = duration.Duration(q)
+
+        if n.tie:
+            n.tie = None
+
+
+    elif isinstance(n, note.Rest):
+
+        q = float(n.duration.quarterLength)
+
+        q = quantize_duration(q)
+
+        n.duration = duration.Duration(q)
+
+
+    return n
 
 
 
-for n in score.recurse().notesAndRests:
+def rebuild_measure(measure):
 
-    q = quantize(
-        float(n.duration.quarterLength)
+    fixed = stream.Measure(
+        number=measure.number
     )
 
-    n.duration.quarterLength = q
+    used = 0.0
 
 
+    for n in measure.notesAndRests:
 
-# -------------------------------
-# rebuild measures
-# -------------------------------
+        n = clean_note(n)
 
-print("rebuild measures")
-
-
-newScore = stream.Score()
+        q = float(n.duration.quarterLength)
 
 
-for part in score.parts:
+        # 超過4拍停止
+        if used + q > 4:
 
-    newPart = stream.Part()
+            remain = 4 - used
 
-    current = 0
+            if remain > 0:
 
-    measureNo = 1
-
-    m = stream.Measure(number=measureNo)
-
-
-    for el in part.recurse().notesAndRests:
-
-        dur = el.duration.quarterLength
-
-
-        # split crossing bar
-        while current + dur > 4:
-
-            remain = 4-current
-
-
-            if isinstance(el, note.Note):
-
-                a = note.Note(
-                    el.pitch
+                r = note.Rest(
+                    quarterLength=remain
                 )
-                a.duration.quarterLength = remain
 
-            else:
+                fixed.append(r)
 
-                a = note.Rest()
-                a.duration.quarterLength = remain
+                used += remain
 
-
-            m.append(a)
-
-            dur -= remain
+            break
 
 
-            current = 4
+        fixed.append(n)
 
-
-            newPart.append(m)
-
-
-            measureNo += 1
-            m = stream.Measure(
-                number=measureNo
-            )
-
-            current = 0
+        used += q
 
 
 
-        el.duration.quarterLength = dur
+    # 不足補休止
 
-        m.append(el)
+    if used < 4:
 
-        current += dur
-
-
-
-        if current == 4:
-
-            newPart.append(m)
-
-            measureNo += 1
-
-            m = stream.Measure(
-                number=measureNo
-            )
-
-            current = 0
-
-
-
-    # fill rest
-
-
-    if current < 4:
-
-        r = note.Rest()
-
-        r.duration.quarterLength = 4-current
-
-        m.append(r)
-
-
-    if len(m.notesAndRests)>0:
-
-        newPart.append(m)
-
-
-    newScore.append(newPart)
-
-
-
-# -------------------------------
-# final check
-# -------------------------------
-
-
-print("FINAL CHECK")
-
-
-for p in newScore.parts:
-
-    for m in p.getElementsByClass(
-        stream.Measure
-    ):
-
-        total = sum(
-            x.duration.quarterLength
-            for x in m.notesAndRests
+        r = note.Rest(
+            quarterLength=4-used
         )
+
+        fixed.append(r)
+
+        used = 4
+
+
+
+    print(
+        "FIX Measure",
+        measure.number,
+        used
+    )
+
+
+    return fixed
+
+
+
+def fix_score(score):
+
+    print("================")
+    print("JIANPU FIX MUSICXML V3.0")
+    print("================")
+
+
+    score.removeByClass('Chord')
+
+
+    for part in score.parts:
+
+
+        new_part = stream.Part()
+
+        new_part.insert(
+            0,
+            meter.TimeSignature("4/4")
+        )
+
+
+        for m in part.getElementsByClass(
+            stream.Measure
+        ):
+
+            new_m = rebuild_measure(m)
+
+            new_part.append(new_m)
+
+
+
+        part.replace(
+            part,
+            new_part
+        )
+
+
+
+    return score
+
+
+
+def main():
+
+    if len(sys.argv) < 3:
 
         print(
-            "Measure",
-            m.number,
-            total
+            "usage: python jianpu_fix_musicxml.py input.musicxml output.musicxml"
         )
 
-
-print("WRITE")
-
-
-m21ToXml.GeneralObjectExporter(
-    newScore
-).parse()
+        return
 
 
-newScore.write(
-    "musicxml",
-    fp=dst
-)
+
+    inp = sys.argv[1]
+    out = sys.argv[2]
 
 
-print("DONE")
-print(dst)
+    print("READ")
+    score = converter.parse(inp)
+
+
+    score = fix_score(score)
+
+
+
+    print("FINAL CHECK")
+
+
+    for p in score.parts:
+
+        for m in p.getElementsByClass(
+            stream.Measure
+        ):
+
+            total = sum(
+                float(x.duration.quarterLength)
+                for x in m.notesAndRests
+            )
+
+
+            print(
+                "Measure",
+                m.number,
+                total
+            )
+
+
+
+    print("WRITE")
+
+    score.write(
+        "musicxml",
+        fp=out
+    )
+
+
+    print("DONE")
+    print(out)
+
+
+
+if __name__ == "__main__":
+    main()
