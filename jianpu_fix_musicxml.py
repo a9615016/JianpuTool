@@ -1,304 +1,128 @@
+# jianpu_fix_musicxml.py V1.0
+
 import sys
+from music21 import converter, stream, note, meter, chord
 
-from music21 import converter
-from music21 import stream
-from music21 import note
-from music21 import meter
-from music21 import duration
 
+def fix_musicxml(src, dst):
 
-VERSION = "JIANPU FIX MUSICXML V26.1 FINAL TICK ALIGN MAKE MEASURES"
+    print("====================")
+    print("JIANPU FIX MUSICXML V1.0")
+    print("====================")
 
+    score = converter.parse(src)
 
-# 四分音符 = 16 ticks
-TICKS_PER_QUARTER = 16
+    print("load")
 
-# 4/4 = 64 ticks
-BAR_TICKS = 64
-
-
-
-def quantize_ticks(q):
-
-    ticks = round(
-        q * TICKS_PER_QUARTER
-    )
-
-
-    values = [
-        64,
-        48,
-        32,
-        24,
-        16,
-        12,
-        8,
-        6,
-        4,
-        2,
-        1
-    ]
-
-
-    return min(
-        values,
-        key=lambda x:
-        abs(x - ticks)
-    )
-
-
-
-def rebuild_part(part):
-
-    print("rebuild part")
-
-
-    events = []
-
-
-    for n in part.recurse().notesAndRests:
-
-
-        if isinstance(n, note.Note):
-
-            tick = quantize_ticks(
-                n.duration.quarterLength
-            )
-
-
-            events.append(
-                (
-                    n.pitch,
-                    tick
-                )
-            )
-
-
-        elif isinstance(n, note.Rest):
-
-            tick = quantize_ticks(
-                n.duration.quarterLength
-            )
-
-
-            events.append(
-                (
-                    None,
-                    tick
-                )
-            )
-
-
-
-    new_part = stream.Part()
-
-
-    new_part.insert(
-        0,
-        meter.TimeSignature("4/4")
-    )
-
-
-
-    current = 0
-
-
-
-    for pitch, tick in events:
-
-
-        # 超過小節線
-        if current + tick > BAR_TICKS:
-
-
-            remain = BAR_TICKS - current
-
-
-            if remain > 0:
-
-
-                r = note.Rest()
-
-
-                r.duration = duration.Duration(
-                    remain /
-                    TICKS_PER_QUARTER
-                )
-
-
-                new_part.append(r)
-
-
-
-            current = 0
-
-
-
-        if pitch is None:
-
-            obj = note.Rest()
-
-        else:
-
-            obj = note.Note(
-                pitch
-            )
-
-
-
-        obj.duration = duration.Duration(
-            tick /
-            TICKS_PER_QUARTER
-        )
-
-
-        new_part.append(obj)
-
-
-        current += tick
-
-
-
-    # 補最後小節
-
-    if current < BAR_TICKS:
-
-
-        r = note.Rest()
-
-
-        r.duration = duration.Duration(
-            (BAR_TICKS-current)
-            /
-            TICKS_PER_QUARTER
-        )
-
-
-        new_part.append(r)
-
-
-
-    return new_part
-
-
-
-
-def check_measures(score, title):
-
-
-    print(title)
-
-
-    measures = (
-        score
-        .parts[0]
-        .getElementsByClass("Measure")
-    )
-
-
-    for i,m in enumerate(
-        measures,
-        1
-    ):
-
-
-        ticks = round(
-            m.duration.quarterLength
-            *
-            TICKS_PER_QUARTER
-        )
-
-
-        print(
-            "Measure",
-            i,
-            "ticks",
-            ticks
-        )
-
-
-
-
-def fix_musicxml(
-        input_file,
-        output_file
-):
-
-
-    print("================")
-    print(VERSION)
-    print("================")
-
-
-    print("read")
-
-
-    score = converter.parse(
-        input_file
-    )
-
-
-
-    new_score = stream.Score()
-
-
-
+    # remove bad objects
     for part in score.parts:
 
+        print("processing part")
 
-        fixed = rebuild_part(
-            part
-        )
+        # force meter
+        part.insert(0, meter.TimeSignature("4/4"))
 
+        new_part = stream.Part()
 
-        new_score.append(
-            fixed
-        )
+        current = 0.0
 
+        for m in part.getElementsByClass(stream.Measure):
 
+            new_measure = stream.Measure()
 
-    print("before makeMeasures")
-
-
-    new_score = new_score.makeMeasures()
+            dur_sum = 0
 
 
+            for n in m.notesAndRests:
 
-    check_measures(
-        new_score,
-        "CHECK AFTER MAKE MEASURES"
-    )
+                # chord -> highest note
+                if isinstance(n, chord.Chord):
+                    n = n.sortAscending().notes[-1]
+
+                if isinstance(n, note.Note):
+
+                    q = n.duration.quarterLength
+
+                    # quantize
+                    if q >= 1.75:
+                        q = 2
+                    elif q >= 0.75:
+                        q = 1
+                    elif q >= 0.35:
+                        q = 0.5
+                    else:
+                        q = 0.25
+
+
+                    nn = note.Note(
+                        n.pitch,
+                        quarterLength=q
+                    )
+
+                    new_measure.append(nn)
+
+                    dur_sum += q
+
+
+            # fill measure
+            while dur_sum < 4:
+
+                r = note.Rest(
+                    quarterLength=min(
+                        0.25,
+                        4-dur_sum
+                    )
+                )
+
+                new_measure.append(r)
+
+                dur_sum += r.duration.quarterLength
+
+
+            # trim overflow
+            while dur_sum > 4:
+
+                last = new_measure[-1]
+
+                diff = dur_sum - 4
+
+                if last.duration.quarterLength > diff:
+
+                    last.duration.quarterLength -= diff
+                    dur_sum = 4
+
+                else:
+
+                    new_measure.pop()
+                    dur_sum -= last.duration.quarterLength
+
+
+            new_part.append(new_measure)
+
+
+        part = new_part
 
 
 
-    print("write")
-
-
-    new_score.write(
+    score.write(
         "musicxml",
-        fp=output_file
+        fp=dst
     )
 
 
+    print("====================")
     print("DONE")
-    print(output_file)
+    print(dst)
 
 
 
+if __name__=="__main__":
 
-if __name__ == "__main__":
-
-
-    if len(sys.argv) < 3:
-
-
+    if len(sys.argv)<3:
         print(
-            "python jianpu_fix_musicxml.py input.musicxml output.musicxml"
+        "python jianpu_fix_musicxml.py input.musicxml output.musicxml"
         )
-
-
-        sys.exit(1)
-
+        exit()
 
 
     fix_musicxml(
