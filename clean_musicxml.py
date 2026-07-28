@@ -1,126 +1,132 @@
-from music21 import converter, stream, note, chord, meter, duration
+# clean_musicxml.py
+# CLEAN MUSICXML V61 REAL QUANTIZE ENGINE
+
 import sys
-import copy
+from music21 import converter, stream, note, meter, tempo
 
 
-print("==============================")
-print("CLEAN MUSICXML V61 QUANTIZE ENGINE")
-print("==============================")
+GRID = 0.25       # 1/16 note
+BAR_LENGTH = 4.0
 
 
-def quantize_length(q):
-
-    values = [
-        4.0,    # whole
-        2.0,    # half
-        1.0,    # quarter
-        0.5,    # eighth
-        0.25    # sixteenth
-    ]
-
-    return min(
-        values,
-        key=lambda x: abs(x-q)
-    )
+def quantize_time(x):
+    return round(x / GRID) * GRID
 
 
-def clean_notes(s):
+def rebuild_part(part):
 
-    result = stream.Part()
+    measures = []
 
-    for el in s.flatten().notesAndRests:
+    for m in part.getElementsByClass(stream.Measure):
 
-        if isinstance(el, chord.Chord):
-            # 保留最高音
-            n = note.Note(el[-1].pitch)
-        else:
-            n = copy.deepcopy(el)
+        new_m = stream.Measure(number=m.number)
 
+        notes = []
 
-        old = n.duration.quarterLength
+        for n in m.notesAndRests:
 
-        new = quantize_length(float(old))
+            q_offset = quantize_time(n.offset)
+            q_duration = quantize_time(n.duration.quarterLength)
 
-        n.duration = duration.Duration(new)
+            if q_duration <= 0:
+                continue
 
-        result.append(n)
+            if isinstance(n, note.Note):
+                nn = note.Note(n.pitch)
+                nn.duration.quarterLength = q_duration
 
+            elif isinstance(n, note.Rest):
+                nn = note.Rest()
+                nn.duration.quarterLength = q_duration
 
-    return result
+            else:
+                continue
 
-
-
-def rebuild_measure(part):
-
-    score = stream.Score()
-    p = stream.Part()
-
-    p.append(meter.TimeSignature("4/4"))
-
-    current = 0
-
-    for n in part.notesAndRests:
-
-        length = float(n.duration.quarterLength)
+            notes.append((q_offset, nn))
 
 
-        # 超過小節直接切
-        if current + length > 4:
+        current = 0.0
 
-            rest_len = 4-current
+        for offset, n in sorted(notes):
 
-            if rest_len > 0:
+            if offset > current:
+
                 r = note.Rest()
-                r.duration = duration.Duration(rest_len)
-                p.append(r)
+                r.duration.quarterLength = offset-current
+                new_m.insert(current,r)
 
-            current = 0
+            new_m.insert(offset,n)
 
-
-        p.append(n)
-
-        current += length
+            current = offset+n.duration.quarterLength
 
 
-        if abs(current-4)<0.001:
+        # 補滿小節
+        if current < BAR_LENGTH:
 
-            current = 0
+            r = note.Rest()
+            r.duration.quarterLength = BAR_LENGTH-current
+            new_m.insert(current,r)
 
 
-    # 最後補滿
-    if current > 0:
+        measures.append(new_m)
 
-        r = note.Rest()
-        r.duration = duration.Duration(4-current)
-        p.append(r)
+
+    return measures
 
 
 
-    p.makeMeasures(inPlace=True)
+def main():
 
-    score.append(p)
-
-    return score
-
+    src=sys.argv[1]
+    dst=sys.argv[2]
 
 
-def check(score):
+    print("================")
+    print("CLEAN MUSICXML V61 REAL QUANTIZE ENGINE")
+    print("================")
+
+
+    score=converter.parse(src)
+
+
+    for p in score.parts:
+
+        p.removeByClass('ChordSymbol')
+        p.removeByClass('Dynamic')
+        p.removeByClass('Tie')
+
+        p.timeSignature = meter.TimeSignature("4/4")
+
+        old=list(p.getElementsByClass(stream.Measure))
+
+        p.remove(old)
+
+
+        rebuilt=rebuild_part(stream.Part(old))
+
+        for m in rebuilt:
+            p.append(m)
+
 
     print("FINAL CHECK")
 
+
     ok=True
 
-    for i,m in enumerate(score.parts[0].getElementsByClass("Measure")):
+    for m in score.parts[0].getElementsByClass(stream.Measure):
 
-        length=float(m.duration.quarterLength)
+        length=sum(
+            n.duration.quarterLength
+            for n in m.notesAndRests
+        )
 
         print(
             "Measure",
-            i+1,
-            length
+            m.number,
+            float(length)
         )
 
-        if abs(length-4)>0.01:
+        if abs(length-4.0)>0.001:
             ok=False
 
 
@@ -130,57 +136,14 @@ def check(score):
         print("WARNING measure mismatch")
 
 
-    return ok
-
-
-
-def main():
-
-    inp=sys.argv[1]
-
-    out=sys.argv[2]
-
-
-    print("read")
-
-    score=converter.parse(inp)
-
-
-    print("remove voices")
-
-    score.removeByClass("Voice")
-
-
-    print("remove chords beams ties")
-
-    part=score.parts[0]
-
-
-    cleaned=clean_notes(part)
-
-
-    print("quantize")
-
-
-    final=rebuild_measure(cleaned)
-
-
-    final.stripTies()
-
-
-    check(final)
-
-
-    print("FINAL WRITE")
-
-    final.write(
+    score.write(
         "musicxml",
-        fp=out
+        fp=dst
     )
 
-
+    print("FINAL WRITE")
     print("DONE")
-    print(out)
+    print(dst)
 
 
 
