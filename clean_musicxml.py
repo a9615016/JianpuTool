@@ -2,26 +2,21 @@ from music21 import converter, stream, note, meter
 import sys
 import copy
 
-VERSION = "CLEAN MUSICXML V83 HARD TIMELINE RESET FINAL"
+VERSION = "CLEAN MUSICXML V83.1 HARD TIMELINE RESET FINAL"
 
 
 def quantize_duration(d):
 
-    values = [
-        4.0,
-        2.0,
-        1.0,
-        0.5,
-        0.25,
-        0.125
-    ]
-
     x = float(d)
 
-    return min(
-        values,
-        key=lambda v: abs(v-x)
-    )
+    # 1/16 beat grid
+    q = round(x * 16) / 16
+
+    if q <= 0:
+        q = 0.25
+
+    return q
+
 
 
 def extract_notes(score):
@@ -32,9 +27,8 @@ def extract_notes(score):
 
         item = copy.deepcopy(n)
 
-        # remove notation problems
-        if hasattr(item, "expressions"):
-            item.expressions = []
+        # remove bad notation
+        item.expressions = []
 
         if hasattr(item, "lyrics"):
             item.lyrics = []
@@ -47,28 +41,42 @@ def extract_notes(score):
 
         result.append(item)
 
+
     return result
+
+
+
+def new_measure(number):
+
+    m = stream.Measure(
+        number=number
+    )
+
+    m.insert(
+        0,
+        meter.TimeSignature("4/4")
+    )
+
+    return m
+
 
 
 def rebuild_timeline(notes):
 
     print("rebuild timeline")
 
+
     score = stream.Score()
 
     part = stream.Part()
 
-    part.insert(
-        0,
-        meter.TimeSignature("4/4")
-    )
-
 
     measure_no = 1
 
-    current_measure = stream.Measure(
-        number=measure_no
+    current_measure = new_measure(
+        measure_no
     )
+
 
     beat = 0.0
 
@@ -80,7 +88,6 @@ def rebuild_timeline(notes):
         )
 
 
-        # split over barline
         while beat + dur > 4.0:
 
             remain = 4.0 - beat
@@ -92,17 +99,22 @@ def rebuild_timeline(notes):
 
                 left.duration.quarterLength = remain
 
-                current_measure.append(left)
+                current_measure.append(
+                    left
+                )
 
 
-            part.append(current_measure)
+            part.append(
+                current_measure
+            )
 
 
             measure_no += 1
 
-            current_measure = stream.Measure(
-                number=measure_no
+            current_measure = new_measure(
+                measure_no
             )
+
 
             beat = 0.0
 
@@ -113,13 +125,16 @@ def rebuild_timeline(notes):
                 break
 
 
+
         if dur > 0:
 
             right = copy.deepcopy(n)
 
             right.duration.quarterLength = dur
 
-            current_measure.append(right)
+            current_measure.append(
+                right
+            )
 
             beat += dur
 
@@ -129,18 +144,25 @@ def rebuild_timeline(notes):
 
     if beat < 4:
 
-        r = note.Rest()
+        rest = note.Rest()
 
-        r.duration.quarterLength = 4 - beat
+        rest.duration.quarterLength = (
+            4 - beat
+        )
 
-        current_measure.append(r)
+        current_measure.append(
+            rest
+        )
 
 
+    part.append(
+        current_measure
+    )
 
-    part.append(current_measure)
 
-
-    score.append(part)
+    score.append(
+        part
+    )
 
 
     return score
@@ -172,11 +194,13 @@ def check(score):
         if abs(total-4.0) > 0.001:
 
             raise Exception(
-                f"BAD MEASURE {m.number} {total}"
+                f"BAD MEASURE {m.number}: {total}"
             )
 
 
-    print("ALL MEASURES SAFE")
+    print(
+        "ALL MEASURES SAFE"
+    )
 
 
 
@@ -198,13 +222,19 @@ def clean(inp,out):
     print("remove ties")
 
 
-    notes = extract_notes(old)
+    notes = extract_notes(
+        old
+    )
 
 
-    new_score = rebuild_timeline(notes)
+    new_score = rebuild_timeline(
+        notes
+    )
 
 
-    check(new_score)
+    check(
+        new_score
+    )
 
 
     print("FINAL WRITE")
@@ -223,7 +253,7 @@ def clean(inp,out):
 
 if __name__ == "__main__":
 
-    if len(sys.argv)<3:
+    if len(sys.argv) < 3:
 
         print(
             "python clean_musicxml.py input.musicxml output.musicxml"
