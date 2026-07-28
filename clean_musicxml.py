@@ -4,12 +4,14 @@ import sys
 
 print("==============================")
 print("CLEAN MUSICXML V30")
-print("FINAL BAR NORMALIZE JIANPU FIX")
+print("REBUILD SCORE JIANPU FIX")
 print("==============================")
 
 
 if len(sys.argv) < 3:
-    print("python clean_musicxml.py input.musicxml output.musicxml")
+    print(
+        "python clean_musicxml.py input.musicxml output.musicxml"
+    )
     sys.exit()
 
 
@@ -19,16 +21,23 @@ output_file = sys.argv[2]
 
 print("read")
 
-src = converter.parse(input_file)
+old_score = converter.parse(input_file)
+
+
+
+# ==========================
+# create new score
+# ==========================
+
+print("rebuild new score")
 
 
 new_score = stream.Score()
 
 
 
-for src_part in src.parts:
+for old_part in old_score.parts:
 
-    print("process part")
 
     new_part = stream.Part()
 
@@ -39,37 +48,46 @@ for src_part in src.parts:
     )
 
 
-    notes = []
+    # collect notes
+
+    elements=[]
 
 
-    for n in src_part.recurse().notesAndRests:
+    for e in old_part.recurse().notesAndRests:
 
 
-        # chord -> first note
+        if isinstance(e, chord.Chord):
 
-        if isinstance(n, chord.Chord):
+            n = note.Note(
+                e.pitches[0]
+            )
 
-            if len(n.pitches):
+            n.duration = e.duration
 
-                pitch = n.pitches[0]
+            elements.append(n)
 
-            else:
-                continue
-
-        elif n.isNote:
-
-            pitch = n.pitch
 
         else:
 
-            pitch = None
+            elements.append(e)
 
 
 
-        # quantize
+    # ======================
+    # quantize
+    # ======================
+
+    print("quantize")
+
+
+    events=[]
+
+
+    for e in elements:
+
 
         q = round(
-            float(n.duration.quarterLength) / 0.25
+            float(e.duration.quarterLength) / 0.25
         ) * 0.25
 
 
@@ -78,30 +96,30 @@ for src_part in src.parts:
             q = 0.25
 
 
+        if isinstance(e, note.Rest):
 
-        if pitch:
-
-            nn = note.Note(
-                pitch,
+            new_e = note.Rest(
                 quarterLength=q
             )
+
 
         else:
 
-            nn = note.Rest(
+            new_e = note.Note(
+                e.pitch,
                 quarterLength=q
             )
 
 
-        nn.tie = None
-        nn.beams = []
-
-
-        notes.append(nn)
+        events.append(new_e)
 
 
 
-    print("rebuild measures")
+    # ======================
+    # rebuild measures
+    # ======================
+
+    print("create measures")
 
 
     measure_no = 1
@@ -114,28 +132,27 @@ for src_part in src.parts:
     pos = 0
 
 
+    for e in events:
 
-    for n in notes:
 
-
-        remain_note = float(
-            n.duration.quarterLength
+        length = float(
+            e.duration.quarterLength
         )
 
 
-        while remain_note > 0:
+        while length > 0:
 
 
-            remain_bar = 4 - pos
+            remain = 4 - pos
 
 
             take = min(
-                remain_note,
-                remain_bar
+                remain,
+                length
             )
 
 
-            if n.isRest:
+            if isinstance(e, note.Rest):
 
                 x = note.Rest(
                     quarterLength=take
@@ -144,7 +161,7 @@ for src_part in src.parts:
             else:
 
                 x = note.Note(
-                    n.pitch,
+                    e.pitch,
                     quarterLength=take
                 )
 
@@ -153,12 +170,14 @@ for src_part in src.parts:
 
 
             pos += take
-            remain_note -= take
+            length -= take
 
 
 
-            if abs(pos-4) < 0.001:
+            if pos >= 4:
 
+
+                # finish measure
 
                 new_part.append(m)
 
@@ -179,11 +198,13 @@ for src_part in src.parts:
 
     if pos > 0:
 
+
         m.append(
             note.Rest(
                 quarterLength=4-pos
             )
         )
+
 
         new_part.append(m)
 
@@ -195,118 +216,14 @@ for src_part in src.parts:
 
 
 
-# =========================
-# FINAL BAR NORMALIZE
-# =========================
-
-print("FINAL BAR NORMALIZE")
-
-
-for part in new_score.parts:
-
-
-    for m in list(
-        part.getElementsByClass(stream.Measure)
-    ):
-
-
-        total = sum(
-            float(x.duration.quarterLength)
-            for x in m.notesAndRests
-        )
-
-
-        print(
-            "CHECK BAR",
-            m.number,
-            total
-        )
-
-
-        # too long
-
-        if total > 4.0:
-
-
-            overflow = total - 4.0
-
-
-            for x in reversed(
-                list(m.notesAndRests)
-            ):
-
-
-                if overflow <= 0:
-                    break
-
-
-                d = float(
-                    x.duration.quarterLength
-                )
-
-
-                cut = min(
-                    d,
-                    overflow
-                )
-
-
-                remain = d-cut
-
-
-                if remain <= 0:
-
-                    m.remove(x)
-
-                else:
-
-                    x.duration.quarterLength = remain
-
-
-                overflow -= cut
-
-
-
-        # too short
-
-        elif total < 4.0:
-
-
-            m.append(
-                note.Rest(
-                    quarterLength=4-total
-                )
-            )
-
-
-
-# =========================
-# notation
-# =========================
-
-print("clear notation cache")
-
-
-for part in new_score.parts:
-
-    part.makeMeasures(
-        inPlace=True
-    )
-
-    part.makeNotation(
-        inPlace=True
-    )
-
-
-
-# =========================
-# FINAL CHECK
-# =========================
+# ==========================
+# final check
+# ==========================
 
 print("FINAL CHECK")
 
 
-bad = False
+bad=False
 
 
 for part in new_score.parts:
@@ -317,9 +234,8 @@ for part in new_score.parts:
     ):
 
 
-        size = sum(
-            float(x.duration.quarterLength)
-            for x in m.notesAndRests
+        size=float(
+            m.duration.quarterLength
         )
 
 
@@ -332,23 +248,27 @@ for part in new_score.parts:
 
         if abs(size-4)>0.001:
 
-            bad = True
+            bad=True
 
 
 
 if bad:
 
-    print("WARNING measure mismatch")
+    print(
+        "WARNING measure mismatch"
+    )
 
 else:
 
-    print("ALL MEASURES SAFE")
+    print(
+        "ALL MEASURES SAFE"
+    )
 
 
 
-# =========================
+# ==========================
 # write
-# =========================
+# ==========================
 
 print("FINAL WRITE")
 
