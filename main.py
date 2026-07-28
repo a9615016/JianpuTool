@@ -8,17 +8,11 @@ from fastapi.responses import FileResponse, HTMLResponse
 
 app = FastAPI()
 
-OUTPUT_DIR = "/app/outputs"
 
-os.makedirs(
-    OUTPUT_DIR,
-    exist_ok=True
-)
+BASE = "/app/outputs"
 
 
 def run(cmd):
-
-    print("====================")
     print("RUN:", " ".join(cmd))
 
     result = subprocess.run(
@@ -33,6 +27,8 @@ def run(cmd):
     if result.returncode != 0:
         raise Exception(result.stdout)
 
+    return result.stdout
+
 
 
 @app.get("/")
@@ -42,18 +38,14 @@ def home():
     <html>
     <body>
 
-    <h2>JianpuTool</h2>
+    <h2>JianpuTool 簡譜產生器</h2>
 
-    <p>MP3 → MIDI → MusicXML → Jianpu PDF</p>
-
-    <form action="/upload"
-    method="post"
-    enctype="multipart/form-data">
+    <form action="/upload" method="post" enctype="multipart/form-data">
 
     <input type="file" name="file">
 
-    <button>
-    Upload
+    <button type="submit">
+    Upload MP3
     </button>
 
     </form>
@@ -65,49 +57,38 @@ def home():
 
 
 @app.post("/upload")
-async def upload(
-    file: UploadFile = File(...)
-):
-
-    task_id = str(uuid.uuid4())
-
-    task_dir = os.path.join(
-        OUTPUT_DIR,
-        task_id
-    )
-
-    os.makedirs(
-        task_dir,
-        exist_ok=True
-    )
+async def upload(file: UploadFile = File(...)):
 
 
-    print("====================")
-    print("開始任務:", task_id)
-    print("收到:", file.filename)
+    job = str(uuid.uuid4())
+
+    outdir = os.path.join(BASE, job)
+
+    os.makedirs(outdir, exist_ok=True)
 
 
     mp3 = os.path.join(
-        task_dir,
+        outdir,
         file.filename
     )
 
 
-    with open(mp3, "wb") as f:
-        f.write(
-            await file.read()
-        )
+    with open(mp3,"wb") as f:
+        f.write(await file.read())
 
 
-    print("MP3保存完成")
-    print(mp3)
+    print("====================")
+    print("開始任務:", job)
+    print("收到:", file.filename)
 
 
 
+    # ----------------------
     # MP3 -> MIDI
+    # ----------------------
 
     midi = os.path.join(
-        task_dir,
+        outdir,
         "melody.mid"
     )
 
@@ -124,10 +105,12 @@ async def upload(
 
 
 
+    # ----------------------
     # MIDI -> MusicXML
+    # ----------------------
 
     musicxml = os.path.join(
-        task_dir,
+        outdir,
         "input.musicxml"
     )
 
@@ -144,10 +127,12 @@ async def upload(
 
 
 
+    # ----------------------
     # clean
+    # ----------------------
 
     clean = os.path.join(
-        task_dir,
+        outdir,
         "clean.musicxml"
     )
 
@@ -164,14 +149,15 @@ async def upload(
 
 
 
-    # NEW STEP
-    # 修正 jianpu_ly 小節錯誤
+    # ----------------------
+    # force fix measure
+    # ----------------------
 
     safe = os.path.join(
-        task_dir,
+        outdir,
         "safe.musicxml"
     )
-    print("===== FORCE FIX STEP =====")
+
 
     run([
         "python",
@@ -181,18 +167,18 @@ async def upload(
     ])
 
 
-    print("小節修正完成")
+    print("force fix 完成")
 
 
 
-    print("CHECK jianpu input:")
-    print(safe)
+    # ----------------------
+    # MusicXML -> Jianpu ly
+    # ----------------------
 
-
-
-    # MusicXML -> Jianpu LilyPond
-
-    print("開始 jianpu_ly")
+    ly = os.path.join(
+        outdir,
+        "output.ly"
+    )
 
 
     run([
@@ -203,50 +189,40 @@ async def upload(
     ])
 
 
-
-    ly = safe.replace(
-        ".musicxml",
-        ".ly"
-    )
-
-
-    print("LY:", ly)
+    print("jianpu_ly完成")
 
 
 
-    # LilyPond PDF
+    # jianpu_ly 預設輸出
+    # 找 .ly
 
-    print("開始 LilyPond")
+    for f in os.listdir(outdir):
+
+        if f.endswith(".ly"):
+            ly = os.path.join(outdir,f)
+            break
 
 
-    output_base = os.path.join(
-        task_dir,
-        "jianpu"
-    )
 
+    # ----------------------
+    # Lilypond PDF
+    # ----------------------
 
     run([
         "lilypond",
-        "-o",
-        output_base,
+        "--pdf",
         ly
     ])
 
 
-
-    pdf = output_base + ".pdf"
-
-
-    if not os.path.exists(pdf):
-
-        raise Exception(
-            "PDF產生失敗"
-        )
-
-
-    print("====================")
     print("PDF完成")
-    print(pdf)
+
+
+
+    pdf = ly.replace(
+        ".ly",
+        ".pdf"
+    )
 
 
     return FileResponse(
