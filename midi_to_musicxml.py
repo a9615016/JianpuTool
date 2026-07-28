@@ -1,9 +1,13 @@
-from music21 import converter, stream, note, meter, instrument, tempo
+from music21 import converter
+from music21 import stream
+from music21 import note
+from music21 import meter
+from music21 import instrument
 import sys
 
 
 print("================")
-print("MIDI TO MUSICXML V5 FINAL JIANPU SAFE")
+print("MIDI TO MUSICXML V5 FINAL")
 print("================")
 
 
@@ -14,76 +18,58 @@ if len(sys.argv) < 3:
     sys.exit()
 
 
-midi_file = sys.argv[1]
-output_file = sys.argv[2]
+src = sys.argv[1]
+dst = sys.argv[2]
 
 
-print("開始 MIDI → MusicXML")
-print("輸入:", midi_file)
+print("輸入:", src)
 
 
-# =====================
-# Read MIDI
-# =====================
-
-print("讀取 MIDI...")
+score = converter.parse(src)
 
 
-score = converter.parse(
-    midi_file
+print("extract melody")
+
+
+part = stream.Part()
+
+part.insert(
+    0,
+    instrument.Vocal()
 )
 
 
-# =====================
-# Extract melody
-# =====================
-
-print("extract melody...")
-
-
-notes = []
+notes=[]
 
 
 for n in score.recurse().notes:
 
     if isinstance(n, note.Note):
 
-        offset = float(n.offset)
-
-        dur = float(
-            n.duration.quarterLength
-        )
+        nn = note.Note(n.pitch)
 
 
-        # -----------------
-        # 16分音符量化
-        # -----------------
-
+        # 強制 16 分音符格
         offset = round(
-            offset * 16
-        ) / 16
+            float(n.offset) * 4
+        ) / 4
 
 
         dur = round(
-            dur * 16
-        ) / 16
+            float(n.duration.quarterLength) * 4
+        ) / 4
 
 
-        if dur <= 0:
-            continue
-
-
+        # 最小四分之一拍
         if dur < 0.25:
             dur = 0.25
 
 
-        notes.append(
-            (
-                offset,
-                n.pitch,
-                dur
-            )
-        )
+        nn.offset = offset
+        nn.duration.quarterLength = dur
+
+
+        notes.append(nn)
 
 
 
@@ -93,162 +79,77 @@ print(
 )
 
 
-
-# =====================
-# Remove overlap
-# =====================
-
-print("remove overlap")
-
-
 notes.sort(
-    key=lambda x:x[0]
-)
-
-
-clean=[]
-
-
-last_end=0
-
-
-for offset,pitch,dur in notes:
-
-    if offset < last_end:
-
-        continue
-
-
-    clean.append(
-        (
-            offset,
-            pitch,
-            dur
-        )
-    )
-
-    last_end = offset + dur
-
-
-
-print(
-    "clean notes:",
-    len(clean)
+    key=lambda x:x.offset
 )
 
 
 
-# =====================
-# Build Part
-# =====================
+for n in notes:
 
-print("build melody")
-
-
-melody = stream.Part()
-
-
-melody.insert(
-    0,
-    instrument.Vocal()
-)
-
-
-melody.insert(
-    0,
-    meter.TimeSignature("4/4")
-)
-
-
-# =====================
-# Insert notes
-# =====================
-
-for offset,pitch,dur in clean:
-
-
-    n = note.Note(
-        pitch
-    )
-
-
-    n.duration.quarterLength = dur
-
-
-    # 不設定 n.offset
-    # 使用 insert
-
-
-    melody.insert(
-        offset,
+    part.insert(
+        n.offset,
         n
     )
 
 
 
-# =====================
-# Force measures
-# =====================
+print("force 4/4")
+
+
+part.insert(
+    0,
+    meter.TimeSignature("4/4")
+)
+
+
 
 print("make measures")
 
 
-melody.makeMeasures(
+part.makeMeasures(
     inPlace=True
 )
 
 
 
-# =====================
-# Final score
-# =====================
-
-final = stream.Score()
+# 再一次檢查小節
+print("CHECK MEASURES")
 
 
-final.insert(
-    0,
-    melody
-)
+for m in part.getElementsByClass("Measure"):
 
-
-final.clearCache()
-
-
-
-# =====================
-# Final check
-# =====================
-
-print("FINAL CHECK")
-
-
-for m in melody.getElementsByClass(
-    "Measure"
-):
-
-    length = float(
+    total=float(
         m.duration.quarterLength
     )
-
 
     print(
         "Measure",
         m.number,
-        length
+        total
     )
 
 
 
-print("寫入 MusicXML...")
+score2=stream.Score()
 
-
-final.write(
-    "musicxml",
-    fp=output_file
+score2.insert(
+    0,
+    part
 )
 
 
+score2.clearCache()
 
-print("完成:")
-print(output_file)
+
+print("WRITE MUSICXML")
+
+
+score2.write(
+    "musicxml",
+    fp=dst
+)
+
+
+print("DONE")
+print(dst)
