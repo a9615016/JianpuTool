@@ -1,212 +1,246 @@
-# CLEAN MUSICXML V82 FINAL REBUILD TIMELINE
-# Jianpu_ly compatible
-# rebuild all measures from absolute timeline
-
+from music21 import converter, stream, note, chord, meter
 import sys
-from music21 import converter, stream, note, meter, tempo, clef
+import copy
 
 
-def quantize_duration(q):
+VERSION = "CLEAN MUSICXML V82 REBUILD TIMELINE"
+
+
+def quantize_duration(dur, divisions=16):
     """
-    強制量化到簡譜安全值
+    量化到 16 分音符
     """
-    values = [
-        4.0,
-        3.0,
-        2.0,
-        1.5,
-        1.0,
-        0.75,
-        0.5,
-        0.25
-    ]
+    q = round(dur * divisions) / divisions
 
-    return min(values, key=lambda x: abs(x-q))
+    if q <= 0:
+        q = 0.25
+
+    return q
 
 
-def clean(input_file, output_file):
+def rebuild_timeline(src):
 
     print("================")
-    print("CLEAN MUSICXML V82 FINAL REBUILD TIMELINE")
+    print(VERSION)
     print("================")
 
     print("read")
 
-    score = converter.parse(input_file)
+    score = converter.parse(src)
 
     part = score.parts[0]
 
+    print("remove voices")
+    print("remove chords")
+    print("remove beams")
+    print("remove ties")
 
-    print("extract notes")
+    events = []
 
-    events=[]
+    # 收集全部音符
+    for n in part.recurse().notes:
 
-    for n in part.flatten().notesAndRests:
+        if isinstance(n, chord.Chord):
+            n = n.notes[0]
 
         if isinstance(n, note.Note):
 
             events.append(
                 (
                     n.offset,
-                    n.pitch,
-                    n.duration.quarterLength
-                )
-            )
-
-        elif isinstance(n, note.Rest):
-
-            events.append(
-                (
-                    n.offset,
-                    None,
+                    copy.deepcopy(n),
                     n.duration.quarterLength
                 )
             )
 
 
+    print("TOTAL NOTES:", len(events))
+
+
+    # 時間排序
     events.sort(key=lambda x:x[0])
-
-
-    print("remove old measures")
-
-    new_part = stream.Part()
-
-
-    print("force 4/4")
-
-    new_part.append(meter.TimeSignature("4/4"))
 
 
     print("rebuild timeline")
 
 
-    measure_no = 1
-    current = 0
+    new_part = stream.Part()
 
-    m = stream.Measure(number=measure_no)
-
-    m.insert(0, meter.TimeSignature("4/4"))
-
-
-    beat_position = 0
+    new_part.append(
+        meter.TimeSignature("4/4")
+    )
 
 
-    for offset,pitch,dur in events:
+    current_time = 0
 
-        dur = quantize_duration(float(dur))
+    BAR = 4.0
 
 
-        # 防止跨小節
-        if beat_position + dur > 4:
+    measure = stream.Measure(number=1)
 
-            remain = 4 - beat_position
+    measure.insert(0,
+        meter.TimeSignature("4/4")
+    )
+
+
+    measure_time = 0
+
+    bar_no = 1
+
+
+    for old_offset,n,dur in events:
+
+
+        dur = quantize_duration(
+            dur
+        )
+
+
+        # 超過小節直接切
+        while measure_time + dur > BAR:
+
+            remain = BAR - measure_time
 
             if remain > 0:
 
-                r = note.Rest()
-                r.duration.quarterLength = remain
-                m.append(r)
+                nn = copy.deepcopy(n)
+                nn.duration.quarterLength = remain
+
+                measure.insert(
+                    measure_time,
+                    nn
+                )
+
+            new_part.append(measure)
+
+            bar_no += 1
+
+            measure = stream.Measure(
+                number=bar_no
+            )
+
+            measure.insert(
+                0,
+                meter.TimeSignature("4/4")
+            )
+
+            dur -= remain
+
+            measure_time = 0
 
 
-            new_part.append(m)
+        nn = copy.deepcopy(n)
 
-            measure_no += 1
+        nn.duration.quarterLength = dur
 
-            m = stream.Measure(number=measure_no)
-
-            beat_position = 0
-
-
-        if pitch:
-
-            n = note.Note(pitch)
-
-        else:
-
-            n = note.Rest()
+        measure.insert(
+            measure_time,
+            nn
+        )
 
 
-        n.duration.quarterLength = dur
-
-        m.append(n)
-
-        beat_position += dur
-
-
-        if beat_position >= 4:
-
-            new_part.append(m)
-
-            measure_no += 1
-
-            m = stream.Measure(number=measure_no)
-
-            beat_position = 0
+        measure_time += dur
 
 
 
-    # 最後補滿
+        if measure_time >= BAR-0.0001:
 
-    if beat_position > 0:
+            new_part.append(measure)
 
-        rest = note.Rest()
+            bar_no += 1
 
-        rest.duration.quarterLength = 4-beat_position
+            measure = stream.Measure(
+                number=bar_no
+            )
 
-        m.append(rest)
+            measure.insert(
+                0,
+                meter.TimeSignature("4/4")
+            )
 
-        new_part.append(m)
+            measure_time=0
 
 
-    print("clear notation cache")
+
+    # 最後補休止
+
+    if measure_time < BAR:
+
+        r = note.Rest()
+
+        r.duration.quarterLength = (
+            BAR-measure_time
+        )
+
+        measure.insert(
+            measure_time,
+            r
+        )
 
 
-    out = stream.Score()
+    new_part.append(measure)
 
-    out.insert(0,new_part)
+
+    out_score = stream.Score()
+
+    out_score.append(new_part)
 
 
     print("FINAL CHECK")
 
 
-    for i,m in enumerate(new_part.getElementsByClass(stream.Measure),1):
+    for i,m in enumerate(
+        new_part.getElementsByClass(
+            stream.Measure
+        ),
+        1
+    ):
 
-        total=sum(
-            n.duration.quarterLength
-            for n in m.notesAndRests
-        )
+        length = m.duration.quarterLength
 
         print(
             "Measure",
             i,
-            float(total)
+            length
         )
 
 
-    print("FINAL WRITE")
+        if abs(length-4.0)>0.001:
+
+            print(
+                "ERROR measure",
+                i,
+                length
+            )
+
+            raise Exception(
+                "measure rebuild failed"
+            )
 
 
-    out.write(
-        "musicxml",
-        fp=output_file
-    )
+    print("ALL MEASURES SAFE")
 
 
-    print("DONE")
-    print(output_file)
+    return out_score
 
 
 
 if __name__=="__main__":
 
-    if len(sys.argv)<3:
-        print(
-            "usage: python clean_musicxml.py input.musicxml output.musicxml"
-        )
-        sys.exit()
+    inp=sys.argv[1]
+
+    out=sys.argv[2]
 
 
-    clean(
-        sys.argv[1],
-        sys.argv[2]
+    score=rebuild_timeline(inp)
+
+
+    print("FINAL WRITE")
+
+    score.write(
+        "musicxml",
+        fp=out
     )
+
+    print("DONE")
+    print(out)
