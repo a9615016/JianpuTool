@@ -1,325 +1,283 @@
-# ==========================================================
-# CLEAN MUSICXML V63.1
-# Absolute Quantize Engine Fix
-# BasicPitch + Render + jianpu_ly
-# ==========================================================
+# CLEAN MUSICXML V64
+# Absolute Timeline Rebuilder
+# BasicPitch + Render + jianpu_ly FINAL
 
 import sys
-from music21 import converter, stream, note, chord, meter, duration
+from music21 import converter, stream, note, meter, tempo, clef
 
 
-STEP = 0.25
+TARGET_BEATS = 4.0
 
 
-def quantize(x):
-    return round(x / STEP) * STEP
+def quantize_duration(q):
+
+    allowed = [
+        4.0,
+        2.0,
+        1.0,
+        0.5,
+        0.25
+    ]
+
+    best = min(
+        allowed,
+        key=lambda x: abs(x-q)
+    )
+
+    return best
 
 
 
-def collect_notes(src):
+def split_note(n, remain):
 
     result=[]
 
-    for n in src.recurse():
+    dur=n.duration.quarterLength
 
-        if isinstance(n, note.Note):
+    while dur > remain:
 
-            q=max(
-                STEP,
-                quantize(
-                    n.duration.quarterLength
-                )
-            )
+        x=n.__deepcopy__()
 
-            nn=note.Note(
-                n.pitch
-            )
+        x.duration.quarterLength=remain
 
-            nn.duration=duration.Duration(q)
+        result.append(x)
 
-            result.append(nn)
+        dur -= remain
+
+        remain=TARGET_BEATS
 
 
-        elif isinstance(n, chord.Chord):
-
-            if len(n.pitches):
-
-                q=max(
-                    STEP,
-                    quantize(
-                        n.duration.quarterLength
-                    )
-                )
-
-                nn=note.Note(
-                    n.pitches[-1]
-                )
-
-                nn.duration=duration.Duration(q)
-
-                result.append(nn)
-
+    if dur>0:
+        x=n.__deepcopy__()
+        x.duration.quarterLength=dur
+        result.append(x)
 
     return result
 
 
 
-def rebuild_score(notes):
+def rebuild(part):
 
-    score=stream.Score()
+    notes=[]
 
-    part=stream.Part()
+    for n in part.flatten().notesAndRests:
 
-    part.insert(
-        0,
-        meter.TimeSignature("4/4")
+        if isinstance(n,note.Note):
+
+            d=quantize_duration(
+                float(n.duration.quarterLength)
+            )
+
+            n.duration.quarterLength=d
+
+            notes.append(n)
+
+
+        elif isinstance(n,note.Rest):
+
+            r=n.__deepcopy__()
+
+            r.duration.quarterLength=quantize_duration(
+                float(r.duration.quarterLength)
+            )
+
+            notes.append(r)
+
+
+
+    new_part=stream.Part()
+
+    measure=stream.Measure(
+        number=1
     )
 
-
-    measure_no=1
-
-    current=0
-
-    m=stream.Measure(
-        number=measure_no
-    )
+    beat=0
 
 
     for n in notes:
 
-
-        q=quantize(
-            n.duration.quarterLength
-        )
+        dur=float(n.duration.quarterLength)
 
 
-        # 超過小節
+        # 超過小節，自動切割
+        while beat+dur > TARGET_BEATS:
 
-        if current+q > 4.0:
+            remain=TARGET_BEATS-beat
 
 
-            rest=quantize(
-                4.0-current
-            )
+            if remain>0:
 
-            if rest>0:
-
-                m.insert(
-                    current,
-                    note.Rest(
-                        quarterLength=rest
-                    )
+                pieces=split_note(
+                    n,
+                    remain
                 )
 
+                first=pieces[0]
 
-            part.append(m)
+                measure.append(first)
 
 
-            measure_no+=1
+                dur-=remain
 
-            m=stream.Measure(
-                number=measure_no
+                beat=TARGET_BEATS
+
+
+            new_part.append(measure)
+
+
+            measure=stream.Measure(
+                number=measure.number+1
             )
 
-            current=0
+            beat=0
+
+
+            if dur<=0:
+                break
+
+
+            n=n.__deepcopy__()
+            n.duration.quarterLength=dur
 
 
 
-        # 強制 offset
+        if dur>0:
 
-        m.insert(
-            current,
-            n
+            measure.append(n)
+
+            beat+=dur
+
+
+
+        if abs(beat-TARGET_BEATS)<0.001:
+
+            new_part.append(measure)
+
+            measure=stream.Measure(
+                number=measure.number+1
+            )
+
+            beat=0
+
+
+
+    # 最後補滿
+    if beat>0:
+
+        rest=note.Rest()
+
+        rest.duration.quarterLength=TARGET_BEATS-beat
+
+        measure.append(rest)
+
+        new_part.append(measure)
+
+
+    return new_part
+
+
+
+
+def clean(inp,out):
+
+    print("================")
+    print("CLEAN MUSICXML V64")
+    print("ABSOLUTE TIMELINE REBUILDER")
+    print("================")
+
+
+    score=converter.parse(inp)
+
+
+    result=stream.Score()
+
+
+    for p in score.parts:
+
+        print("rebuild part")
+
+        np=rebuild(p)
+
+        result.insert(0,np)
+
+
+
+    # 強制4/4
+
+    for p in result.parts:
+
+        p.insert(
+            0,
+            meter.TimeSignature("4/4")
+        )
+
+        p.insert(
+            0,
+            tempo.MetronomeMark(number=80)
         )
 
 
-        current+=q
+
+    print()
+    print("FINAL CHECK")
 
 
-
-        if abs(current-4.0)<0.001:
-
-
-            part.append(m)
-
-            measure_no+=1
-
-            m=stream.Measure(
-                number=measure_no
-            )
-
-            current=0
+    ok=True
 
 
-
-    if current>0:
-
-        rest=quantize(
-            4.0-current
-        )
-
-        if rest>0:
-
-            m.insert(
-                current,
-                note.Rest(
-                    quarterLength=rest
-                )
-            )
-
-        part.append(m)
-
-
-
-    score.append(part)
-
-
-    # ★關鍵修正
-
-    print(
-        "FORCE MAKE MEASURES"
-    )
-
-
-    score = (
-        score
-        .flatten()
-        .makeMeasures()
-    )
-
-
-    score.makeNotation(
-        inPlace=True
-    )
-
-
-    return score
-
-
-
-def verify(score):
-
-    print(
-        "FINAL CHECK"
-    )
-
-    bad=False
-
-
-    for m in score.parts[0].getElementsByClass(
-        "Measure"
+    for i,m in enumerate(
+        result.parts[0].getElementsByClass(stream.Measure),
+        1
     ):
 
-        q=m.duration.quarterLength
-
+        length=sum(
+            x.duration.quarterLength
+            for x in m.notesAndRests
+        )
 
         print(
             "Measure",
-            m.number,
-            q
+            i,
+            float(length)
         )
 
 
-        if abs(q-4.0)>0.001:
-
-            bad=True
-
+        if abs(length-4)>0.01:
+            ok=False
 
 
-    if bad:
 
-        print(
-            "WARNING measure mismatch"
-        )
-
+    if ok:
+        print("ALL MEASURES SAFE")
     else:
-
-        print(
-            "ALL MEASURES SAFE"
-        )
+        print("WARNING")
 
 
+    print("FINAL WRITE")
 
-def main():
-
-    if len(sys.argv)<3:
-
-        print(
-            "python clean_musicxml.py input.musicxml output.musicxml"
-        )
-
-        return
-
-
-    inp=sys.argv[1]
-
-    out=sys.argv[2]
-
-
-    print("================")
-    print(
-        "CLEAN MUSICXML V63.1"
-    )
-    print(
-        "Absolute Quantize Engine Fix"
-    )
-    print("================")
-
-
-    print("read")
-
-    src=converter.parse(inp)
-
-
-    print("remove voices")
-    print("remove chords")
-    print("remove beams")
-    print("remove ties")
-
-
-    print(
-        "collect melody"
-    )
-
-
-    notes=collect_notes(src)
-
-
-    print(
-        "notes:",
-        len(notes)
-    )
-
-
-    print(
-        "quantize offset + duration"
-    )
-
-
-    score=rebuild_score(notes)
-
-
-    verify(score)
-
-
-    print(
-        "FINAL WRITE"
-    )
-
-
-    score.write(
+    result.write(
         "musicxml",
         fp=out
     )
 
 
-    print(
-        "DONE"
-    )
-
+    print("DONE")
     print(out)
 
 
 
 if __name__=="__main__":
-    main()
+
+    if len(sys.argv)<3:
+
+        print(
+            "usage: python clean_musicxml.py input.musicxml output.musicxml"
+        )
+
+        sys.exit()
+
+
+    clean(
+        sys.argv[1],
+        sys.argv[2]
+    )
