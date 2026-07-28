@@ -1,23 +1,29 @@
+# main.py
+# JianpuTool v26 DEBUG VERSION
+# MP3/WAV -> MusicXML -> clean -> jianpu_ly
+
+
 from fastapi import FastAPI, UploadFile, File
 from fastapi.responses import HTMLResponse
+
 import os
 import uuid
 import subprocess
-from lxml import etree
+
+from music21 import converter
+
 
 
 app = FastAPI()
 
 
-BASE_DIR = "/app/outputs"
+
+OUTPUT_DIR = "/app/outputs"
 
 os.makedirs(
-    BASE_DIR,
+    OUTPUT_DIR,
     exist_ok=True
 )
-
-
-print("========== JianpuTool MAIN DEBUG 20260727 ==========")
 
 
 
@@ -26,179 +32,77 @@ def home():
 
     return HTMLResponse(
         """
-        <h2>JianpuTool 簡譜產生器</h2>
+        <!DOCTYPE html>
+        <html>
+
+        <head>
+        <title>JianpuTool</title>
+        </head>
+
+        <body>
+
+        <h1>
+        JianpuTool 簡譜產生器
+        </h1>
+
+        <p>
+        MP3/WAV → MusicXML → 簡譜 PDF
+        </p>
+
 
         <form action="/upload"
-        method="post"
-        enctype="multipart/form-data">
+              method="post"
+              enctype="multipart/form-data">
 
-        <input type="file" name="file">
 
-        <button>
+        <input type="file"
+               name="file"
+               accept=".mp3,.wav">
+
+
+        <button type="submit">
         Upload
         </button>
 
+
         </form>
+
+
+        </body>
+
+        </html>
         """
     )
-
-
-
-# ======================================
-# jianpu_ly 前 MusicXML duration debug
-# ======================================
-
-def debug_duration(xml_file):
-
-    print("==============================")
-    print("FORCE XML DEBUG")
-    print(xml_file)
-    print("==============================")
-
-
-    try:
-
-        tree = etree.parse(xml_file)
-
-    except Exception as e:
-
-        print(
-            "XML READ ERROR:",
-            e
-        )
-
-        return
-
-
-
-    root = tree.getroot()
-
-
-    notes = root.findall(
-        ".//note"
-    )
-
-
-    print(
-        "TOTAL NOTES:",
-        len(notes)
-    )
-
-
-    pos = 0
-
-
-    for i, note in enumerate(notes):
-
-        duration = note.find(
-            "duration"
-        )
-
-
-        if duration is None:
-
-            continue
-
-
-        d = int(
-            duration.text
-        )
-
-
-        pitch = note.find(
-            "pitch"
-        )
-
-
-        if pitch is not None:
-
-            step = pitch.find(
-                "step"
-            )
-
-            octave = pitch.find(
-                "octave"
-            )
-
-
-            if step is not None and octave is not None:
-
-                name = (
-                    step.text +
-                    octave.text
-                )
-
-            else:
-
-                name = "UNKNOWN"
-
-        else:
-
-            name = "REST"
-
-
-
-        # 抓第4小節附近
-        if 45 <= pos <= 80:
-
-            print(
-                "NOTE",
-                i,
-                name,
-                "START",
-                pos,
-                "DURATION",
-                d,
-                "END",
-                pos+d
-            )
-
-
-        pos += d
-
-
-
-    print(
-        "FINAL POS:",
-        pos
-    )
-
-
-    print("==============================")
-
 
 
 
 
 @app.post("/upload")
 async def upload(
-    file: UploadFile = File(...)
+        file: UploadFile = File(...)
 ):
 
 
-    uid = str(
-        uuid.uuid4()
-    )
+    job_id = str(uuid.uuid4())
 
 
-    workdir = os.path.join(
-        BASE_DIR,
-        uid
+    job_dir = os.path.join(
+        OUTPUT_DIR,
+        job_id
     )
 
 
     os.makedirs(
-        workdir,
+        job_dir,
         exist_ok=True
     )
 
 
 
     input_file = os.path.join(
-        workdir,
+        job_dir,
         file.filename
     )
-
 
 
     with open(
@@ -219,96 +123,177 @@ async def upload(
 
 
 
-    # ==========================
-    # MusicXML 清理
-    # ==========================
+    ################################################
+    # 1. 這裡接你的 MP3 -> MIDI -> MusicXML
+    ################################################
+
+
+    # 假設最後產生:
+    #
+    # melody.musicxml
+    #
+
+
+    musicxml_file = os.path.join(
+        job_dir,
+        "melody.musicxml"
+    )
+
+
+
+    ################################################
+    # 如果你已有 MusicXML
+    # 直接測試下面流程
+    ################################################
+
+
 
     clean_xml = os.path.join(
-        workdir,
+        job_dir,
         "clean.musicxml"
     )
 
 
+
+    print("開始 clean_musicxml")
+
+
+    cmd_clean = [
+
+        "python",
+
+        "clean_musicxml.py",
+
+        musicxml_file,
+
+        clean_xml
+
+    ]
+
+
     print(
-        "開始 MusicXML 清理"
+        "RUN:",
+        " ".join(cmd_clean)
     )
 
 
     clean_result = subprocess.run(
 
-        [
-            "python",
-            "clean_musicxml.py",
-            input_file,
-            clean_xml
-        ],
+        cmd_clean,
 
-        stdout=subprocess.PIPE,
-
-        stderr=subprocess.STDOUT,
+        capture_output=True,
 
         text=True
 
     )
 
 
-    print(
-        clean_result.stdout
-    )
+    print(clean_result.stdout)
+
+    print(clean_result.stderr)
 
 
 
-    if clean_result.returncode != 0:
 
-        return {
-
-            "error":
-            "clean_musicxml失敗",
-
-            "log":
-            clean_result.stdout
-
-        }
+    ################################################
+    # DEBUG MUSICXML
+    ################################################
 
 
-
-    print(
-        "清理完成"
-    )
-
-
-    print(
-        "CHECK jianpu input:"
-    )
-
-
-    print(
-        clean_xml
-    )
+    print("================")
+    print("CHECK jianpu input:")
+    print(clean_xml)
+    print("================")
 
 
 
-    # ==========================
-    # DEBUG
-    # ==========================
-
-    debug_duration(
-        clean_xml
-    )
+    print("================")
+    print("DEBUG NOTES")
+    print("================")
 
 
 
-    # ==========================
-    # jianpu_ly
-    # ==========================
+    try:
+
+        score = converter.parse(
+            clean_xml
+        )
 
 
-    print(
-        "開始 jianpu_ly"
-    )
+
+        for part in score.parts:
 
 
-    cmd = [
+            for measure in part.getElementsByClass("Measure"):
+
+
+                print(
+                    "MEASURE",
+                    measure.number
+                )
+
+
+
+                total = 0
+
+
+
+                for n in measure.notesAndRests:
+
+
+                    dur = n.duration.quarterLength
+
+
+                    print(
+
+                        "offset=",
+                        n.offset,
+
+                        "duration=",
+                        dur,
+
+                        "end=",
+                        n.offset + dur,
+
+                        n
+
+                    )
+
+
+
+                    total += dur
+
+
+
+                print(
+                    "MEASURE TOTAL:",
+                    measure.duration.quarterLength
+                )
+
+
+
+    except Exception as e:
+
+
+        print(
+            "DEBUG ERROR:",
+            e
+        )
+
+
+
+
+    ################################################
+    # 2. jianpu_ly
+    ################################################
+
+
+
+    print("開始 jianpu_ly")
+
+
+
+    cmd_jianpu = [
 
         "python",
 
@@ -321,20 +306,22 @@ async def upload(
     ]
 
 
+
     print(
+
         "RUN:",
-        " ".join(cmd)
+
+        " ".join(cmd_jianpu)
+
     )
 
 
 
     result = subprocess.run(
 
-        cmd,
+        cmd_jianpu,
 
-        stdout=subprocess.PIPE,
-
-        stderr=subprocess.STDOUT,
+        capture_output=True,
 
         text=True
 
@@ -342,51 +329,46 @@ async def upload(
 
 
 
+    print("================")
+    print("jianpu stdout")
+    print("================")
+
     print(
         result.stdout
     )
 
 
 
-    if result.returncode != 0:
-
-        return {
-
-            "error":
-            "jianpu_ly失敗",
-
-            "log":
-            result.stdout
-
-        }
+    print("================")
+    print("jianpu stderr")
+    print("================")
 
 
-
-    ly_file = os.path.join(
-        workdir,
-        "output.ly"
+    print(
+        result.stderr
     )
 
 
 
-    with open(
-        ly_file,
-        "w",
-        encoding="utf-8"
-    ) as f:
 
-        f.write(
-            result.stdout
-        )
+    ################################################
+    # 回傳
+    ################################################
 
 
 
     return {
 
-        "status":
-        "ok",
 
-        "folder":
-        workdir
+        "status":"done",
+
+
+        "job_id":job_id,
+
+
+        "folder":job_dir,
+
+
+        "clean_musicxml":clean_xml
 
     }
