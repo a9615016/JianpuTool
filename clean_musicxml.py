@@ -1,143 +1,167 @@
 # ==========================================================
-# CLEAN MUSICXML V63
-# Absolute Quantize Engine
-# BasicPitch + Render + jianpu_ly Compatible
+# CLEAN MUSICXML V63.1
+# Absolute Quantize Engine Fix
+# BasicPitch + Render + jianpu_ly
 # ==========================================================
 
 import sys
-from music21 import converter, stream, note, chord, meter, duration, clef
+from music21 import converter, stream, note, chord, meter, duration
 
 
-STEP = 0.25   # 四分音符切割精度
+STEP = 0.25
 
 
-def quantize(value):
-    return round(value / STEP) * STEP
+def quantize(x):
+    return round(x / STEP) * STEP
 
 
-def clean_notes(src):
 
-    notes = []
+def collect_notes(src):
+
+    result=[]
 
     for n in src.recurse():
 
         if isinstance(n, note.Note):
 
-            q = n.duration.quarterLength
-
-            if q <= 0:
-                continue
-
-            n2 = note.Note(
-                n.pitch,
-                quarterLength=max(STEP, quantize(q))
+            q=max(
+                STEP,
+                quantize(
+                    n.duration.quarterLength
+                )
             )
 
-            notes.append(n2)
+            nn=note.Note(
+                n.pitch
+            )
+
+            nn.duration=duration.Duration(q)
+
+            result.append(nn)
 
 
         elif isinstance(n, chord.Chord):
 
-            # 只保留最高音旋律
             if len(n.pitches):
 
-                n2 = note.Note(
-                    n.pitches[-1],
-                    quarterLength=max(
-                        STEP,
-                        quantize(n.duration.quarterLength)
+                q=max(
+                    STEP,
+                    quantize(
+                        n.duration.quarterLength
                     )
                 )
 
-                notes.append(n2)
+                nn=note.Note(
+                    n.pitches[-1]
+                )
 
-    return notes
+                nn.duration=duration.Duration(q)
+
+                result.append(nn)
+
+
+    return result
 
 
 
 def rebuild_score(notes):
 
-    score = stream.Score()
+    score=stream.Score()
 
-    part = stream.Part()
+    part=stream.Part()
 
-    part.append(meter.TimeSignature("4/4"))
+    part.insert(
+        0,
+        meter.TimeSignature("4/4")
+    )
 
-    current = 0
 
-    measure_no = 1
+    measure_no=1
 
-    m = stream.Measure(number=measure_no)
+    current=0
+
+    m=stream.Measure(
+        number=measure_no
+    )
 
 
     for n in notes:
 
-        dur = quantize(
+
+        q=quantize(
             n.duration.quarterLength
         )
 
-        if dur <= 0:
-            continue
-
 
         # 超過小節
-        if current + dur > 4.0:
 
-            rest_len = quantize(4.0-current)
+        if current+q > 4.0:
 
-            if rest_len > 0:
-                m.append(
+
+            rest=quantize(
+                4.0-current
+            )
+
+            if rest>0:
+
+                m.insert(
+                    current,
                     note.Rest(
-                        quarterLength=rest_len
+                        quarterLength=rest
                     )
                 )
 
-            part.append(m)
-
-            measure_no += 1
-
-            m = stream.Measure(
-                number=measure_no
-            )
-
-            current = 0
-
-
-        n.duration = duration.Duration(dur)
-
-        m.append(n)
-
-        current += dur
-
-
-
-        # 剛好滿小節
-
-        if abs(current-4.0) < 0.001:
 
             part.append(m)
 
-            measure_no += 1
 
-            m = stream.Measure(
+            measure_no+=1
+
+            m=stream.Measure(
                 number=measure_no
             )
 
-            current = 0
+            current=0
 
 
 
-    # 最後補休止
+        # 強制 offset
 
-    if current > 0:
+        m.insert(
+            current,
+            n
+        )
 
-        rest = quantize(
+
+        current+=q
+
+
+
+        if abs(current-4.0)<0.001:
+
+
+            part.append(m)
+
+            measure_no+=1
+
+            m=stream.Measure(
+                number=measure_no
+            )
+
+            current=0
+
+
+
+    if current>0:
+
+        rest=quantize(
             4.0-current
         )
 
-        if rest > 0:
+        if rest>0:
 
-            m.append(
+            m.insert(
+                current,
                 note.Rest(
                     quarterLength=rest
                 )
@@ -149,29 +173,57 @@ def rebuild_score(notes):
 
     score.append(part)
 
+
+    # ★關鍵修正
+
+    print(
+        "FORCE MAKE MEASURES"
+    )
+
+
+    score = (
+        score
+        .flatten()
+        .makeMeasures()
+    )
+
+
+    score.makeNotation(
+        inPlace=True
+    )
+
+
     return score
 
 
 
 def verify(score):
 
-    print("FINAL CHECK")
+    print(
+        "FINAL CHECK"
+    )
 
-    bad = False
+    bad=False
 
-    for m in score.parts[0].getElementsByClass("Measure"):
 
-        length = m.duration.quarterLength
+    for m in score.parts[0].getElementsByClass(
+        "Measure"
+    ):
+
+        q=m.duration.quarterLength
+
 
         print(
             "Measure",
             m.number,
-            length
+            q
         )
 
-        if abs(length-4.0)>0.001:
+
+        if abs(q-4.0)>0.001:
 
             bad=True
+
 
 
     if bad:
@@ -187,13 +239,10 @@ def verify(score):
         )
 
 
+
 def main():
 
     if len(sys.argv)<3:
-
-        print(
-            "usage:"
-        )
 
         print(
             "python clean_musicxml.py input.musicxml output.musicxml"
@@ -209,10 +258,10 @@ def main():
 
     print("================")
     print(
-        "CLEAN MUSICXML V63"
+        "CLEAN MUSICXML V63.1"
     )
     print(
-        "Absolute Quantize Engine"
+        "Absolute Quantize Engine Fix"
     )
     print("================")
 
@@ -222,26 +271,24 @@ def main():
     src=converter.parse(inp)
 
 
-
     print("remove voices")
     print("remove chords")
     print("remove beams")
     print("remove ties")
 
 
+    print(
+        "collect melody"
+    )
 
-    print("collect melody")
 
-
-    notes=clean_notes(src)
-
+    notes=collect_notes(src)
 
 
     print(
         "notes:",
         len(notes)
     )
-
 
 
     print(
@@ -252,14 +299,7 @@ def main():
     score=rebuild_score(notes)
 
 
-
-    print(
-        "clear notation cache"
-    )
-
-
     verify(score)
-
 
 
     print(
@@ -282,5 +322,4 @@ def main():
 
 
 if __name__=="__main__":
-
     main()
