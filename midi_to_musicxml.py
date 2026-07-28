@@ -3,73 +3,128 @@ from music21 import stream
 from music21 import note
 from music21 import meter
 from music21 import instrument
+from music21 import duration
+
 import sys
 
 
-print("================")
-print("MIDI TO MUSICXML V5 FINAL")
-print("================")
+print("==============================")
+print("MIDI TO MUSICXML V5 FINAL JIANPU")
+print("==============================")
 
 
 if len(sys.argv) < 3:
     print(
         "usage: python midi_to_musicxml.py input.mid output.musicxml"
     )
-    sys.exit()
+    sys.exit(1)
 
 
-src = sys.argv[1]
-dst = sys.argv[2]
+midi_file = sys.argv[1]
+output_file = sys.argv[2]
 
 
-print("輸入:", src)
+print("開始 MIDI → MusicXML")
+print("輸入:", midi_file)
 
 
-score = converter.parse(src)
+# ==========================
+# read midi
+# ==========================
+
+print("讀取 MIDI...")
 
 
-print("extract melody")
+score = converter.parse(
+    midi_file
+)
 
 
-part = stream.Part()
 
-part.insert(
+# ==========================
+# 建立單旋律
+# ==========================
+
+print("extract melody...")
+
+
+melody = stream.Part()
+
+
+melody.insert(
     0,
     instrument.Vocal()
 )
 
 
-notes=[]
+
+# ==========================
+# collect notes
+# ==========================
+
+notes = []
 
 
 for n in score.recurse().notes:
 
     if isinstance(n, note.Note):
 
-        nn = note.Note(n.pitch)
+        nn = note.Note(
+            n.pitch
+        )
 
 
-        # 強制 16 分音符格
+        # ------------------
+        # offset quantize
+        # 16分音符
+        # ------------------
+
+        offset = float(
+            n.offset
+        )
+
+
         offset = round(
-            float(n.offset) * 4
+            offset * 4
         ) / 4
+
+
+
+        # ------------------
+        # duration quantize
+        # ------------------
+
+        dur = float(
+            n.duration.quarterLength
+        )
 
 
         dur = round(
-            float(n.duration.quarterLength) * 4
+            dur * 4
         ) / 4
 
 
-        # 最小四分之一拍
+
+        if dur <= 0:
+            dur = 0.25
+
+
         if dur < 0.25:
             dur = 0.25
 
 
+
         nn.offset = offset
-        nn.duration.quarterLength = dur
 
 
-        notes.append(nn)
+        nn.duration = duration.Duration(
+            dur
+        )
+
+
+        notes.append(
+            nn
+        )
 
 
 
@@ -79,77 +134,117 @@ print(
 )
 
 
+
+# ==========================
+# sort
+# ==========================
+
 notes.sort(
     key=lambda x:x.offset
 )
 
 
 
+# ==========================
+# insert notes
+# ==========================
+
+
 for n in notes:
 
-    part.insert(
+    melody.insert(
         n.offset,
         n
     )
 
 
 
+# ==========================
+# force 4/4
+# ==========================
+
 print("force 4/4")
 
 
-part.insert(
+melody.insert(
     0,
     meter.TimeSignature("4/4")
 )
 
 
 
-print("make measures")
+# ==========================
+# rebuild measures
+# ==========================
+
+print("rebuild measures")
 
 
-part.makeMeasures(
+melody.makeMeasures(
     inPlace=True
 )
 
 
 
-# 再一次檢查小節
-print("CHECK MEASURES")
+# ==========================
+# split crossing notes
+# ==========================
+
+print(
+    "split cross measure notes"
+)
 
 
-for m in part.getElementsByClass("Measure"):
+try:
 
-    total=float(
-        m.duration.quarterLength
+    melody.makeNotation(
+        inPlace=True
     )
+
+except Exception as e:
 
     print(
-        "Measure",
-        m.number,
-        total
+        "notation warning:",
+        e
     )
 
 
 
-score2=stream.Score()
+# ==========================
+# final score
+# ==========================
 
-score2.insert(
+final = stream.Score()
+
+
+final.insert(
     0,
-    part
+    melody
 )
 
 
-score2.clearCache()
+
+final.clearCache()
 
 
-print("WRITE MUSICXML")
+
+# ==========================
+# write
+# ==========================
+
+print(
+    "寫入 MusicXML..."
+)
 
 
-score2.write(
+final.write(
     "musicxml",
-    fp=dst
+    fp=output_file
 )
 
 
-print("DONE")
-print(dst)
+
+print("================")
+print("完成:")
+print(output_file)
+print("================")
