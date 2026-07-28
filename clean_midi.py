@@ -1,16 +1,16 @@
-from pathlib import Path
 import sys
 import mido
 
 
 print("==============================")
-print("CLEAN MIDI V2 BASICPITCH FINAL")
+print("CLEAN MIDI V2.1 BASICPITCH")
 print("==============================")
 
 
 if len(sys.argv) < 3:
-    print("Usage:")
-    print("python clean_midi.py input.mid output.mid")
+    print(
+        "Usage: python clean_midi.py input.mid output.mid"
+    )
     sys.exit(1)
 
 
@@ -18,7 +18,7 @@ input_mid = sys.argv[1]
 output_mid = sys.argv[2]
 
 
-print("READ MIDI")
+print("INPUT:")
 print(input_mid)
 
 
@@ -28,12 +28,8 @@ mid = mido.MidiFile(input_mid)
 ticks = mid.ticks_per_beat
 
 
-# ==========================
-# quantize 設定
-# ==========================
-
-# 16分音符格
-GRID = ticks / 4
+# 16分音符量化
+GRID = ticks // 4
 
 
 def quantize(t):
@@ -41,91 +37,164 @@ def quantize(t):
 
 
 
-# ==========================
-# 收集 note
-# ==========================
-
 notes = []
 
-current_time = 0
+
+tempo_msgs = []
+time_msgs = []
+
 
 active = {}
 
 
+# ==========================
+# 讀 MIDI
+# ==========================
+
 for track in mid.tracks:
 
-    current_time = 0
+    current = 0
+
 
     for msg in track:
 
-        current_time += msg.time
+        current += msg.time
+
+
+        if msg.type == "set_tempo":
+
+            tempo_msgs.append(
+                msg
+            )
+
+
+        if msg.type == "time_signature":
+
+            time_msgs.append(
+                msg
+            )
 
 
         if msg.type == "note_on" and msg.velocity > 0:
 
-            active[msg.note] = (
-                current_time,
-                msg.velocity
+            active[msg.note] = {
+                "start": current,
+                "velocity": msg.velocity
+            }
+
+
+        elif (
+            msg.type == "note_off"
+            or (
+                msg.type == "note_on"
+                and msg.velocity == 0
             )
-
-
-        elif msg.type in ["note_off","note_on"]:
+        ):
 
             if msg.note in active:
 
-                start, vel = active[msg.note]
-
-                end = current_time
-
-                duration = end-start
+                data = active.pop(
+                    msg.note
+                )
 
 
-                # 太短刪除
-                if duration >= ticks/8:
+                duration = current - data["start"]
+
+
+                # 刪除雜訊
+                if duration >= ticks / 8:
 
                     notes.append(
                         {
-                            "note":msg.note,
-                            "start":start,
-                            "end":end,
-                            "vel":vel
+                            "note": msg.note,
+                            "start": data["start"],
+                            "end": current,
+                            "velocity": data["velocity"]
                         }
                     )
 
 
-                del active[msg.note]
 
-
-
-print("NOTES BEFORE:",len(notes))
-
-
-# ==========================
-# quantize
-# ==========================
-
-for n in notes:
-
-    n["start"] = quantize(n["start"])
-    n["end"]   = quantize(n["end"])
-
-
-    if n["end"] <= n["start"]:
-        n["end"] = n["start"] + GRID
-
-
-
-# ==========================
-# 排序
-# ==========================
-
-notes.sort(
-    key=lambda x:x["start"]
+print(
+    "NOTES BEFORE:",
+    len(notes)
 )
 
 
 
-print("NOTES AFTER:",len(notes))
+# ==========================
+# Quantize
+# ==========================
+
+for n in notes:
+
+    n["start"] = quantize(
+        n["start"]
+    )
+
+    n["end"] = quantize(
+        n["end"]
+    )
+
+
+    if n["end"] <= n["start"]:
+
+        n["end"] = (
+            n["start"]
+            +
+            GRID
+        )
+
+
+
+# ==========================
+# 去除重疊
+# ==========================
+
+notes.sort(
+    key=lambda x: (
+        x["start"],
+        x["note"]
+    )
+)
+
+
+last_end = {}
+
+
+clean = []
+
+
+for n in notes:
+
+    pitch = n["note"]
+
+
+    if pitch in last_end:
+
+        if n["start"] < last_end[pitch]:
+
+            n["start"] = last_end[pitch]
+
+
+            if n["end"] <= n["start"]:
+
+                continue
+
+
+    last_end[pitch] = n["end"]
+
+    clean.append(n)
+
+
+
+notes = clean
+
+
+print(
+    "NOTES AFTER:",
+    len(notes)
+)
 
 
 
@@ -145,37 +214,79 @@ out.tracks.append(track)
 
 
 
-last = 0
+# tempo
+
+for msg in tempo_msgs:
+
+    track.append(
+        msg.copy(
+            time=0
+        )
+    )
+
+
+# 拍號
+
+for msg in time_msgs:
+
+    track.append(
+        msg.copy(
+            time=0
+        )
+    )
+
+
+
+events = []
 
 
 for n in notes:
 
-    delta = n["start"] - last
-
-    track.append(
-        mido.Message(
-            "note_on",
-            note=n["note"],
-            velocity=n["vel"],
-            time=max(0,int(delta))
+    events.append(
+        (
+            n["start"],
+            mido.Message(
+                "note_on",
+                note=n["note"],
+                velocity=n["velocity"],
+                time=0
+            )
         )
     )
 
 
-    duration = n["end"] - n["start"]
-
-
-    track.append(
-        mido.Message(
-            "note_off",
-            note=n["note"],
-            velocity=0,
-            time=int(duration)
+    events.append(
+        (
+            n["end"],
+            mido.Message(
+                "note_off",
+                note=n["note"],
+                velocity=0,
+                time=0
+            )
         )
     )
 
 
-    last = n["end"]
+
+events.sort(
+    key=lambda x:x[0]
+)
+
+
+
+last = 0
+
+
+for t,msg in events:
+
+    msg.time = int(
+        t-last
+    )
+
+    track.append(msg)
+
+    last = t
 
 
 
@@ -188,7 +299,9 @@ track.append(
 
 
 
-out.save(output_mid)
+out.save(
+    output_mid
+)
 
 
 
