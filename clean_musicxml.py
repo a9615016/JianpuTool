@@ -1,70 +1,29 @@
 import sys
+import copy
 import xml.etree.ElementTree as ET
-from fractions import Fraction
+
 
 print("================")
-print("CLEAN MUSICXML V65")
-print("ABSOLUTE QUANTIZE ENGINE")
+print("CLEAN MUSICXML V66")
+print("MEASURE SPLITTER ENGINE")
 print("================")
 
 
 INPUT = sys.argv[1]
-OUTPUT = sys.argv[2] if len(sys.argv)>2 else "clean.musicxml"
+OUTPUT = sys.argv[2] if len(sys.argv) > 2 else "clean.musicxml"
+
+
+NS = "http://www.musicxml.org/ns/musicxml"
+
+ET.register_namespace("", NS)
 
 
 tree = ET.parse(INPUT)
 root = tree.getroot()
 
-ns = {"m":"http://www.musicxml.org/ns/musicxml"}
 
-ET.register_namespace("", "http://www.musicxml.org/ns/musicxml")
-
-
-# -------------------------
-# force divisions
-# -------------------------
-
-for attr in root.findall(".//attributes"):
-
-    div = attr.find("divisions")
-
-    if div is not None:
-        div.text="16"
-
-
-
-# -------------------------
-# quantize table
-# -------------------------
-
-GRID = [
-    (64,64),
-    (48,64),
-    (32,32),
-    (24,32),
-    (16,16),
-    (12,16),
-    (8,8),
-    (6,8),
-    (4,4),
-    (2,4),
-    (1,4)
-]
-
-
-def quantize(x):
-
-    best=4
-    diff=999
-
-    for value,q in GRID:
-        d=abs(x-value)
-
-        if d<diff:
-            diff=d
-            best=q
-
-    return best
+def tag(name):
+    return "{%s}%s" % (NS, name)
 
 
 
@@ -72,113 +31,151 @@ def quantize(x):
 # remove bad notation
 # -------------------------
 
-for tag in [
-    "voice",
-    "beam",
-    "tie",
-    "notations",
-    "chord"
-]:
-
-    for e in root.findall(".//"+tag):
-        parent=None
-
-        for p in root.iter():
-            if e in list(p):
-                parent=p
-                break
-
-        if parent is not None:
-            parent.remove(e)
+print("remove voices")
+for e in root.findall(".//"+tag("voice")):
+    e.text = None
 
 
-
-print("quantizing notes")
-
-
-# -------------------------
-# quantize duration
-# -------------------------
-
-for note in root.findall(".//note"):
-
-    dur=note.find("duration")
-
-    if dur is None:
-        continue
+print("remove chords")
+for parent in root.iter():
+    for child in list(parent):
+        if child.tag == tag("chord"):
+            parent.remove(child)
 
 
-    try:
-        old=int(dur.text)
+print("remove beams")
+for e in root.findall(".//"+tag("beam")):
+    for p in root.iter():
+        if e in list(p):
+            p.remove(e)
 
-    except:
-        continue
 
-
-    new=quantize(old)
-
-    dur.text=str(new)
+print("remove ties")
+for e in root.findall(".//"+tag("tie")):
+    for p in root.iter():
+        if e in list(p):
+            p.remove(e)
 
 
 
 # -------------------------
-# remove invalid rests
+# divisions = 16
 # -------------------------
 
-for rest in root.findall(".//rest"):
+for attr in root.findall(".//"+tag("attributes")):
 
-    dur=rest.find("../duration")
+    div = attr.find(tag("divisions"))
+
+    if div is not None:
+        div.text="16"
 
 
 
 # -------------------------
-# rebuild measure timeline
+# copy note
 # -------------------------
 
-print("rebuild measures")
+def clone_note(note, duration):
+
+    n = copy.deepcopy(note)
+
+    d = n.find(tag("duration"))
+
+    if d is None:
+        d = ET.SubElement(n, tag("duration"))
+
+    d.text=str(duration)
+
+    return n
 
 
-for measure in root.findall(".//measure"):
 
-    current=0
+# -------------------------
+# split measure
+# -------------------------
 
-    notes=list(measure.findall("note"))
+print("split cross measure notes")
+
+
+for measure in root.findall(".//"+tag("measure")):
+
+    notes = list(measure.findall(tag("note")))
+
+
+    # remove originals
+    for n in notes:
+        measure.remove(n)
+
+
+    cursor = 0
 
 
     for note in notes:
 
-        dur=note.find("duration")
+        dur_node = note.find(tag("duration"))
 
-        if dur is None:
+        if dur_node is None:
             continue
 
 
-        d=int(dur.text)
+        try:
+            duration=int(dur_node.text)
 
-
-        if current+d>64:
-
-            # shorten note
-            d=64-current
-            dur.text=str(d)
-
-
-        current+=d
+        except:
+            continue
 
 
 
-    # fill empty
+        remain = duration
 
-    if current<64:
 
-        rest=ET.Element("note")
+        while remain > 0:
 
-        ET.SubElement(rest,"rest")
+
+            available = 64 - cursor
+
+
+            take = min(
+                remain,
+                available
+            )
+
+
+            new_note = clone_note(
+                note,
+                take
+            )
+
+
+            measure.append(new_note)
+
+
+            cursor += take
+            remain -= take
+
+
+
+            if cursor >= 64:
+
+                cursor = 0
+
+
+
+    # fill rest
+
+    if cursor > 0:
+
+        rest = ET.Element(tag("note"))
 
         ET.SubElement(
             rest,
-            "duration"
-        ).text=str(64-current)
+            tag("rest")
+        )
+
+        ET.SubElement(
+            rest,
+            tag("duration")
+        ).text=str(64-cursor)
 
 
         measure.append(rest)
@@ -195,34 +192,40 @@ print("FINAL CHECK")
 safe=True
 
 
-for i,m in enumerate(root.findall(".//measure")):
+for i,measure in enumerate(
+        root.findall(".//"+tag("measure"))
+    ):
 
     total=0
 
-    for n in m.findall("note"):
+    for n in measure.findall(tag("note")):
 
-        d=n.find("duration")
+        d=n.find(tag("duration"))
 
         if d is not None:
-            total+=int(d.text)
+            total += int(d.text)
 
+
+    beats=total/16
 
     print(
         "Measure",
         i+1,
-        total/16
+        beats
     )
 
 
-    if total!=64:
+    if total != 64:
         safe=False
 
 
 
 if safe:
     print("ALL MEASURES SAFE")
+    print("ALL NOTES INSIDE BAR")
 else:
     print("WARNING")
+
 
 
 tree.write(
