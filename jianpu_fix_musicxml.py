@@ -1,195 +1,280 @@
 # jianpu_fix_musicxml.py
-# V10 FINAL
-# Brutal 4/4 rebuild for jianpu_ly compatibility
+# V11 FINAL
+# Full rebuild 4/4 + duration quantize
 
 import sys
-from music21 import converter, stream, note, meter, duration, clef
+import xml.etree.ElementTree as ET
+from fractions import Fraction
 
+NS = {
+    "m": "http://www.musicxml.org/ns/musicxml"
+}
 
-INPUT = sys.argv[1]
-OUTPUT = sys.argv[2]
+ET.register_namespace("", NS["m"])
 
 
-print("================")
-print("JIANPU FIX MUSICXML V10 FINAL")
-print("BRUTAL 4/4 REBUILD")
-print("================")
+STEP = 16        # divisions
+BAR = 64         # 4/4 = 16*4
 
 
-score = converter.parse(INPUT)
+def q_duration(d):
 
-print("read")
+    # MusicXML duration -> quantized 16th
 
+    x = float(d)
 
-# -------------------------
-# extract notes only
-# -------------------------
+    table = [
+        (0.25,4),
+        (0.5,8),
+        (0.75,12),
+        (1,16),
+        (1.5,24),
+        (2,32),
+        (3,48),
+        (4,64)
+    ]
 
-notes = []
+    best = min(
+        table,
+        key=lambda a: abs(a[0]-x)
+    )
 
-for n in score.recurse().notes:
+    return best[1]
 
-    if isinstance(n, note.Note):
 
-        notes.append({
-            "pitch": n.pitch,
-            "offset": float(n.offset),
-            "quarterLength": float(n.quarterLength)
-        })
+def remove_tag(parent, tag):
 
-    elif isinstance(n, note.Rest):
+    for e in list(parent):
+        if e.tag.endswith(tag):
+            parent.remove(e)
 
-        notes.append({
-            "rest": True,
-            "offset": float(n.offset),
-            "quarterLength": float(n.quarterLength)
-        })
 
+def get_notes(measure):
 
-print("notes:", len(notes))
+    result=[]
 
+    for n in measure.findall(".//{*}note"):
 
-# sort time
+        if n.find("{*}rest") is not None:
+            continue
 
-notes.sort(key=lambda x:x["offset"])
+        d=n.find("{*}duration")
 
+        if d is None:
+            continue
 
-# -------------------------
-# create new score
-# -------------------------
+        result.append(n)
 
-new_score = stream.Score()
+    return result
 
-part = stream.Part()
 
-part.insert(0, meter.TimeSignature("4/4"))
 
-part.insert(0, clef.TrebleClef())
+def rebuild(input_file, output_file):
 
+    tree=ET.parse(input_file)
+    root=tree.getroot()
 
-BAR = 4.0
 
+    # divisions 全部改16
 
-current_time = 0.0
+    for div in root.findall(".//{*}divisions"):
+        div.text=str(STEP)
 
 
-print("rebuild timeline")
 
+    # 清理
 
-for item in notes:
+    for e in root.findall(".//{*}voice"):
+        e.text="1"
 
-    start = item["offset"]
-    length = item["quarterLength"]
 
-    if length <= 0:
-        continue
+    for e in root.findall(".//{*}beam"):
+        for p in list(e):
+            e.remove(p)
 
 
-    # quantize
-    length = round(length * 16) / 16
+    for e in root.findall(".//{*}tie"):
+        parent=None
 
 
-    # minimum
-    if length <= 0:
-        length = 0.25
+    # 取得第一個 part
 
+    part=root.find(".//{*}part")
 
-    pos = start
+    old=list(part.findall("{*}measure"))
 
 
-    while length > 0:
+    notes=[]
 
 
-        bar_pos = pos % BAR
+    for m in old:
 
+        for n in get_notes(m):
 
-        remain = BAR - bar_pos
+            d=n.find("{*}duration")
 
+            if d is not None:
 
-        use = min(length, remain)
+                d.text=str(
+                    q_duration(d.text)
+                )
 
+                notes.append(n)
 
-        # quantize again
-        use = round(use * 16) / 16
 
 
-        if use <= 0:
-            break
+    # 刪除全部小節
 
+    for m in old:
+        part.remove(m)
 
-        if item.get("rest"):
 
-            r = note.Rest()
-            r.duration = duration.Duration(use)
-            part.insert(pos, r)
 
+    # 重建4/4
 
-        else:
+    bar=[]
 
-            n = note.Note(item["pitch"])
-            n.duration = duration.Duration(use)
-            part.insert(pos, n)
+    total=0
 
+    number=1
 
 
-        pos += use
-        length -= use
+    for n in notes:
 
+        d=int(
+            n.find("{*}duration").text
+        )
 
 
-# -------------------------
-# rebuild measures
-# -------------------------
+        if total+d > BAR:
 
-print("make measures")
+            # 補休止
 
-part.makeMeasures(inPlace=True)
+            rest=ET.Element(
+                "note"
+            )
 
+            ET.SubElement(
+                rest,
+                "rest"
+            )
 
-# -------------------------
-# force 4/4
-# -------------------------
+            dur=ET.SubElement(
+                rest,
+                "duration"
+            )
 
-for m in part.getElementsByClass("Measure"):
+            dur.text=str(
+                BAR-total
+            )
 
-    m.timeSignature = meter.TimeSignature("4/4")
+            bar.append(rest)
 
 
-# -------------------------
-# fill empty beat
-# -------------------------
+            measure=ET.Element(
+                "measure",
+                {"number":str(number)}
+            )
 
-print("final check")
+            for x in bar:
+                measure.append(x)
 
 
-for i,m in enumerate(part.getElementsByClass("Measure"),1):
+            part.append(measure)
 
-    q = m.duration.quarterLength
 
-    print("Measure",i,q)
+            number+=1
+            bar=[]
+            total=0
 
-    if q < 4:
 
-        rest = note.Rest()
-        rest.duration = duration.Duration(4-q)
-        m.append(rest)
 
+        bar.append(n)
+        total+=d
 
-# rebuild
 
-part.makeMeasures(inPlace=True)
 
+    # 最後一小節補滿
 
-new_score.insert(0,part)
+    if bar:
 
+        if total < BAR:
 
-print("write")
+            rest=ET.Element("note")
 
-new_score.write(
-    "musicxml",
-    fp=OUTPUT
-)
+            ET.SubElement(
+                rest,
+                "rest"
+            )
 
+            dur=ET.SubElement(
+                rest,
+                "duration"
+            )
 
-print("DONE")
-print(OUTPUT)
+            dur.text=str(
+                BAR-total
+            )
+
+            bar.append(rest)
+
+
+        measure=ET.Element(
+            "measure",
+            {"number":str(number)}
+        )
+
+        for x in bar:
+            measure.append(x)
+
+        part.append(measure)
+
+
+
+    # 最終檢查
+
+    print("================")
+    print("JIANPU FIX MUSICXML V11 FINAL")
+    print("================")
+
+
+    for m in part.findall("{*}measure"):
+
+        s=0
+
+        for d in m.findall(".//{*}duration"):
+            s+=int(d.text)
+
+
+        print(
+            "Measure",
+            m.attrib["number"],
+            s/STEP
+        )
+
+
+    tree.write(
+        output_file,
+        encoding="utf-8",
+        xml_declaration=True
+    )
+
+
+    print("DONE")
+    print(output_file)
+
+
+
+if __name__=="__main__":
+
+    if len(sys.argv)<3:
+        print(
+            "python jianpu_fix_musicxml.py input.musicxml output.musicxml"
+        )
+        sys.exit()
+
+
+    rebuild(
+        sys.argv[1],
+        sys.argv[2]
+    )
