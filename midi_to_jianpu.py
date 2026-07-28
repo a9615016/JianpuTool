@@ -1,70 +1,144 @@
-from music21 import converter, note, stream
+# midi_to_jianpu.py
+# VERSION: V85 PURE MIDI JIANPU CONVERTER
+
+from music21 import converter, note, chord, stream
 import sys
 
 
-VERSION = "######## V85 PURE JIANPU MIDI ENGINE ########"
+VERSION = "V85 PURE MIDI JIANPU"
 
 
-# quarterLength → LilyPond
-def duration_to_ly(d):
+# -------------------------
+# duration quantize
+# -------------------------
 
-    table = {
-        4.0: "1",
-        2.0: "2",
-        1.0: "4",
-        0.5: "8",
-        0.25: "16",
-        0.125: "32"
-    }
+def quantize(q):
 
-    nearest = min(
-        table.keys(),
-        key=lambda x: abs(x-d)
+    table = [
+        (4,"----"),
+        (2,"--"),
+        (1,""),
+        (0.5,"_"),
+        (0.25,"__"),
+    ]
+
+    return min(
+        table,
+        key=lambda x:abs(x[0]-q)
     )
 
-    return table[nearest]
 
 
-# MIDI pitch → 簡譜
-def pitch_to_number(p):
+# -------------------------
+# MIDI note -> number
+# -------------------------
 
-    names = {
+def midi_to_number(pitch):
+
+    # C major
+    scale = {
         0:"1",
-        1:"#1",
         2:"2",
-        3:"#2",
         4:"3",
         5:"4",
-        6:"#4",
         7:"5",
-        8:"#5",
         9:"6",
-        10:"#6",
         11:"7"
     }
 
-    octave = p // 12
+    pc = pitch.pitchClass
 
-    return names[p % 12], octave
+    return scale.get(pc,"0")
 
 
 
-def convert(mid,out):
+# -------------------------
+# extract melody
+# -------------------------
 
-    print(VERSION)
-
-    midi = converter.parse(mid)
-
+def extract_melody(score):
 
     notes=[]
 
 
-    for n in midi.recurse().notes:
+    for n in score.recurse():
 
         if isinstance(n,note.Note):
 
             notes.append(n)
 
+
+        elif isinstance(n,chord.Chord):
+
+            # take highest note
+            notes.append(
+                n.sortAscending()[-1]
+            )
+
+
+    return notes
+
+
+
+
+# -------------------------
+# build jianpu
+# -------------------------
+
+def build_jianpu(notes):
+
+    result=[]
+
+    beat=0
+
+
+    for n in notes:
+
+        num=midi_to_number(n)
+
+
+        q=float(
+            n.duration.quarterLength
+        )
+
+
+        length,mark=quantize(q)
+
+
+        result.append(
+            num+mark
+        )
+
+
+        beat+=length
+
+
+        # force 4/4
+        if beat>=4:
+
+            result.append("|")
+
+            beat=0
+
+
+
+    return " ".join(result)
+
+
+
+
+# -------------------------
+# main
+# -------------------------
+
+def convert(inp,out):
+
+    print(VERSION)
+
+    score=converter.parse(inp)
+
+
+    notes=extract_melody(score)
 
 
     print(
@@ -73,73 +147,7 @@ def convert(mid,out):
     )
 
 
-    ly=[]
-
-
-    ly.append(
-"""
-\\version "2.24.0"
-
-\\header {
- title = "Jianpu V85"
-}
-
-melody = {
-
-\\time 4/4
-
-"""
-    )
-
-
-    beat=0
-
-
-    for n in notes:
-
-
-        num,octave=pitch_to_number(
-            n.pitch.midi
-        )
-
-
-        dur=duration_to_ly(
-            float(n.duration.quarterLength)
-        )
-
-
-        ly.append(
-            num+dur+" "
-        )
-
-
-        beat += float(
-            n.duration.quarterLength
-        )
-
-
-        # 自動小節
-        if beat >=4:
-
-            ly.append("| ")
-
-            beat=0
-
-
-
-    ly.append(
-"""
-}
-
-\\score {
- <<
-  \\new Staff {
-   \\melody
-  }
- >>
-}
-"""
-    )
+    text=build_jianpu(notes)
 
 
     with open(
@@ -148,19 +156,23 @@ melody = {
         encoding="utf8"
     ) as f:
 
-        f.write(
-            "".join(ly)
-        )
+        f.write(text)
 
 
-    print(
-        "DONE",
-        out
-    )
+    print("DONE")
+    print(out)
 
 
 
 if __name__=="__main__":
+
+    if len(sys.argv)<3:
+
+        print(
+        "python midi_to_jianpu.py input.mid output.txt"
+        )
+
+        exit()
 
 
     convert(
