@@ -1,21 +1,26 @@
 from music21 import converter, stream, note, meter
 import copy
 import sys
+import xml.etree.ElementTree as ET
 
 
-VERSION="######## USING V84 HARD QUANTIZE CLEANER ########"
+VERSION = "######## USING V84 PURE JIANPU XML SANITIZER ########"
 
 
-GRID=[
+# jianpu_ly 最安全節奏
+GRID = [
     4.0,
     2.0,
     1.0,
     0.5,
-    0.25
+    0.25,
+    0.125
 ]
 
 
-def qdur(x):
+def quantize(x):
+
+    x=float(x)
 
     return min(
         GRID,
@@ -23,25 +28,47 @@ def qdur(x):
     )
 
 
-def clean_notes(score):
+
+def extract_clean(score):
+
+    print("extract notes")
 
     result=[]
+
 
     for n in score.recurse().notesAndRests:
 
         x=copy.deepcopy(n)
 
 
-        if hasattr(x,"expressions"):
-            x.expressions=[]
+        # remove all notation
 
-        if hasattr(x,"lyrics"):
-            x.lyrics=[]
+        x.expressions=[]
+
+        x.articulations=[]
+
+        x.lyrics=[]
+
+        x.tie=None
 
 
-        x.duration.quarterLength=qdur(
-            float(x.duration.quarterLength)
+        # remove voice
+
+        if hasattr(x,"voice"):
+            x.voice=None
+
+
+
+        dur=float(
+            x.duration.quarterLength
         )
+
+
+        if dur<=0:
+            continue
+
+
+        x.duration.quarterLength = quantize(dur)
 
 
         result.append(x)
@@ -51,66 +78,93 @@ def clean_notes(score):
 
 
 
-def rebuild(notes):
 
-    print("V84 rebuild")
+def rebuild_score(notes):
 
-    s=stream.Score()
+    print("PURE REBUILD")
 
-    p=stream.Part()
 
-    p.append(
+    score=stream.Score()
+
+    part=stream.Part()
+
+
+    part.insert(
+        0,
         meter.TimeSignature("4/4")
     )
 
 
-    m=stream.Measure(1)
+    measure_no=1
 
-    beat=0
-    num=1
+    measure=stream.Measure(
+        number=measure_no
+    )
+
+
+    beat=0.0
+
 
 
     for n in notes:
 
-        dur=float(
+
+        remain_note=float(
             n.duration.quarterLength
         )
 
 
-        while dur>0:
+        while remain_note>0:
 
 
-            remain=4-beat
+            space=4.0-beat
 
 
             take=min(
-                dur,
-                remain
+                space,
+                remain_note
             )
 
 
-            nn=copy.deepcopy(n)
-
-            nn.duration.quarterLength=take
+            new=copy.deepcopy(n)
 
 
-            m.append(nn)
+            new.duration.quarterLength=take
+
+
+            # remove offset
+
+            new.offset=0
+
+
+            measure.append(new)
+
 
             beat+=take
-            dur-=take
+
+            remain_note-=take
 
 
 
-            if beat>=4-0.0001:
+            if beat>=3.999:
 
-                p.append(m)
 
-                num+=1
+                part.append(measure)
 
-                m=stream.Measure(num)
+
+                measure_no+=1
+
+
+                measure=stream.Measure(
+                    number=measure_no
+                )
+
 
                 beat=0
 
+
+
+    # last measure fill
 
 
     if beat>0:
@@ -119,32 +173,36 @@ def rebuild(notes):
 
         r.duration.quarterLength=4-beat
 
-        m.append(r)
-
-        p.append(m)
+        measure.append(r)
 
 
-
-    s.append(p)
-
-
-    return s
+        part.append(measure)
 
 
 
-def check(s):
-
-    print("V84 CHECK")
+    score.append(part)
 
 
-    for m in s.parts[0].getElementsByClass(
+    return score
+
+
+
+
+def check(score):
+
+    print("FINAL CHECK")
+
+
+    for m in score.parts[0].getElementsByClass(
         "Measure"
     ):
+
 
         total=sum(
             float(x.duration.quarterLength)
             for x in m.notesAndRests
         )
+
 
         print(
             "Measure",
@@ -156,28 +214,90 @@ def check(s):
         if abs(total-4)>0.001:
 
             raise Exception(
-                "BAD "+str(m.number)
+                "BAD MEASURE "
+                +str(m.number)
             )
 
 
-    print("V84 SAFE")
+    print("ALL MEASURES SAFE")
 
 
 
-def run(inp,out):
 
+def sanitize_xml(path):
+
+    print("sanitize xml")
+
+
+    tree=ET.parse(path)
+
+    root=tree.getroot()
+
+
+    # force divisions
+
+    for d in root.iter():
+
+        if d.tag.endswith("divisions"):
+
+            d.text="4"
+
+
+
+    # remove unwanted tags
+
+    remove_tags=[
+        "beam",
+        "tie",
+        "notations",
+        "voice",
+        "backup",
+        "forward"
+    ]
+
+
+    for parent in root.iter():
+
+        for child in list(parent):
+
+            tag=child.tag.split("}")[-1]
+
+            if tag in remove_tags:
+
+                parent.remove(child)
+
+
+
+    tree.write(
+        path,
+        encoding="utf-8",
+        xml_declaration=True
+    )
+
+
+
+
+def clean(inp,out):
+
+
+    print("================")
     print(VERSION)
+    print("================")
+
 
     old=converter.parse(inp)
 
 
-    notes=clean_notes(old)
+    notes=extract_clean(old)
 
 
-    new=rebuild(notes)
+    new=rebuild_score(notes)
 
 
     check(new)
+
+
+    print("WRITE")
 
 
     new.write(
@@ -186,13 +306,29 @@ def run(inp,out):
     )
 
 
-    print("DONE",out)
+    sanitize_xml(out)
+
+
+    print("DONE")
+    print(out)
+
+
 
 
 
 if __name__=="__main__":
 
-    run(
+
+    if len(sys.argv)<3:
+
+        print(
+            "python clean_musicxml.py input.musicxml output.musicxml"
+        )
+
+        sys.exit()
+
+
+    clean(
         sys.argv[1],
         sys.argv[2]
     )
