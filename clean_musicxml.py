@@ -3,8 +3,8 @@ import sys
 
 
 print("==============================")
-print("CLEAN MUSICXML V29")
-print("REBUILD MEASURE STABLE 4/4")
+print("CLEAN MUSICXML V30")
+print("FINAL BAR NORMALIZE JIANPU FIX")
 print("==============================")
 
 
@@ -22,22 +22,13 @@ print("read")
 src = converter.parse(input_file)
 
 
-# =========================
-# create new score
-# =========================
-
 new_score = stream.Score()
 
 
-# =========================
-# process parts
-# =========================
 
 for src_part in src.parts:
 
-
     print("process part")
-
 
     new_part = stream.Part()
 
@@ -51,36 +42,31 @@ for src_part in src.parts:
     notes = []
 
 
-    # collect notes
     for n in src_part.recurse().notesAndRests:
 
 
-        # remove chord
+        # chord -> first note
+
         if isinstance(n, chord.Chord):
 
             if len(n.pitches):
 
-                n = note.Note(
-                    n.pitches[0]
-                )
+                pitch = n.pitches[0]
 
             else:
                 continue
 
+        elif n.isNote:
 
-        if n.isNote:
-
-            new_n = note.Note(
-                n.pitch
-            )
+            pitch = n.pitch
 
         else:
 
-            new_n = note.Rest()
+            pitch = None
 
 
 
-        # quantize duration
+        # quantize
 
         q = round(
             float(n.duration.quarterLength) / 0.25
@@ -88,30 +74,39 @@ for src_part in src.parts:
 
 
         if q <= 0:
+
             q = 0.25
 
 
-        new_n.duration.quarterLength = q
+
+        if pitch:
+
+            nn = note.Note(
+                pitch,
+                quarterLength=q
+            )
+
+        else:
+
+            nn = note.Rest(
+                quarterLength=q
+            )
 
 
-        new_n.tie = None
-        new_n.beams = []
+        nn.tie = None
+        nn.beams = []
 
 
-        notes.append(new_n)
+        notes.append(nn)
 
 
-
-    # =========================
-    # rebuild measures
-    # =========================
 
     print("rebuild measures")
 
 
     measure_no = 1
 
-    current_measure = stream.Measure(
+    m = stream.Measure(
         number=measure_no
     )
 
@@ -123,59 +118,55 @@ for src_part in src.parts:
     for n in notes:
 
 
-        length = float(
+        remain_note = float(
             n.duration.quarterLength
         )
 
 
-        while length > 0:
+        while remain_note > 0:
 
 
-            remain = 4 - pos
+            remain_bar = 4 - pos
 
 
             take = min(
-                length,
-                remain
+                remain_note,
+                remain_bar
             )
 
 
             if n.isRest:
 
-                nn = note.Rest(
+                x = note.Rest(
                     quarterLength=take
                 )
 
             else:
 
-                nn = note.Note(
+                x = note.Note(
                     n.pitch,
                     quarterLength=take
                 )
 
 
-            current_measure.append(nn)
+            m.append(x)
 
 
             pos += take
-            length -= take
+            remain_note -= take
 
 
-
-            # measure full
 
             if abs(pos-4) < 0.001:
 
 
-                new_part.append(
-                    current_measure
-                )
+                new_part.append(m)
 
 
                 measure_no += 1
 
 
-                current_measure = stream.Measure(
+                m = stream.Measure(
                     number=measure_no
                 )
 
@@ -184,23 +175,18 @@ for src_part in src.parts:
 
 
 
-    # =========================
-    # fill last measure
-    # =========================
+    # last measure
 
     if pos > 0:
 
-
-        current_measure.append(
+        m.append(
             note.Rest(
                 quarterLength=4-pos
             )
         )
 
+        new_part.append(m)
 
-        new_part.append(
-            current_measure
-        )
 
 
     new_score.append(
@@ -210,13 +196,102 @@ for src_part in src.parts:
 
 
 # =========================
-# final notation
+# FINAL BAR NORMALIZE
 # =========================
 
-print("notation rebuild")
+print("FINAL BAR NORMALIZE")
 
 
 for part in new_score.parts:
+
+
+    for m in list(
+        part.getElementsByClass(stream.Measure)
+    ):
+
+
+        total = sum(
+            float(x.duration.quarterLength)
+            for x in m.notesAndRests
+        )
+
+
+        print(
+            "CHECK BAR",
+            m.number,
+            total
+        )
+
+
+        # too long
+
+        if total > 4.0:
+
+
+            overflow = total - 4.0
+
+
+            for x in reversed(
+                list(m.notesAndRests)
+            ):
+
+
+                if overflow <= 0:
+                    break
+
+
+                d = float(
+                    x.duration.quarterLength
+                )
+
+
+                cut = min(
+                    d,
+                    overflow
+                )
+
+
+                remain = d-cut
+
+
+                if remain <= 0:
+
+                    m.remove(x)
+
+                else:
+
+                    x.duration.quarterLength = remain
+
+
+                overflow -= cut
+
+
+
+        # too short
+
+        elif total < 4.0:
+
+
+            m.append(
+                note.Rest(
+                    quarterLength=4-total
+                )
+            )
+
+
+
+# =========================
+# notation
+# =========================
+
+print("clear notation cache")
+
+
+for part in new_score.parts:
+
+    part.makeMeasures(
+        inPlace=True
+    )
 
     part.makeNotation(
         inPlace=True
@@ -225,7 +300,7 @@ for part in new_score.parts:
 
 
 # =========================
-# check
+# FINAL CHECK
 # =========================
 
 print("FINAL CHECK")
@@ -263,15 +338,11 @@ for part in new_score.parts:
 
 if bad:
 
-    print(
-        "WARNING measure mismatch"
-    )
+    print("WARNING measure mismatch")
 
 else:
 
-    print(
-        "ALL MEASURES SAFE"
-    )
+    print("ALL MEASURES SAFE")
 
 
 
