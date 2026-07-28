@@ -1,5 +1,6 @@
 from fastapi import FastAPI, UploadFile, File
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, JSONResponse
+
 import os
 import uuid
 import subprocess
@@ -12,7 +13,12 @@ app = FastAPI()
 BASE = "/app/outputs"
 
 
+os.makedirs(BASE, exist_ok=True)
+
+
+
 def run(cmd):
+
     print("RUN:", " ".join(cmd))
 
     result = subprocess.run(
@@ -31,28 +37,15 @@ def run(cmd):
 
 
 
+
 @app.get("/")
 def home():
 
-    return HTMLResponse("""
-    <html>
-    <body>
+    return {
+        "name":"JianpuTool",
+        "status":"running"
+    }
 
-    <h2>JianpuTool 簡譜產生器</h2>
-
-    <form action="/upload" method="post" enctype="multipart/form-data">
-
-    <input type="file" name="file">
-
-    <button type="submit">
-    上傳 MP3
-    </button>
-
-    </form>
-
-    </body>
-    </html>
-    """)
 
 
 
@@ -60,32 +53,32 @@ def home():
 async def upload(file: UploadFile = File(...)):
 
 
-    job = str(uuid.uuid4())
+    task_id = str(uuid.uuid4())
 
-    outdir = os.path.join(
+
+    work = os.path.join(
         BASE,
-        job
+        task_id
     )
 
-    os.makedirs(
-        outdir,
-        exist_ok=True
-    )
+
+    os.makedirs(work, exist_ok=True)
 
 
     print("====================")
-    print("開始任務:", job)
-    print("收到:", file.filename)
+    print("開始任務:",task_id)
+    print("收到:",file.filename)
 
 
 
     mp3 = os.path.join(
-        outdir,
+        work,
         file.filename
     )
 
 
     with open(mp3,"wb") as f:
+
         shutil.copyfileobj(
             file.file,
             f
@@ -93,19 +86,16 @@ async def upload(file: UploadFile = File(...)):
 
 
     print("MP3保存完成")
-    print(mp3)
 
 
-
-    # =====================
-    # MP3 -> MIDI
-    # =====================
 
     midi = os.path.join(
-        outdir,
+        work,
         "melody.mid"
     )
 
+
+    # MP3 -> MIDI
 
     run([
         "python",
@@ -119,15 +109,13 @@ async def upload(file: UploadFile = File(...)):
 
 
 
-    # =====================
-    # MIDI -> MusicXML
-    # =====================
-
     musicxml = os.path.join(
-        outdir,
+        work,
         "input.musicxml"
     )
 
+
+    # MIDI -> MusicXML
 
     run([
         "python",
@@ -141,15 +129,13 @@ async def upload(file: UploadFile = File(...)):
 
 
 
-    # =====================
-    # CLEAN
-    # =====================
-
     clean = os.path.join(
-        outdir,
+        work,
         "clean.musicxml"
     )
 
+
+    # MusicXML清理
 
     run([
         "python",
@@ -163,35 +149,33 @@ async def upload(file: UploadFile = File(...)):
 
 
 
-    # =====================
-    # FORCE FIX MEASURE
-    # =====================
-
     safe = os.path.join(
-        outdir,
-        "safe.musicxml"
+        work,
+        "jianpu_safe.musicxml"
     )
 
 
+    # ★ 最後 jianpu_ly 前處理
+
     run([
         "python",
-        "force_fix_measure.py",
+        "jianpu_preprocess.py",
         clean,
         safe
     ])
 
 
-    print("小節修正完成")
+
+    print("CHECK jianpu input:")
+    print(safe)
 
 
 
-    # =====================
-    # MUSICXML -> LY
-    # =====================
+    # MusicXML -> LilyPond
 
     ly = os.path.join(
-        outdir,
-        "jianpu.ly"
+        work,
+        "output.ly"
     )
 
 
@@ -211,48 +195,50 @@ async def upload(file: UploadFile = File(...)):
     print(result.stdout)
 
 
+
     if result.returncode != 0:
 
-        return {
-            "error":
-            "jianpu_ly failed",
-            "log":
-            result.stdout
-        }
+        return JSONResponse(
+            {
+                "error":"jianpu_ly失敗",
+                "log":result.stdout
+            }
+        )
 
 
 
-    print("LY完成")
+    # 找 ly
 
+    for f in os.listdir(work):
 
+        if f.endswith(".ly"):
 
-    # =====================
-    # Lilypond PDF
-    # =====================
+            ly=os.path.join(
+                work,
+                f
+            )
 
-    run([
-        "lilypond",
-        "-o",
-        os.path.join(outdir,"jianpu"),
-        ly
-    ])
 
 
     pdf = os.path.join(
-        outdir,
+        work,
         "jianpu.pdf"
     )
 
 
-    if os.path.exists(pdf):
+    # LilyPond PDF
 
-        return FileResponse(
-            pdf,
-            media_type="application/pdf"
-        )
+    run([
+        "lilypond",
+        "-o",
+        pdf.replace(".pdf",""),
+        ly
+    ])
 
 
-    return {
-        "status":"完成",
-        "folder":outdir
-    }
+
+    return FileResponse(
+        pdf,
+        media_type="application/pdf",
+        filename="jianpu.pdf"
+    )
