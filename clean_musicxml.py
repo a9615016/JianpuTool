@@ -1,72 +1,47 @@
 from music21 import converter, stream, note, meter
+import copy
 import sys
 
-VERSION = "CLEAN MUSICXML V83.2 PURE TIMELINE REBUILD FINAL"
+
+VERSION="######## USING V84 HARD QUANTIZE CLEANER ########"
 
 
-# ==========================
-# duration quantize
-# ==========================
+GRID=[
+    4.0,
+    2.0,
+    1.0,
+    0.5,
+    0.25
+]
 
-def quantize_duration(d):
 
-    values = [
-        4.0,
-        2.0,
-        1.0,
-        0.5,
-        0.25,
-        0.125
-    ]
-
-    x = float(d)
+def qdur(x):
 
     return min(
-        values,
-        key=lambda v: abs(v-x)
+        GRID,
+        key=lambda y:abs(y-x)
     )
 
 
-
-# ==========================
-# recreate note
-# ==========================
-
-def clone_note(n):
-
-    if n.isRest:
-
-        x = note.Rest()
-
-    else:
-
-        x = note.Note(
-            n.pitch
-        )
-
-
-    x.duration.quarterLength = quantize_duration(
-        n.duration.quarterLength
-    )
-
-
-    return x
-
-
-
-# ==========================
-# extract clean notes
-# ==========================
-
-def extract_notes(score):
+def clean_notes(score):
 
     result=[]
 
-
     for n in score.recurse().notesAndRests:
 
+        x=copy.deepcopy(n)
 
-        x = clone_note(n)
+
+        if hasattr(x,"expressions"):
+            x.expressions=[]
+
+        if hasattr(x,"lyrics"):
+            x.lyrics=[]
+
+
+        x.duration.quarterLength=qdur(
+            float(x.duration.quarterLength)
+        )
 
 
         result.append(x)
@@ -76,159 +51,100 @@ def extract_notes(score):
 
 
 
+def rebuild(notes):
 
-# ==========================
-# rebuild timeline
-# ==========================
+    print("V84 rebuild")
 
-def rebuild_timeline(notes):
+    s=stream.Score()
 
-    print(
-        "######## USING V83.2 CLEANER ########"
-    )
+    p=stream.Part()
 
-
-    score = stream.Score()
-
-    part = stream.Part()
-
-
-    part.insert(
-        0,
+    p.append(
         meter.TimeSignature("4/4")
     )
 
 
-    measure_no = 1
+    m=stream.Measure(1)
 
-    measure = stream.Measure(
-        number=measure_no
-    )
-
-
-    beat = 0.0
-
+    beat=0
+    num=1
 
 
     for n in notes:
 
-
-        dur = float(
+        dur=float(
             n.duration.quarterLength
         )
 
 
-        while beat + dur > 4.0:
+        while dur>0:
 
 
-            remain = 4.0 - beat
+            remain=4-beat
 
 
-            if remain > 0:
-
-
-                x = clone_note(n)
-
-                x.duration.quarterLength = remain
-
-                measure.insert(
-                    beat,
-                    x
-                )
-
-
-            part.append(
-                measure
+            take=min(
+                dur,
+                remain
             )
 
 
-            measure_no += 1
+            nn=copy.deepcopy(n)
+
+            nn.duration.quarterLength=take
 
 
-            measure = stream.Measure(
-                number=measure_no
-            )
+            m.append(nn)
 
-
-            beat = 0.0
-
-
-            dur -= remain
+            beat+=take
+            dur-=take
 
 
 
-        if dur > 0:
+            if beat>=4-0.0001:
 
+                p.append(m)
 
-            x = clone_note(n)
+                num+=1
 
-            x.duration.quarterLength = dur
+                m=stream.Measure(num)
 
-
-            measure.insert(
-                beat,
-                x
-            )
-
-
-            beat += dur
+                beat=0
 
 
 
+    if beat>0:
 
-    # last measure rest
+        r=note.Rest()
 
-    if beat < 4:
+        r.duration.quarterLength=4-beat
 
-        r = note.Rest()
+        m.append(r)
 
-        r.duration.quarterLength = (
-            4-beat
-        )
-
-        measure.insert(
-            beat,
-            r
-        )
-
-
-    part.append(
-        measure
-    )
-
-
-    score.append(
-        part
-    )
-
-
-    return score
+        p.append(m)
 
 
 
-
-# ==========================
-# final check
-# ==========================
-
-def check(score):
+    s.append(p)
 
 
-    print(
-        "FINAL CHECK"
-    )
+    return s
 
 
-    for m in score.parts[0].getElementsByClass(
+
+def check(s):
+
+    print("V84 CHECK")
+
+
+    for m in s.parts[0].getElementsByClass(
         "Measure"
     ):
-
 
         total=sum(
             float(x.duration.quarterLength)
             for x in m.notesAndRests
         )
-
 
         print(
             "Measure",
@@ -237,108 +153,46 @@ def check(score):
         )
 
 
-        if abs(total-4.0)>0.001:
+        if abs(total-4)>0.001:
 
             raise Exception(
-                f"BAD MEASURE {m.number} {total}"
+                "BAD "+str(m.number)
             )
 
 
-    print(
-        "ALL MEASURES SAFE"
-    )
+    print("V84 SAFE")
 
 
 
+def run(inp,out):
 
-# ==========================
-# clean
-# ==========================
-
-def clean(inp,out):
-
-
-    print("================")
     print(VERSION)
-    print("================")
+
+    old=converter.parse(inp)
 
 
-    print("read")
-
-    old = converter.parse(
-        inp
-    )
+    notes=clean_notes(old)
 
 
-    print("extract pure notes")
+    new=rebuild(notes)
 
 
-    notes = extract_notes(
-        old
-    )
+    check(new)
 
 
-    print("rebuild pure timeline")
-
-
-    score = rebuild_timeline(
-        notes
-    )
-
-
-    print(
-        "FORCE MAKE MEASURES"
-    )
-
-
-    score = score.makeMeasures(
-        inPlace=False
-    )
-
-
-    score.stripTies(
-        inPlace=True
-    )
-
-
-    check(
-        score
-    )
-
-
-    print(
-        "FINAL WRITE"
-    )
-
-
-    score.write(
+    new.write(
         "musicxml",
         fp=out
     )
 
 
-    print(
-        "DONE"
-    )
-
-    print(out)
-
+    print("DONE",out)
 
 
 
 if __name__=="__main__":
 
-
-    if len(sys.argv)<3:
-
-        print(
-            "python clean_musicxml.py input.musicxml output.musicxml"
-        )
-
-        sys.exit()
-
-
-    clean(
+    run(
         sys.argv[1],
         sys.argv[2]
     )
