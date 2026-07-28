@@ -1,209 +1,114 @@
 # jianpu_fix_musicxml.py
-# V13 SPLIT ENGINE
-# 修正 jianpu_ly barcheck fail
+# V14 CLEAN REBUILD
+# 目的: 重新建立 jianpu_ly 可以吃的 MusicXML
 
 import sys
-from lxml import etree
-from fractions import Fraction
-
-DIVISIONS = 4
-BEAT = 4
-MEASURE_LEN = 16   # 4/4 = 16 divisions
+import music21 as m21
 
 
-def q_duration(d):
-    """
-    強制量化 duration
-    """
-    allowed = [
-        1,2,4,8,16
-    ]
+def clean_score(input_file, output_file):
 
-    best = min(
-        allowed,
-        key=lambda x: abs(x-d)
+    print("V14 CLEAN REBUILD START")
+
+    score = m21.converter.parse(input_file)
+
+    # 取第一聲部（避免鋼琴左右手造成 jianpu 爆炸）
+    parts = score.parts
+
+    if len(parts) > 1:
+        print("remove extra parts")
+        score = parts[0]
+
+    # 移除所有標記
+    print("remove ties beams slurs")
+
+    for n in score.recurse().notes:
+
+        # tie
+        n.tie = None
+
+        # beams
+        try:
+            n.beams = m21.beam.Beams()
+        except:
+            pass
+
+        # articulation
+        n.articulations = []
+
+        # lyric
+        n.lyric = None
+
+
+    # 移除休止特殊標記
+    for r in score.recurse().rests:
+        r.lyric = None
+
+
+    print("flatten duration")
+
+    # 重新量化節奏
+    score = score.quantize(
+        quarterLengthDivisors=[
+            4,8,16
+        ]
     )
 
-    return best
 
+    print("rebuild measures")
 
-def remove_tag(root, tag):
+    # 強制4/4
+    ts = m21.meter.TimeSignature("4/4")
 
-    for e in root.xpath(f".//{{*}}{tag}"):
-        parent=e.getparent()
-        if parent is not None:
-            parent.remove(e)
+    for p in score.parts:
 
+        p.insert(0, ts)
 
-def fix_duration(root):
+        measures = p.makeMeasures()
 
-    for note in root.xpath(".//{{*}}note"):
+        p.removeByClass('Measure')
 
-        dur = note.find(".//{*}duration")
-
-        if dur is None:
-            continue
-
-        try:
-            value=int(dur.text)
-        except:
-            continue
-
-
-        new=q_duration(value)
-
-        dur.text=str(new)
-
-
-
-def split_measure_notes(root):
-
-    """
-    重新按照4/4切割
-    """
-
-    notes=root.xpath(".//{{*}}note")
-
-
-    pos=0
-
-
-    for note in notes:
-
-        dur=note.find(".//{*}duration")
-
-        if dur is None:
-            continue
-
-
-        d=int(dur.text)
-
-
-        # 超過小節
-        if pos+d > MEASURE_LEN:
-
-            remain=MEASURE_LEN-pos
-
-
-            if remain>0:
-
-                dur.text=str(remain)
-
-
-            # 剩餘部分
-            left=d-remain
-
-
-            if left>0:
-
-                clone=etree.fromstring(
-                    etree.tostring(note)
-                )
-
-                clone.find(".//{*}duration").text=str(left)
-
-                note.addnext(clone)
-
-
-            pos=left
-
-
-        else:
-
-            pos+=d
-
-
-        if pos>=MEASURE_LEN:
-            pos=0
-
-
-
-def rebuild_measures(root):
-
-    """
-    重新檢查小節長度
-    """
-
-    measures=root.xpath(".//{{*}}measure")
-
-
-    for i,m in enumerate(measures,1):
-
-        total=0
-
-        for d in m.xpath(".//{{*}}duration"):
-
-            try:
-                total+=int(d.text)
-
-            except:
-                pass
-
-
-        print(
-            "Measure",
-            i,
-            total/4
-        )
-
-
-def main():
-
-    if len(sys.argv)<3:
-
-        print(
-            "python jianpu_fix_musicxml.py input.musicxml output.musicxml"
-        )
-        return
-
-
-    inp=sys.argv[1]
-    out=sys.argv[2]
-
-
-    tree=etree.parse(inp)
-
-    root=tree.getroot()
-
-
-    print("remove chords")
-    remove_tag(root,"chord")
-
-
-    print("remove beams")
-    remove_tag(root,"beam")
-
-
-    print("remove ties")
-    remove_tag(root,"tie")
-
-
-    print("quantize duration")
-
-    fix_duration(root)
-
-
-    print("split cross measure notes")
-
-    split_measure_notes(root)
+        for m in measures:
+            p.append(m)
 
 
     print("FINAL CHECK")
 
-    rebuild_measures(root)
+    for i,m in enumerate(score.parts[0].getElementsByClass(
+        'Measure'
+    )):
+
+        dur = m.duration.quarterLength
+
+        print(
+            "Measure",
+            i+1,
+            float(dur)
+        )
 
 
-    tree.write(
-        out,
-        encoding="UTF-8",
-        xml_declaration=True
+    print("WRITE")
+
+    score.write(
+        "musicxml",
+        fp=output_file
     )
 
-
     print("DONE")
-    print(out)
+    print(output_file)
 
 
 
-if __name__=="__main__":
-    main()
+if __name__ == "__main__":
+
+    if len(sys.argv)<3:
+        print(
+        "usage: python jianpu_fix_musicxml.py input.musicxml output.musicxml"
+        )
+        exit()
+
+
+    clean_score(
+        sys.argv[1],
+        sys.argv[2]
+    )
