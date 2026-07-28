@@ -1,135 +1,303 @@
-# clean_midi.py
-# MIDI cleanup for BasicPitch -> MusicXML -> Jianpu
-
 from mido import MidiFile, MidiTrack, Message, MetaMessage
 import sys
-import os
 
 
-PPQ = 480
-BAR_LENGTH = 4   # 4/4
-GRID = 0.25      # quarter note subdivision
+print("==============================")
+print("CLEAN MIDI V1")
+print("BASIC PITCH JIANPU FIX")
+print("==============================")
 
 
-def quantize_time(ticks):
-    beat = ticks / PPQ
-    beat = round(beat / GRID) * GRID
-    return int(round(beat * PPQ))
+if len(sys.argv) < 3:
+    print(
+        "python clean_midi.py input.mid output.mid"
+    )
+    sys.exit()
 
 
-def clean_midi(input_file, output_file):
+input_file = sys.argv[1]
+output_file = sys.argv[2]
 
-    mid = MidiFile(input_file)
 
-    new_mid = MidiFile(
-        type=1,
-        ticks_per_beat=PPQ
+print("read midi")
+
+mid = MidiFile(input_file)
+
+
+ticks = mid.ticks_per_beat
+
+
+print("ticks per beat:", ticks)
+
+
+# =========================
+# collect notes
+# =========================
+
+notes = []
+
+current_time = 0
+
+active = {}
+
+
+print("collect notes")
+
+
+for track in mid.tracks:
+
+    current_time = 0
+
+    for msg in track:
+
+        current_time += msg.time
+
+
+        if msg.type == "note_on" and msg.velocity > 0:
+
+            active[msg.note] = (
+                current_time,
+                msg.velocity
+            )
+
+
+        elif (
+            msg.type == "note_off"
+            or (
+                msg.type == "note_on"
+                and msg.velocity == 0
+            )
+        ):
+
+            if msg.note in active:
+
+                start, velocity = active.pop(
+                    msg.note
+                )
+
+                duration = (
+                    current_time - start
+                )
+
+
+                notes.append(
+                    [
+                        msg.note,
+                        start,
+                        duration,
+                        velocity
+                    ]
+                )
+
+
+
+print(
+    "notes:",
+    len(notes)
+)
+
+
+
+# =========================
+# remove short notes
+# =========================
+
+print("remove short notes")
+
+
+clean = []
+
+
+min_length = ticks / 8
+
+
+for n in notes:
+
+    if n[2] >= min_length:
+
+        clean.append(n)
+
+
+
+notes = clean
+
+
+
+# =========================
+# quantize
+# =========================
+
+print("quantize")
+
+
+grid = ticks / 4
+
+
+for n in notes:
+
+
+    # start
+
+    n[1] = round(
+        n[1] / grid
+    ) * grid
+
+
+
+    # duration
+
+    n[2] = round(
+        n[2] / grid
+    ) * grid
+
+
+
+    if n[2] <= 0:
+
+        n[2] = grid
+
+
+
+# =========================
+# remove overlap
+# =========================
+
+print("remove overlap")
+
+
+notes.sort(
+    key=lambda x:x[1]
+)
+
+
+last_end = -1
+
+
+final_notes=[]
+
+
+for n in notes:
+
+
+    if n[1] < last_end:
+
+        n[1] = last_end
+
+
+
+    final_notes.append(n)
+
+
+    last_end = (
+        n[1]+n[2]
     )
 
-    for track in mid.tracks:
-
-        new_track = MidiTrack()
-        new_mid.tracks.append(new_track)
-
-        abs_time = 0
-        events = []
-
-        for msg in track:
-
-            abs_time += msg.time
-
-            if msg.type == "note_on" and msg.velocity > 0:
-
-                qtime = quantize_time(abs_time)
-
-                events.append(
-                    (
-                        qtime,
-                        msg.note,
-                        msg.velocity
-                    )
-                )
-
-        # 建立新的 MIDI
-        last_time = 0
-
-        for start, note, velocity in events:
-
-            delta = start - last_time
-
-            new_track.append(
-                Message(
-                    "note_on",
-                    note=note,
-                    velocity=velocity,
-                    time=delta
-                )
-            )
-
-            # 固定八分音符長度
-            length = int(PPQ * 0.5)
-
-            new_track.append(
-                Message(
-                    "note_off",
-                    note=note,
-                    velocity=0,
-                    time=length
-                )
-            )
-
-            last_time = start + length
 
 
-        # 結尾
-        new_track.append(
-            MetaMessage(
-                "end_of_track",
+notes = final_notes
+
+
+
+# =========================
+# create midi
+# =========================
+
+print("write midi")
+
+
+out = MidiFile(
+    ticks_per_beat=ticks
+)
+
+
+track = MidiTrack()
+
+out.tracks.append(track)
+
+
+
+# tempo
+
+track.append(
+    MetaMessage(
+        "set_tempo",
+        tempo=500000,
+        time=0
+    )
+)
+
+
+
+events=[]
+
+
+for pitch,start,duration,velocity in notes:
+
+
+    events.append(
+        (
+            start,
+            Message(
+                "note_on",
+                note=int(pitch),
+                velocity=int(velocity),
                 time=0
             )
         )
-
-
-    # 加入 4/4
-    meta = MidiTrack()
-    new_mid.tracks.insert(0, meta)
-
-    meta.append(
-        MetaMessage(
-            "time_signature",
-            numerator=4,
-            denominator=4,
-            clocks_per_click=24,
-            notated_32nd_notes_per_beat=8,
-            time=0
-        )
     )
 
-    meta.append(
-        MetaMessage(
-            "end_of_track",
-            time=0
+
+    events.append(
+        (
+            start+duration,
+            Message(
+                "note_off",
+                note=int(pitch),
+                velocity=0,
+                time=0
+            )
         )
     )
 
 
-    new_mid.save(output_file)
 
-    print("Clean MIDI saved:")
-    print(output_file)
-
-
-
-if __name__ == "__main__":
-
-    if len(sys.argv) < 3:
-        print(
-            "Usage: python clean_midi.py input.mid output.mid"
-        )
-        sys.exit(1)
+events.sort(
+    key=lambda x:x[0]
+)
 
 
-    clean_midi(
-        sys.argv[1],
-        sys.argv[2]
+
+last=0
+
+
+for t,msg in events:
+
+    msg.time=int(
+        t-last
     )
+
+    track.append(msg)
+
+    last=t
+
+
+
+track.append(
+    MetaMessage(
+        "end_of_track",
+        time=0
+    )
+)
+
+
+
+out.save(
+    output_file
+)
+
+
+
+print("================")
+print("DONE")
+print(output_file)
+print("================")
