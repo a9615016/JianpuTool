@@ -1,196 +1,165 @@
+from music21 import converter, stream, note, meter, tempo, instrument
 import sys
-from pathlib import Path
-
-from music21 import converter, stream, meter, note, chord, tempo
 
 
-def clean_midi_score(score):
-
-    print("重新整理樂譜...")
-
-    # 建立新的單聲部
-    new_score = stream.Score()
-    part = stream.Part()
-
-    part.insert(0, meter.TimeSignature("4/4"))
-
-    # 加 tempo
-    part.insert(0, tempo.MetronomeMark(number=80))
+print("================")
+print("MIDI TO MUSICXML V4 FINAL JIANPU")
+print("================")
 
 
-    notes = []
-
-    for element in score.flatten().notes:
-
-        # chord 取最高音
-        if isinstance(element, chord.Chord):
-
-            n = element.sortAscending()[0]
-
-            new_note = note.Note(
-                n.pitch,
-                quarterLength=element.duration.quarterLength
-            )
-
-            notes.append(new_note)
+if len(sys.argv) < 3:
+    print(
+        "usage: python midi_to_musicxml.py input.mid output.musicxml"
+    )
+    sys.exit()
 
 
-        elif isinstance(element, note.Note):
-
-            new_note = note.Note(
-                element.pitch,
-                quarterLength=element.duration.quarterLength
-            )
-
-            notes.append(new_note)
+midi_file = sys.argv[1]
+output_file = sys.argv[2]
 
 
-
-    print("原始音符:", len(notes))
-
-
-    # =========================
-    # duration quantize
-    # =========================
-
-    print("duration quantize")
+print("開始 MIDI → MusicXML")
+print("輸入:", midi_file)
 
 
-    allowed = [
-        0.25,
-        0.5,
-        1.0,
-        2.0,
-        4.0
-    ]
+print("讀取 MIDI...")
+
+score = converter.parse(midi_file)
 
 
-    for n in notes:
+# =====================
+# 建立單旋律
+# =====================
 
-        q = n.duration.quarterLength
+print("extract melody...")
 
-        closest = min(
-            allowed,
-            key=lambda x: abs(x-q)
+
+melody = stream.Part()
+
+melody.insert(
+    0,
+    instrument.Vocal()
+)
+
+
+# =====================
+# quantize
+# =====================
+
+print("quantize notes...")
+
+
+notes = []
+
+
+for n in score.recurse().notes:
+
+    if isinstance(n, note.Note):
+
+        pitch = n.pitch
+
+        offset = float(n.offset)
+        dur = float(n.duration.quarterLength)
+
+
+        # 16分音符量化
+        offset = round(offset * 4) / 4
+
+
+        # duration限制
+        if dur < 0.25:
+            dur = 0.25
+
+        dur = round(dur * 4) / 4
+
+
+        nn = note.Note(
+            pitch,
+            quarterLength=dur
         )
 
-        n.duration.quarterLength = closest
+        nn.offset = offset
+
+        notes.append(nn)
 
 
 
-    # =========================
-    # 填入 part
-    # =========================
-
-    current = 0
-
-    for n in notes:
-
-        part.append(n)
-        current += n.duration.quarterLength
+print(
+    "notes:",
+    len(notes)
+)
 
 
-    new_score.append(part)
+
+# =====================
+# 排序
+# =====================
+
+notes.sort(
+    key=lambda x:x.offset
+)
 
 
-    # =========================
-    # rebuild measures
-    # =========================
 
-    print("rebuild measures")
+for n in notes:
 
-    new_score = new_score.makeMeasures(
-        inPlace=False
+    melody.insert(
+        n.offset,
+        n
     )
 
 
-    # =========================
-    # split cross measure
-    # =========================
 
-    print("split cross measure notes")
+# =====================
+# meter
+# =====================
 
-    try:
-        new_score = new_score.makeTies(
-            inPlace=False
-        )
-    except:
-        pass
+print("force 4/4")
 
 
-    return new_score
+melody.insert(
+    0,
+    meter.TimeSignature("4/4")
+)
 
 
 
-def main():
+# =====================
+# measures
+# =====================
 
-    if len(sys.argv) < 3:
-
-        print(
-            "usage:\n"
-            "python midi_to_musicxml_v3.py input.mid output.musicxml"
-        )
-
-        sys.exit(1)
+print("rebuild measures")
 
 
-    input_mid = sys.argv[1]
-    output_xml = sys.argv[2]
+melody.makeMeasures(
+    inPlace=True
+)
 
 
-    print("================")
-    print("MIDI TO MUSICXML V3")
-    print("JIANPU STABLE VERSION")
-    print("================")
+final = stream.Score()
 
-
-    print("輸入 MIDI:")
-    print(input_mid)
-
-
-    print("讀取 MIDI...")
-
-
-    score = converter.parse(
-        input_mid
-    )
-
-
-    score = clean_midi_score(score)
-
-
-    print("FINAL CHECK")
-
-
-    measures = score.parts[0].getElementsByClass(
-        stream.Measure
-    )
-
-
-    for m in measures:
-
-        length = m.duration.quarterLength
-
-        print(
-            "Measure",
-            m.number,
-            length
-        )
-
-
-    print("寫入 MusicXML...")
-
-
-    score.write(
-        "musicxml",
-        fp=output_xml
-    )
-
-
-    print("完成:")
-    print(output_xml)
+final.insert(
+    0,
+    melody
+)
 
 
 
-if __name__ == "__main__":
-    main()
+# =====================
+# cache
+# =====================
+
+final.clearCache()
+
+
+print("寫入 MusicXML...")
+
+
+final.write(
+    "musicxml",
+    fp=output_file
+)
+
+
+print("完成:")
+print(output_file)
