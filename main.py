@@ -47,11 +47,11 @@ async def upload(file: UploadFile = File(...)):
     # CLEAN MUSICXML V40
     # =========================
 
-    cmd_clean = [
-        "python",
-        "clean_musicxmlv40.py",
-        input_musicxml,
-        clean_musicxml
+    cmd = [
+    "python",
+    "clean_musicxmlv40.py",
+    input_xml,
+    clean_xml
     ]
 
     print("RUN:", " ".join(cmd_clean))
