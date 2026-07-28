@@ -1,62 +1,31 @@
-from music21 import converter, stream, note, meter, chord, duration
+from music21 import converter, stream, note, chord, meter, duration
 import sys
-import os
+import copy
 
 
-VERSION = "CLEAN MUSICXML V26 FINAL HARD FIX JIANPU"
+print("================")
+print("CLEAN MUSICXML V27 FINAL SPLIT NOTE HARD FIX")
+print("================")
 
 
-def remove_bad_elements(score):
-
-    print("remove voices")
+def remove_chords(score):
+    print("remove chords")
 
     for part in score.parts:
-        for el in list(part.recurse()):
-            if isinstance(el, chord.Chord):
-                n = el.sortAscending().notes[-1]
-                n.duration = el.duration
-                el.activeSite.replace(el, n)
+        for c in list(part.recurse().getElementsByClass('Chord')):
+            n = note.Note(c.root())
+            n.duration = c.duration
+            c.activeSite.replace(c, n)
 
-    print("remove chords")
-    print("remove beams")
+
+def remove_ties(score):
     print("remove ties")
 
-
     for n in score.recurse().notes:
-
-        try:
-            n.tie = None
-        except:
-            pass
-
-        try:
-            n.beams = []
-        except:
-            pass
+        n.tie = None
 
 
-def force_44(score):
-
-    print("force 4/4")
-
-    for part in score.parts:
-
-        ts = part.recurse().getElementsByClass(
-            meter.TimeSignature
-        )
-
-        if len(ts):
-            ts[0].ratioString = "4/4"
-
-        else:
-            part.insert(
-                0,
-                meter.TimeSignature("4/4")
-            )
-
-
-def quantize(score):
-
+def quantize_duration(score):
     print("duration quantize")
 
     allowed = [
@@ -68,8 +37,7 @@ def quantize(score):
         0.125
     ]
 
-    for n in score.recurse().notes:
-
+    for n in score.recurse().notesAndRests:
         q = n.duration.quarterLength
 
         best = min(
@@ -77,149 +45,90 @@ def quantize(score):
             key=lambda x: abs(x-q)
         )
 
-        n.duration = duration.Duration(best)
+        n.duration.quarterLength = best
 
 
-def rebuild(part):
+def force_44(score):
+    print("force 4/4")
 
-    print("rebuild measures")
-
-
-    old = list(
-        part.getElementsByClass(stream.Measure)
-    )
-
-
-    newPart = stream.Part()
-
-    measure_no = 1
-    current = stream.Measure(number=measure_no)
-
-    used = 0
+    for p in score.parts:
+        p.insert(
+            0,
+            meter.TimeSignature("4/4")
+        )
 
 
-    for m in old:
-
-        for el in m.notesAndRests:
-
-            q = float(el.duration.quarterLength)
-
-
-            # 超過小節直接切掉
-            if used + q > 4:
-
-                remain = 4-used
-
-
-                if remain > 0:
-
-                    el2 = el.deepcopy()
-                    el2.duration = duration.Duration(remain)
-                    current.append(el2)
-
-
-                newPart.append(current)
-
-
-                measure_no += 1
-                current = stream.Measure(
-                    number=measure_no
-                )
-
-                used = 0
-
-
-                q = q-remain
-
-
-                if q > 0:
-
-                    el3 = el.deepcopy()
-                    el3.duration = duration.Duration(q)
-
-                    current.append(el3)
-
-                    used=q
-
-                continue
-
-
-            current.append(el)
-            used += q
-
-
-            if abs(used-4)<0.001:
-
-                newPart.append(current)
-
-                measure_no += 1
-
-                current = stream.Measure(
-                    number=measure_no
-                )
-
-                used=0
-
-
-    if len(current):
-
-        if used < 4:
-
-            r = note.Rest()
-
-            r.duration = duration.Duration(
-                4-used
-            )
-
-            current.append(r)
-
-
-        newPart.append(current)
-
-
-    return newPart
-
-
-
-def hard_fix_measures(score):
+def split_cross_measure_notes(score):
 
     print("split cross measure notes")
 
+    for part in score.parts:
 
-    newScore = stream.Score()
+        for m in list(part.getElementsByClass("Measure")):
 
+            offset = 0
+            new_notes = []
+
+            for n in list(m.notesAndRests):
+
+                dur = n.duration.quarterLength
+
+                if offset + dur > 4:
+
+                    first = 4 - offset
+                    remain = dur - first
+
+                    if first > 0:
+                        n1 = copy.deepcopy(n)
+                        n1.duration.quarterLength = first
+                        n1.tie = None
+                        new_notes.append(n1)
+
+                    if remain > 0:
+                        n2 = copy.deepcopy(n)
+                        n2.duration.quarterLength = remain
+                        n2.tie = None
+                        new_notes.append(n2)
+
+                else:
+
+                    n.tie = None
+                    new_notes.append(n)
+
+                offset += dur
+
+
+            m.remove(
+                list(m.notesAndRests)
+            )
+
+            pos = 0
+
+            for n in new_notes:
+                m.insert(
+                    pos,
+                    n
+                )
+                pos += n.duration.quarterLength
+
+
+
+def rebuild_measures(score):
+
+    print("rebuild measures")
 
     for part in score.parts:
 
-        fixed = rebuild(part)
+        measures = list(
+            part.getElementsByClass("Measure")
+        )
 
-        newScore.append(fixed)
-
-
-    return newScore
-
-
-
-def final_check(score):
-
-    print("FINAL CHECK")
-
-    safe=True
-
-
-    for part in score.parts:
-
-        for m in part.getElementsByClass(
-            stream.Measure
-        ):
+        for m in measures:
 
             total = sum(
                 x.duration.quarterLength
                 for x in m.notesAndRests
             )
-
-
-            total=float(total)
 
             print(
                 "Measure",
@@ -227,46 +136,50 @@ def final_check(score):
                 total
             )
 
+            if total < 4:
+
+                r = note.Rest()
+                r.duration.quarterLength = 4-total
+                m.append(r)
+
+
+
+def final_check(score):
+
+    print("FINAL CHECK")
+
+    ok=True
+
+    for part in score.parts:
+
+        for m in part.getElementsByClass("Measure"):
+
+            total=sum(
+                x.duration.quarterLength
+                for x in m.notesAndRests
+            )
+
+            print(
+                "Measure",
+                m.number,
+                total
+            )
 
             if abs(total-4)>0.001:
+                ok=False
 
-                safe=False
 
-
-    if safe:
-
-        print(
-            "ALL MEASURES SAFE"
-        )
-
+    if ok:
+        print("ALL MEASURES SAFE")
     else:
-
-        print(
-            "WARNING measure mismatch"
-        )
-
-    return safe
+        print("WARNING measure mismatch")
 
 
 
 def main():
 
-    if len(sys.argv)<3:
-
-        print(
-            "usage: python clean_musicxml.py input.musicxml output.musicxml"
-        )
-
-        return
-
-
     inp=sys.argv[1]
     out=sys.argv[2]
-
-
-    print("================")
-    print(VERSION)
-    print("================")
 
 
     print("read")
@@ -274,21 +187,36 @@ def main():
     score=converter.parse(inp)
 
 
-    remove_bad_elements(score)
+    print("remove voices")
+    print("remove beams")
+
+
+    remove_chords(score)
+
+    remove_ties(score)
 
     force_44(score)
 
-    quantize(score)
+    quantize_duration(score)
 
 
-    score=hard_fix_measures(score)
+    print("rebuild measures")
+
+    split_cross_measure_notes(score)
+
+
+    rebuild_measures(score)
+
+    remove_ties(score)
+
+
+    print("clear notation cache")
 
 
     final_check(score)
 
 
     print("FINAL WRITE")
-
 
     score.write(
         "musicxml",
