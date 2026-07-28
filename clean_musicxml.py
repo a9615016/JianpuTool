@@ -1,199 +1,174 @@
-# CLEAN MUSICXML V35
-# FORCE JIANPU SAFE MODE
+print("================")
+print("CLEAN MUSICXML V36 FORCE SPLIT NOTE")
+print("================")
 
+from music21 import converter, stream, note, chord, meter
 import sys
-from music21 import converter, stream, note, chord, meter, duration
 
 
-print("================")
-print("CLEAN MUSICXML V35")
-print("FORCE SPLIT LONG NOTES")
-print("================")
+def force_split_measure_notes(score):
+
+    print("force split cross measure notes")
+
+    for part in score.parts:
+
+        new_part = stream.Part()
+
+        for m in part.getElementsByClass('Measure'):
+
+            new_measure = stream.Measure(number=m.number)
+
+            used = 0.0
+            target = 4.0
+
+            for n in m.notesAndRests:
+
+                dur = float(n.duration.quarterLength)
+
+                # 超過小節剩餘容量
+                while used + dur > target:
+
+                    remain = target - used
+
+                    if remain > 0:
+                        nn = n.clone()
+                        nn.duration.quarterLength = remain
+                        new_measure.append(nn)
+
+                    dur -= remain
+                    used = 0
+
+                    # 剩餘建立下一小節
+                    new_measure = stream.Measure(number=m.number)
+
+                if dur > 0:
+                    nn = n.clone()
+                    nn.duration.quarterLength = dur
+                    new_measure.append(nn)
+
+                used += dur
+
+            new_part.append(new_measure)
+
+        part.removeByClass('Measure')
+        part.append(new_part.getElementsByClass('Measure'))
+
+    return score
 
 
-src = sys.argv[1]
-dst = sys.argv[2]
+
+input_file=sys.argv[1]
+output_file=sys.argv[2]
 
 
-score = converter.parse(src)
+score=converter.parse(input_file)
 
 print("read")
 
-
-# remove voices
+# 移除問題元素
 print("remove voices")
 for p in score.parts:
-    for e in list(p.recurse()):
-        if hasattr(e, "voices"):
-            try:
-                e.voices = []
-            except:
-                pass
+    for n in p.recurse():
+        if hasattr(n,"voice"):
+            n.voice=None
 
 
-# remove chords
 print("remove chords")
 for p in score.parts:
-    for c in list(p.recurse().getElementsByClass(chord.Chord)):
-        n = note.Note(c.root())
-        n.duration = c.duration
-        c.activeSite.replace(c, n)
+    for c in list(p.recurse().getElementsByClass('Chord')):
+        c_notes=c.notes
+        for n in c_notes:
+            c.activeSite.insert(c.offset,n)
+        c.activeSite.remove(c)
 
 
-# remove ties
-print("remove ties")
-for n in score.recurse().notes:
-    n.tie = None
-
-
-# remove beams
 print("remove beams")
 for n in score.recurse().notes:
-    try:
-        n.beams = []
-    except:
-        pass
+    n.beams.clear()
 
 
-# force 4/4
+print("remove ties")
+for n in score.recurse().notes:
+    n.tie=None
+
+
 print("force 4/4")
 
 for p in score.parts:
-    p.insert(0, meter.TimeSignature("4/4"))
+    p.insert(0,meter.TimeSignature('4/4'))
 
 
-# split long notes
-print("split long notes")
+print("duration quantize")
 
-for p in score.parts:
+for n in score.recurse().notesAndRests:
+    q=n.duration.quarterLength
 
-    new = stream.Part()
-
-    for n in p.recurse().notesAndRests:
-
-        q = n.duration.quarterLength
-
-
-        # 最大一拍
-        while q > 1:
-
-            x = n.clone()
-
-            x.duration = duration.Duration(1)
-
-            new.append(x)
-
-            q -= 1
+    if q < 0.25:
+        n.duration.quarterLength=0.25
+    elif q < 0.5:
+        n.duration.quarterLength=0.5
+    elif q < 1:
+        n.duration.quarterLength=1
 
 
-        if q > 0:
-
-            x = n.clone()
-
-            x.duration.quarterLength = q
-
-            new.append(x)
-
-
-    p.clear()
-    p.append(new)
-
-
-# rebuild measures
 print("rebuild measures")
 
-score.makeMeasures(inPlace=True)
+for p in score.parts:
+    p.makeMeasures(inPlace=True)
 
 
-# force measure length
-print("force measure length")
+
+# V36核心
+score=force_split_measure_notes(score)
 
 
-for m in score.recurse().getElementsByClass(stream.Measure):
+print("fill measure rest")
 
-    total = sum(
-        x.duration.quarterLength
-        for x in m.notesAndRests
-    )
+for p in score.parts:
+    for m in p.getElementsByClass('Measure'):
 
-
-    if total < 4:
-
-        r = note.Rest()
-
-        r.duration.quarterLength = 4-total
-
-        m.append(r)
-
-
-    elif total > 4:
-
-        print(
-            "truncate measure",
-            m.number,
-            total
+        total=sum(
+            x.duration.quarterLength
+            for x in m.notesAndRests
         )
 
-        remain = 4
-
-        items=[]
-
-        for x in m.notesAndRests:
-
-            if remain <=0:
-                break
-
-            q=min(
-                x.duration.quarterLength,
-                remain
-            )
-
-            x.duration.quarterLength=q
-
-            items.append(x)
-
-            remain-=q
-
-
-        if remain>0:
+        if total < 4:
             r=note.Rest()
-            r.duration.quarterLength=remain
-            items.append(r)
-
-
-        m.removeByClass(
-            ['Note','Rest']
-        )
-
-        for x in items:
-            m.append(x)
+            r.duration.quarterLength=4-total
+            m.append(r)
 
 
 
 print("FINAL CHECK")
 
+ok=True
 
-for m in score.recurse().getElementsByClass(stream.Measure):
+for p in score.parts:
+    for m in p.getElementsByClass('Measure'):
 
-    length=sum(
-        x.duration.quarterLength
-        for x in m.notesAndRests
-    )
+        total=sum(
+            x.duration.quarterLength
+            for x in m.notesAndRests
+        )
 
-    print(
-        "Measure",
-        m.number,
-        length
-    )
+        print("Measure",m.number,total)
+
+        if abs(total-4)>0.01:
+            ok=False
+
+
+if ok:
+    print("ALL MEASURES SAFE")
+else:
+    print("WARNING measure mismatch")
 
 
 print("FINAL WRITE")
 
 score.write(
     "musicxml",
-    fp=dst
+    fp=output_file
 )
 
-
 print("DONE")
-print(dst)
+print(output_file)
