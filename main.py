@@ -148,7 +148,7 @@ async def upload(file: UploadFile = File(...)):
 
     run([
         "python",
-        "clean_musicxml.py",
+        "jianpu_fix_musicxml.py",
         musicxml,
         clean
     ])
