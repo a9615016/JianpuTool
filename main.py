@@ -1,9 +1,9 @@
+from fastapi import FastAPI, UploadFile, File
+from fastapi.responses import FileResponse, HTMLResponse
 import os
 import uuid
 import subprocess
-
-from fastapi import FastAPI, UploadFile, File
-from fastapi.responses import FileResponse, HTMLResponse
+import shutil
 
 
 app = FastAPI()
@@ -45,7 +45,7 @@ def home():
     <input type="file" name="file">
 
     <button type="submit">
-    Upload MP3
+    上傳 MP3
     </button>
 
     </form>
@@ -62,9 +62,21 @@ async def upload(file: UploadFile = File(...)):
 
     job = str(uuid.uuid4())
 
-    outdir = os.path.join(BASE, job)
+    outdir = os.path.join(
+        BASE,
+        job
+    )
 
-    os.makedirs(outdir, exist_ok=True)
+    os.makedirs(
+        outdir,
+        exist_ok=True
+    )
+
+
+    print("====================")
+    print("開始任務:", job)
+    print("收到:", file.filename)
+
 
 
     mp3 = os.path.join(
@@ -74,18 +86,20 @@ async def upload(file: UploadFile = File(...)):
 
 
     with open(mp3,"wb") as f:
-        f.write(await file.read())
+        shutil.copyfileobj(
+            file.file,
+            f
+        )
 
 
-    print("====================")
-    print("開始任務:", job)
-    print("收到:", file.filename)
+    print("MP3保存完成")
+    print(mp3)
 
 
 
-    # ----------------------
+    # =====================
     # MP3 -> MIDI
-    # ----------------------
+    # =====================
 
     midi = os.path.join(
         outdir,
@@ -105,9 +119,9 @@ async def upload(file: UploadFile = File(...)):
 
 
 
-    # ----------------------
+    # =====================
     # MIDI -> MusicXML
-    # ----------------------
+    # =====================
 
     musicxml = os.path.join(
         outdir,
@@ -127,9 +141,9 @@ async def upload(file: UploadFile = File(...)):
 
 
 
-    # ----------------------
-    # clean
-    # ----------------------
+    # =====================
+    # CLEAN
+    # =====================
 
     clean = os.path.join(
         outdir,
@@ -149,9 +163,9 @@ async def upload(file: UploadFile = File(...)):
 
 
 
-    # ----------------------
-    # force fix measure
-    # ----------------------
+    # =====================
+    # FORCE FIX MEASURE
+    # =====================
 
     safe = os.path.join(
         outdir,
@@ -167,66 +181,78 @@ async def upload(file: UploadFile = File(...)):
     ])
 
 
-    print("force fix 完成")
+    print("小節修正完成")
 
 
 
-    # ----------------------
-    # MusicXML -> Jianpu ly
-    # ----------------------
+    # =====================
+    # MUSICXML -> LY
+    # =====================
 
     ly = os.path.join(
         outdir,
-        "output.ly"
+        "jianpu.ly"
     )
 
 
-    run([
-        "python",
-        "-m",
-        "jianpu_ly",
-        safe
-    ])
+    result = subprocess.run(
+        [
+            "python",
+            "-m",
+            "jianpu_ly",
+            safe
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True
+    )
 
 
-    print("jianpu_ly完成")
+    print(result.stdout)
+
+
+    if result.returncode != 0:
+
+        return {
+            "error":
+            "jianpu_ly failed",
+            "log":
+            result.stdout
+        }
 
 
 
-    # jianpu_ly 預設輸出
-    # 找 .ly
-
-    for f in os.listdir(outdir):
-
-        if f.endswith(".ly"):
-            ly = os.path.join(outdir,f)
-            break
+    print("LY完成")
 
 
 
-    # ----------------------
+    # =====================
     # Lilypond PDF
-    # ----------------------
+    # =====================
 
     run([
         "lilypond",
-        "--pdf",
+        "-o",
+        os.path.join(outdir,"jianpu"),
         ly
     ])
 
 
-    print("PDF完成")
-
-
-
-    pdf = ly.replace(
-        ".ly",
-        ".pdf"
+    pdf = os.path.join(
+        outdir,
+        "jianpu.pdf"
     )
 
 
-    return FileResponse(
-        pdf,
-        media_type="application/pdf",
-        filename="jianpu.pdf"
-    )
+    if os.path.exists(pdf):
+
+        return FileResponse(
+            pdf,
+            media_type="application/pdf"
+        )
+
+
+    return {
+        "status":"完成",
+        "folder":outdir
+    }
