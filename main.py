@@ -1,21 +1,18 @@
-from fastapi import FastAPI, UploadFile, File
-from fastapi.responses import FileResponse
+# main.py
+# JianpuTool Web API
+
 import os
 import uuid
 import subprocess
+
+from fastapi import FastAPI, UploadFile, File
+from fastapi.responses import FileResponse
 
 
 app = FastAPI()
 
 
 BASE = "/app/outputs"
-
-
-os.makedirs(
-    BASE,
-    exist_ok=True
-)
-
 
 
 def run(cmd):
@@ -36,52 +33,64 @@ def run(cmd):
             result.stdout
         )
 
+    return result.stdout
+
+
+
+@app.get("/")
+def home():
+
+    return """
+    <h1>JianpuTool 簡譜產生器</h1>
+
+    <form action="/upload"
+          method="post"
+          enctype="multipart/form-data">
+
+    <input type="file"
+           name="file">
+
+    <button>
+    Upload
+    </button>
+
+    </form>
+    """
+
 
 
 @app.post("/upload")
-async def upload(
-    file: UploadFile = File(...)
-):
+async def upload(file: UploadFile = File(...)):
 
-    job = str(uuid.uuid4())
 
-    folder = os.path.join(
+    task_id = str(uuid.uuid4())
+
+    task_dir = os.path.join(
         BASE,
-        job
+        task_id
     )
 
-
     os.makedirs(
-        folder,
+        task_dir,
         exist_ok=True
     )
 
 
-    print("====================")
-    print("開始任務:", job)
-    print("收到:", file.filename)
-
-
-
-    # =====================
-    # save mp3
-    # =====================
-
     mp3 = os.path.join(
-        folder,
+        task_dir,
         file.filename
     )
 
 
     with open(mp3,"wb") as f:
-
         f.write(
             await file.read()
         )
 
 
-    print("MP3保存完成")
-
+    print("====================")
+    print("開始任務:",task_id)
+    print("收到:",file.filename)
 
 
     # =====================
@@ -89,7 +98,7 @@ async def upload(
     # =====================
 
     midi = os.path.join(
-        folder,
+        task_dir,
         "melody.mid"
     )
 
@@ -105,35 +114,12 @@ async def upload(
     print("MIDI完成")
 
 
-
-    # =====================
-    # MIDI QUANTIZE ⭐
-    # =====================
-
-    qmid = os.path.join(
-        folder,
-        "quantized.mid"
-    )
-
-
-    run([
-        "python",
-        "midi_quantize.py",
-        midi,
-        qmid
-    ])
-
-
-    print("MIDI量化完成")
-
-
-
     # =====================
     # MIDI -> MusicXML
     # =====================
 
     musicxml = os.path.join(
-        folder,
+        task_dir,
         "input.musicxml"
     )
 
@@ -141,7 +127,7 @@ async def upload(
     run([
         "python",
         "midi_to_musicxml.py",
-        qmid,
+        midi,
         musicxml
     ])
 
@@ -151,18 +137,17 @@ async def upload(
 
 
     # =====================
-    # CLEAN V27
+    # clean
     # =====================
 
     clean = os.path.join(
-        folder,
+        task_dir,
         "clean.musicxml"
     )
 
 
     run([
         "python",
-        "jianpu_fix_musicxml.py",
         "clean_musicxml.py",
         musicxml,
         clean
@@ -174,72 +159,76 @@ async def upload(
 
 
     # =====================
-    # jianpu_ly
+    # jianpu fix
     # =====================
 
-    ly = os.path.join(
-        folder,
-        "output.ly"
+    fixed = os.path.join(
+        task_dir,
+        "fixed.musicxml"
     )
 
 
-    print("開始 jianpu_ly")
+    run([
+        "python",
+        "jianpu_fix_musicxml.py",
+        clean,
+        fixed
+    ])
 
 
-    with open(
-        ly,
-        "w",
-        encoding="utf-8"
-    ) as f:
-
-
-        result = subprocess.run(
-            [
-                "python",
-                "-m",
-                "jianpu_ly",
-                clean
-            ],
-            stdout=f,
-            stderr=subprocess.STDOUT,
-            text=True
-        )
-
-
-    if result.returncode != 0:
-
-        raise Exception(
-            "jianpu_ly failed"
-        )
-
-
-
-    print("LY完成")
+    print("jianpu修正完成")
 
 
 
     # =====================
-    # LilyPond PDF
+    # MusicXML -> LY
     # =====================
 
+    run([
+        "python",
+        "-m",
+        "jianpu_ly",
+        fixed
+    ])
+
+
+    ly = os.path.join(
+        task_dir,
+        "fixed.ly"
+    )
+
+
+    # 找 jianpu_ly 產生的 ly
+    for f in os.listdir(task_dir):
+
+        if f.endswith(".ly"):
+
+            ly = os.path.join(
+                task_dir,
+                f
+            )
+
+
+
+    # =====================
+    # LY -> PDF
+    # =====================
 
     run([
         "lilypond",
         "--pdf",
-        "-o",
-        folder,
         ly
     ])
 
 
-
-    pdf = os.path.join(
-        folder,
-        "output.pdf"
+    pdf = ly.replace(
+        ".ly",
+        ".pdf"
     )
 
 
     print("PDF完成")
+    print(pdf)
 
 
 
@@ -248,14 +237,3 @@ async def upload(
         media_type="application/pdf",
         filename="jianpu.pdf"
     )
-
-
-
-@app.get("/")
-def home():
-
-    return {
-        "status":"JianpuTool running",
-        "pipeline":
-        "MP3 → MIDI → Quantize → MusicXML → Jianpu PDF"
-    }
