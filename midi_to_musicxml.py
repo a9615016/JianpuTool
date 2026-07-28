@@ -1,154 +1,180 @@
 # midi_to_musicxml_v3.py
 # Jianpu Stable Version
-# MIDI -> MusicXML
-# For jianpu_ly compatibility
+# MIDI -> MusicXML -> jianpu_ly compatible
 
 import sys
-from music21 import converter
-from music21 import stream
-from music21 import note
-from music21 import meter
-from music21 import tempo
-from music21 import instrument
+from music21 import converter, stream, note, meter, tempo, instrument
+from fractions import Fraction
 
 
-# 小於這個長度的音刪除
-MIN_DURATION = 0.125
-
-# 16分音符量化
-QUANTIZE = 0.25
-
-
-def quantize(value):
+def quantize_duration(q):
     """
-    四捨五入到 16 分音符
+    quantize to 16th notes
     """
-    return round(value / QUANTIZE) * QUANTIZE
+    steps = [
+        Fraction(1,16),
+        Fraction(2,16),
+        Fraction(3,16),
+        Fraction(4,16),
+        Fraction(6,16),
+        Fraction(8,16),
+        Fraction(12,16),
+        Fraction(16,16),
+    ]
+
+    x = Fraction(q.quarterLength).limit_denominator()
+
+    best = min(
+        steps,
+        key=lambda a: abs(a-x)
+    )
+
+    return float(best)
+
+
+def rebuild_melody(midi_file):
+
+    print("讀取 MIDI...")
+
+    src = converter.parse(midi_file)
+
+
+    print("抽取旋律...")
+
+
+    notes=[]
+
+    for n in src.recurse().notes:
+
+        if isinstance(n, note.Note):
+
+            notes.append(n)
+
+
+        elif isinstance(n, note.Chord):
+
+            # chord 只取最高音
+            top=max(n.pitches)
+
+            nn=note.Note(top)
+
+            nn.duration=n.duration
+
+            nn.offset=n.offset
+
+            notes.append(nn)
 
 
 
-def rebuild_melody(src):
+    if not notes:
+        raise Exception("沒有找到音符")
 
-    score = stream.Score()
 
-    part = stream.Part()
+    # 排序
+    notes.sort(
+        key=lambda x:x.offset
+    )
 
-    # 固定樂器
+
+    print("建立新 Score...")
+
+
+    score=stream.Score()
+
+    part=stream.Part()
+
     part.insert(
         0,
         instrument.Piano()
     )
 
-    # 固定 4/4
-    part.append(
+
+    part.insert(
+        0,
         meter.TimeSignature("4/4")
     )
 
-    # 固定速度
+
     part.insert(
         0,
-        tempo.MetronomeMark(
-            number=120
-        )
+        tempo.MetronomeMark(number=80)
     )
 
 
-    melody = []
+    current=0.0
 
 
-    print("extract notes")
+    print("重新量化...")
 
 
-    for n in src.flat.notes:
-
-        # 只接受單音
-        if not isinstance(n, note.Note):
-            continue
+    for n in notes:
 
 
-        dur = n.duration.quarterLength
+        # 填補空白 rest
+
+        if n.offset > current:
+
+            r=note.Rest()
+
+            r.duration.quarterLength = quantize_duration(
+                n.offset-current
+            )
+
+            part.append(r)
+
+            current += r.duration.quarterLength
 
 
-        # 太短音符移除
-        if dur < MIN_DURATION:
-            continue
 
-
-        new_note = note.Note(
+        nn=note.Note(
             n.pitch
         )
 
 
-        # duration quantize
-        new_duration = quantize(dur)
-
-
-        if new_duration <= 0:
-            new_duration = QUANTIZE
-
-
-        new_note.duration.quarterLength = (
-            new_duration
+        nn.duration.quarterLength = quantize_duration(
+            n.duration
         )
 
 
-        # offset quantize
-        new_offset = quantize(
-            n.offset
-        )
+        part.append(nn)
 
 
-        melody.append(
-            (
-                new_offset,
-                new_note
-            )
-        )
+        current += nn.duration.quarterLength
 
 
-    # 排序
-    melody.sort(
-        key=lambda x:x[0]
+
+    score.append(part)
+
+
+    print("重新建立小節...")
+
+
+    # 強制 measure
+    score.makeMeasures(
+        inPlace=True
     )
 
 
-    print(
-        "notes:",
-        len(melody)
-    )
+    # 每小節檢查
+    for m in score.parts[0].getElementsByClass("Measure"):
 
-
-    # 寫入單聲部
-    for offset, n in melody:
-
-        part.insert(
-            offset,
-            n
+        total=sum(
+            x.duration.quarterLength
+            for x in m.notesAndRests
         )
 
+        if abs(total-4.0)>0.01:
 
-    # 補滿最後小節
-    total = part.duration.quarterLength
+            diff=4-total
 
-    remain = total % 4
+            if diff>0:
 
+                r=note.Rest()
 
-    if remain != 0:
+                r.duration.quarterLength=diff
 
-        rest = note.Rest()
+                m.append(r)
 
-        rest.duration.quarterLength = (
-            4 - remain
-        )
-
-        part.append(
-            rest
-        )
-
-
-    score.append(
-        part
-    )
 
 
     return score
@@ -157,77 +183,49 @@ def rebuild_melody(src):
 
 def main():
 
-    if len(sys.argv) < 3:
+    if len(sys.argv)<3:
 
         print(
-            "Usage:"
+            "使用方法:"
         )
 
         print(
             "python midi_to_musicxml_v3.py input.mid output.musicxml"
         )
 
-        return
+        sys.exit(1)
 
 
+    midi=sys.argv[1]
 
-    midi_file = sys.argv[1]
-
-    output_file = sys.argv[2]
-
-
-    print("====================")
-    print("MIDI TO MUSICXML V3")
-    print("JIANPU STABLE")
-    print("====================")
+    output=sys.argv[2]
 
 
-    print(
-        "input:",
-        midi_file
-    )
+    print("================")
+    print("MIDI → MusicXML V3")
+    print("Jianpu Stable")
+    print("================")
 
 
-    print(
-        "read MIDI..."
-    )
-
-
-    midi = converter.parse(
-        midi_file
-    )
-
-
-    print(
-        "rebuild melody..."
-    )
-
-
-    score = rebuild_melody(
+    score=rebuild_melody(
         midi
     )
 
 
-    print(
-        "write MusicXML..."
-    )
+    print("寫入 MusicXML...")
 
 
     score.write(
         "musicxml",
-        fp=output_file
+        fp=output
     )
 
 
-    print(
-        "DONE:"
-    )
-
-    print(
-        output_file
-    )
+    print()
+    print("完成:")
+    print(output)
 
 
 
-if __name__ == "__main__":
+if __name__=="__main__":
     main()
