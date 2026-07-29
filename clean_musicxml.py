@@ -1,176 +1,298 @@
-# clean_musicxml.py V40
-# Jianpu_ly dedicated edition
+# clean_musicxml.py
+# V35
+# 出版級 quantize + rebuild measures + jianpu_ly compatible
 
+from music21 import converter, stream, note, chord, meter, duration, tempo
 import sys
-import music21
-from music21 import converter, stream, note, chord, meter, bar
-
-print("CLEAN MUSICXML V40")
-print("jianpu_ly compatibility mode")
+import os
+import copy
+from fractions import Fraction
 
 
-def clean_score(src, out):
-
-    score = converter.parse(src)
-
-    print("remove ties")
-    for n in score.recurse().notes:
-        n.tie = None
+VERSION = "CLEAN MUSICXML V36"
 
 
-    print("remove beams")
-    for n in score.recurse().notes:
-        try:
-            n.beams = None
-        except:
-            pass
+def fix_time_signature(s):
+    """
+    強制 4/4
+    """
+    for part in s.parts:
+        for m in part.getElementsByClass(stream.Measure):
+            ts = m.getContextByClass(meter.TimeSignature)
+            if ts:
+                ts.numerator = 4
+                ts.denominator = 4
+
+    return s
 
 
-    print("remove grace")
-    for n in score.recurse().notes:
-        if hasattr(n, "duration"):
-            n.duration = n.duration.getQuarterLength()
+def remove_bad_time_signatures(s):
+
+    for part in s.parts:
+
+        for ts in list(part.recurse().getElementsByClass(meter.TimeSignature)):
+            if ts.ratioString != "4/4":
+                ts.numerator = 4
+                ts.denominator = 4
+
+    return s
 
 
-    # force 4/4
-    print("force 4/4")
+def quantize_notes(part):
 
-    for p in score.parts:
-        p.insert(0, meter.TimeSignature("4/4"))
+    """
+    四分音符 = 1
+    最小 1/16
+    """
 
+    step = Fraction(1, 4)
 
-    print("quantize durations")
+    for n in part.recurse().notes:
 
-    allowed = [
-        0.25,
-        0.5,
-        1,
-        2,
-        4
-    ]
+        q = Fraction(n.duration.quarterLength)
 
-    for n in score.recurse().notes:
+        new_q = round(q / step) * step
 
-        q=n.duration.quarterLength
+        if new_q <= 0:
+            new_q = step
 
-        closest=min(
-            allowed,
-            key=lambda x:abs(x-q)
-        )
-
-        n.duration.quarterLength=closest
+        n.duration.quarterLength = new_q
 
 
+def split_cross_measure_notes(part):
 
-    print("rebuild measures")
+    """
+    切斷跨小節音符
+    """
 
-    for p in score.parts:
+    measures = list(part.getElementsByClass(stream.Measure))
 
-        p.makeMeasures(
-            inPlace=True
-        )
+    for m in measures:
+
+        total = 0
+
+        for n in list(m.notes):
+
+            total += n.duration.quarterLength
+
+            if total > 4:
+
+                overflow = total - 4
+
+                first = 4 - (total - n.duration.quarterLength)
+
+                if first > 0:
+
+                    n.duration.quarterLength = first
+
+                    new_n = copy.deepcopy(n)
+                    new_n.duration.quarterLength = overflow
+
+                    try:
+                        m.insert(
+                            m.barDuration.quarterLength,
+                            new_n
+                        )
+                    except:
+                        pass
 
 
-        for m in p.getElementsByClass(
-            stream.Measure
-        ):
+def rebuild_measures(part):
 
-            total=0
+    """
+    重新建立 4/4 小節
+    """
 
-            for n in m.notesAndRests:
+    new_part = stream.Part()
 
-                total+=n.duration.quarterLength
+    new_part.append(
+        meter.TimeSignature("4/4")
+    )
+
+    BAR = Fraction(4, 1)
+
+    measure_no = 1
+    current = stream.Measure(number=measure_no)
+
+    beat = Fraction(0, 1)
 
 
-            print(
-                "Measure",
-                m.number,
-                total
-            )
+    for n in list(part.recurse().notesAndRests):
+
+        dur = Fraction(n.duration.quarterLength)
 
 
-            # 超過4拍
-            if total>4:
+        while dur > 0:
 
-                print(
-                    "fix overflow measure",
-                    m.number,
-                    total
+            remain = BAR - beat
+
+            if dur <= remain:
+
+                nn = copy.deepcopy(n)
+                nn.duration.quarterLength = dur
+
+                current.append(nn)
+
+                beat += dur
+                dur = Fraction(0, 1)
+
+
+            else:
+
+                nn = copy.deepcopy(n)
+                nn.duration.quarterLength = remain
+
+                current.append(nn)
+
+                dur -= remain
+
+                new_part.append(current)
+
+                measure_no += 1
+
+                current = stream.Measure(
+                    number=measure_no
                 )
 
-
-                remain=4
-
-                new=[]
+                beat = Fraction(0, 1)
 
 
-                for n in m.notesAndRests:
+            if beat >= BAR:
 
-                    if remain<=0:
-                        break
+                new_part.append(current)
 
-                    dur=min(
-                        n.duration.quarterLength,
-                        remain
-                    )
+                measure_no += 1
 
-                    n.duration.quarterLength=dur
+                current = stream.Measure(
+                    number=measure_no
+                )
 
-                    new.append(n)
-
-                    remain-=dur
+                beat = Fraction(0, 1)
 
 
-                if remain>0:
+    if len(current.notesAndRests):
 
-                    r=note.Rest()
-                    r.duration.quarterLength=remain
-                    new.append(r)
+        while beat < BAR:
+
+            r = note.Rest()
+            r.duration.quarterLength = min(
+                Fraction(1, 1),
+                BAR - beat
+            )
+
+            current.append(r)
+
+            beat += r.duration.quarterLength
 
 
-                m.notesAndRests[:] = new
+        new_part.append(current)
 
 
+    return new_part
+
+
+
+def final_check(score):
 
     print("FINAL CHECK")
 
+    for i,m in enumerate(
+        score.parts[0].getElementsByClass(stream.Measure),
+        1
+    ):
 
-    for p in score.parts:
-        for m in p.getElementsByClass(stream.Measure):
+        length = sum(
+            Fraction(nr.duration.quarterLength)
+            for nr in m.notesAndRests
+        )
 
-            total=sum(
-                n.duration.quarterLength
-                for n in m.notesAndRests
-            )
+        print(
+            "Measure",
+            i,
+            float(length)
+        )
 
+        if abs(length-4)>0.01:
             print(
-                "Measure",
-                m.number,
-                total
+                "WARNING measure mismatch"
             )
 
 
-    score.write(
+
+def clean(input_file, output_file):
+
+    print(VERSION)
+
+    score = converter.parse(input_file)
+
+
+    # remove tempo problem
+    for t in score.recurse().getElementsByClass(tempo.MetronomeMark):
+        t.activeSite.remove(t)
+
+
+    score = remove_bad_time_signatures(score)
+
+    score = fix_time_signature(score)
+
+
+    new_score = stream.Score()
+
+
+    for part in score.parts:
+
+        print(
+            "processing part..."
+        )
+
+        quantize_notes(part)
+
+        rebuild = rebuild_measures(part)
+
+        new_score.append(rebuild)
+
+
+    fix_time_signature(new_score)
+
+
+    final_check(new_score)
+
+
+    print("FINAL WRITE")
+
+    new_score.write(
         "musicxml",
-        fp=out
+        fp=output_file
     )
 
 
     print("DONE")
-    print(out)
+    print(output_file)
 
 
 
-if __name__=="__main__":
+if __name__ == "__main__":
 
-    if len(sys.argv)<3:
+    if len(sys.argv)<2:
+
         print(
-        "python clean_musicxml.py input.musicxml output.musicxml"
+            "usage: python clean_musicxml.py input.musicxml output.musicxml"
         )
-        exit()
+
+        sys.exit()
 
 
-    clean_score(
-        sys.argv[1],
-        sys.argv[2]
+    inp=sys.argv[1]
+
+
+    if len(sys.argv)>=3:
+        out=sys.argv[2]
+
+    else:
+        out="clean.musicxml"
+
+
+    clean(
+        inp,
+        out
     )
