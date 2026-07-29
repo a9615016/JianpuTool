@@ -1,4 +1,4 @@
-
+print("CLEAN MUSICXML V25 FINAL JIANPU COMPATIBLE")
 from music21 import converter, meter, note, chord
 import sys
 
