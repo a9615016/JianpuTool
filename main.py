@@ -150,7 +150,7 @@ async def upload(file: UploadFile = File(...)):
 
     run_cmd([
         "python",
-        "jianpu_prepare_v3.py",
+        "jianpu_prepare_v4.py",
         xml_path,
         clean_xml
     ])
