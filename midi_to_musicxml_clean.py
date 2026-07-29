@@ -1,146 +1,93 @@
-from music21 import converter, stream, meter, note, chord
+from music21 import converter, stream, note, chord, meter
 import sys
 
 
-print("MIDI TO MUSICXML CLEAN 20260729")
+print("MIDI TO MUSICXML STRICT")
 
 
-def clean_midi_to_xml(input_mid, output_xml):
+def convert(mid, out):
 
-    print("LOAD MIDI")
-
-    score = converter.parse(input_mid)
-
-
-    print("FLATTEN")
+    score = converter.parse(mid)
 
     flat = score.flatten()
 
 
-    melody = stream.Part()
+    part = stream.Part()
 
 
-    print("REMOVE CHORD")
-
-
-    for element in flat.notesAndRests:
-
-
-        if isinstance(element, chord.Chord):
-
-            # 只取最高音當旋律
-
-            n = note.Note(
-                element.highest.pitch
-            )
-
-            n.duration = element.duration
-
-            melody.append(n)
-
-
-
-        elif isinstance(element, note.Note):
-
-            melody.append(
-                element
-            )
-
-
-
-    print("QUANTIZE")
-
-
-    melody.quantize(
-        quarterLengthDivisors=[
-            4,
-            8,
-            16
-        ],
-        processOffsets=True,
-        processDurations=True
-    )
-
-
-    print("FORCE 4/4")
-
-
-    melody.insert(
+    part.insert(
         0,
         meter.TimeSignature("4/4")
     )
 
 
-    print("FIX OVERLONG NOTES")
+    print("EXTRACT NOTES")
 
 
-    for n in melody.notes:
+    for n in flat.notes:
 
 
-        if n.duration.quarterLength > 4:
+        if isinstance(n, chord.Chord):
 
-            print(
-                "trim",
-                n.pitch,
-                n.duration.quarterLength
+            nn = note.Note(
+                n.highest.pitch
             )
 
-
-            n.duration.quarterLength = 4
-
+            nn.duration = n.duration
 
 
-    print("CREATE SCORE")
+        else:
+
+            nn = n
 
 
-    new_score = stream.Score()
+        # 強制16分音符網格
 
-    new_score.append(
-        melody
+        q = nn.duration.quarterLength
+
+
+        if q <= 0:
+            continue
+
+
+        if q < 0.25:
+            q = 0.25
+
+
+        q = round(q * 4) / 4
+
+
+        nn.duration.quarterLength = q
+
+
+        part.append(nn)
+
+
+
+    print("MAKE MEASURES")
+
+
+    measures = part.makeMeasures(
+        inPlace=False
     )
 
 
-    print("WRITE MUSICXML")
+    print("WRITE XML")
 
 
-    new_score.write(
+    measures.write(
         "musicxml",
-        fp=output_xml
+        fp=out
     )
 
 
-    print("DONE")
-
-    print(output_xml)
+    print("DONE", out)
 
 
 
 if __name__=="__main__":
 
-
-    if len(sys.argv)<2:
-
-        print(
-            "python midi_to_musicxml_clean.py input.mid output.musicxml"
-        )
-
-        exit()
-
-
-    inp=sys.argv[1]
-
-
-    if len(sys.argv)>=3:
-
-        out=sys.argv[2]
-
-    else:
-
-        out="clean.musicxml"
-
-
-
-    clean_midi_to_xml(
-        inp,
-        out
+    convert(
+        sys.argv[1],
+        sys.argv[2]
     )
