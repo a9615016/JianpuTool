@@ -1,12 +1,9 @@
+print("================")
 print("CLEAN MUSICXML V25 FINAL JIANPU COMPATIBLE")
+print("================")
 
 from music21 import converter, meter, note, chord, stream
 import sys
-
-
-print("================")
-print("CLEAN MUSICXML V25 FINAL JIANPU COMPATIBLE")
-print("================")
 
 
 INPUT = sys.argv[1]
@@ -16,10 +13,6 @@ if len(sys.argv) >= 3:
 else:
     OUTPUT = "clean.musicxml"
 
-
-# ======================
-# READ
-# ======================
 
 print("read")
 
@@ -32,12 +25,11 @@ print(
 )
 
 
-# ======================
-# REMOVE CHORDS
-# ======================
+# ==========================
+# remove chords
+# ==========================
 
 print("remove chords")
-
 
 for c in list(score.recurse().getElementsByClass(chord.Chord)):
 
@@ -45,35 +37,30 @@ for c in list(score.recurse().getElementsByClass(chord.Chord)):
 
     n.duration = c.duration
 
-    try:
-        c.activeSite.replace(c, n)
-    except:
-        pass
+    c.activeSite.replace(c, n)
 
 
 
-# ======================
-# REMOVE VOICES
-# ======================
+# ==========================
+# remove voices
+# ==========================
 
 print("remove voices")
 
-
-for v in score.recurse().getElementsByClass('Voice'):
+for v in score.recurse().voices:
 
     try:
-        v.activeSite.remove(v)
+        v.id = None
     except:
         pass
 
 
 
-# ======================
-# REMOVE BEAMS
-# ======================
+# ==========================
+# remove beams
+# ==========================
 
 print("remove beams")
-
 
 for n in score.recurse().notes:
 
@@ -84,12 +71,11 @@ for n in score.recurse().notes:
 
 
 
-# ======================
-# REMOVE TIES
-# ======================
+# ==========================
+# remove ties
+# ==========================
 
 print("remove ties")
-
 
 for n in score.recurse().notes:
 
@@ -97,9 +83,27 @@ for n in score.recurse().notes:
 
 
 
-# ======================
-# QUANTIZE
-# ======================
+# ==========================
+# force 4/4
+# ==========================
+
+print("force 4/4")
+
+
+for part in score.parts:
+
+    for m in part.getElementsByClass("Measure"):
+
+        m.insert(
+            0,
+            meter.TimeSignature("4/4")
+        )
+
+
+
+# ==========================
+# quantize
+# ==========================
 
 print("duration quantize")
 
@@ -108,11 +112,11 @@ allowed = [
     0.25,
     0.5,
     0.75,
-    1,
+    1.0,
     1.5,
-    2,
-    3,
-    4
+    2.0,
+    3.0,
+    4.0
 ]
 
 
@@ -122,168 +126,83 @@ for n in score.recurse().notesAndRests:
 
     nearest = min(
         allowed,
-        key=lambda x: abs(x-q)
+        key=lambda x:abs(x-q)
     )
+
+    n.duration.clear()
 
     n.duration.quarterLength = nearest
 
 
 
-# ======================
-# FORCE 4/4
-# ======================
-
-print("force 4/4")
-
-
-for part in score.parts:
-
-    part.insert(
-        0,
-        meter.TimeSignature("4/4")
-    )
-
-
-
-# ======================
-# REBUILD MEASURES
-# ======================
+# ==========================
+# rebuild measures
+# ==========================
 
 print("rebuild measures")
 
 
-new_score = stream.Score()
+for part in score.parts:
+
+    part.makeMeasures(inPlace=True)
+
+
+
+# ==========================
+# repair measure overflow
+# ==========================
+
+print("repair measures")
 
 
 for part in score.parts:
 
-
-    new_part = stream.Part()
-
-    new_part.id = part.id
+    for m in list(part.getElementsByClass("Measure")):
 
 
-    measure = stream.Measure(
-        number=1
-    )
-
-
-    beat = 0
-
-
-    for n in part.flatten().notesAndRests:
-
-
-        dur = float(
-            n.duration.quarterLength
+        total = sum(
+            float(x.duration.quarterLength)
+            for x in m.notesAndRests
         )
 
 
-        # 超過4拍切割
-        if beat + dur > 4:
+        while total > 4:
 
 
-            remain = 4 - beat
+            diff = total - 4
 
 
-            if remain > 0:
+            for n in reversed(
+                list(m.notesAndRests)
+            ):
+
+                d = float(
+                    n.duration.quarterLength
+                )
 
 
-                a = n.deepcopy()
+                if d > diff:
 
-                a.duration.quarterLength = remain
+                    n.duration.quarterLength = d-diff
 
-                measure.append(a)
-
-
-            new_part.append(measure)
+                    break
 
 
-            measure = stream.Measure(
-                number=len(new_part.getElementsByClass("Measure"))+1
+            total = sum(
+                float(x.duration.quarterLength)
+                for x in m.notesAndRests
             )
 
 
-            beat = 0
 
+# ==========================
+# fill rest
+# ==========================
 
-
-            left = dur - remain
-
-
-            if left > 0:
-
-
-                b = n.deepcopy()
-
-                b.duration.quarterLength = left
-
-                measure.append(b)
-
-                beat += left
-
-
-        else:
-
-            measure.append(
-                n.deepcopy()
-            )
-
-            beat += dur
-
-
-
-        if beat >= 4:
-
-            new_part.append(
-                measure
-            )
-
-            measure = stream.Measure(
-                number=len(new_part.getElementsByClass("Measure"))+1
-            )
-
-            beat = 0
-
-
-
-    if len(measure.notesAndRests)>0:
-
-        while beat < 4:
-
-            r = note.Rest()
-
-            r.duration.quarterLength = min(
-                4-beat,
-                0.25
-            )
-
-            measure.append(r)
-
-            beat += 0.25
-
-
-        new_part.append(measure)
-
-
-
-    new_score.append(new_part)
-
-
-
-score = new_score
-
-
-
-# ======================
-# FINAL CHECK
-# ======================
-
-print("FINAL CHECK")
+print("fill measure rest")
 
 
 for part in score.parts:
-
 
     for m in part.getElementsByClass("Measure"):
 
@@ -294,6 +213,45 @@ for part in score.parts:
         )
 
 
+        if total < 4:
+
+            r = note.Rest()
+
+            r.duration.quarterLength = 4-total
+
+            m.append(r)
+
+
+
+# ==========================
+# clear cache
+# ==========================
+
+print("clear notation cache")
+
+score.stripTies()
+
+
+
+# ==========================
+# final check
+# ==========================
+
+print("FINAL CHECK")
+
+
+ok=True
+
+
+for part in score.parts:
+
+    for m in part.getElementsByClass("Measure"):
+
+        total=sum(
+            float(x.duration.quarterLength)
+            for x in m.notesAndRests
+        )
+
         print(
             "Measure",
             m.number,
@@ -301,19 +259,29 @@ for part in score.parts:
         )
 
 
-        if total > 4.001:
+        if abs(total-4)>0.01:
 
-            print(
-                "ERROR OVER 4 BEATS",
-                m.number,
-                total
-            )
+            ok=False
 
 
 
-# ======================
-# WRITE
-# ======================
+if not ok:
+
+    print(
+        "WARNING measure mismatch"
+    )
+
+else:
+
+    print(
+        "ALL MEASURES OK"
+    )
+
+
+
+# ==========================
+# write
+# ==========================
 
 print("FINAL WRITE")
 
