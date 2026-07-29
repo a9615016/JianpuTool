@@ -1,195 +1,235 @@
-# CLEAN MUSICXML V29
-# JIANPU_LY FINAL BAR REPAIR
+# CLEAN MUSICXML V30
+# FINAL PUBLISH SCORE FORMAT
+# MIDI free rhythm -> jianpu_ly compatible
 
-
+from music21 import converter, stream, note, chord, meter
 import sys
-from music21 import converter
-from music21 import stream
-from music21 import note
-from music21 import chord
-from music21 import meter
-from music21 import duration
 
 
-print("================")
-print("CLEAN MUSICXML V29")
-print("FINAL BAR REPAIR")
-print("================")
+ALLOWED_DURATIONS = [
+    0.25,   # 16th
+    0.5,    # eighth
+    1.0,    # quarter
+    2.0,    # half
+    4.0     # whole
+]
 
 
-if len(sys.argv) < 3:
-    print(
-        "python clean_musicxml.py input.musicxml output.musicxml"
-    )
-    exit()
+def quantize_duration(q):
 
-
-src = sys.argv[1]
-dst = sys.argv[2]
-
-
-print("read")
-
-score = converter.parse(src)
-
-
-clean = stream.Score()
-part = stream.Part()
-
-
-part.append(
-    meter.TimeSignature("4/4")
-)
-
-
-
-print("remove voices")
-print("remove chords")
-print("remove ties")
-print("remove beams")
-
-
-def quantize_length(x):
-
-    values = [
-        0.25,
-        0.5,
-        1,
-        2,
-        4
-    ]
-
-    return min(
-        values,
-        key=lambda y:abs(y-x)
+    best = min(
+        ALLOWED_DURATIONS,
+        key=lambda x: abs(x-q)
     )
 
-
-
-events=[]
-
-
-for n in score.flat.notesAndRests:
-
-
-    if isinstance(n,chord.Chord):
-
-        n=n.notes[0]
-
-
-    n2=n.clone()
-
-
-    q=float(
-        n2.duration.quarterLength
-    )
-
-
-    q=quantize_length(q)
-
-
-    n2.duration=duration.Duration(q)
-
-
-    n2.tie=None
-
-
-    events.append(n2)
+    return best
 
 
 
-print("rebuild measures")
+def clean(input_file, output_file):
+
+    print("================")
+    print("CLEAN MUSICXML V30")
+    print("FINAL PUBLISH SCORE FORMAT")
+    print("================")
+
+    print("read")
+
+    score = converter.parse(input_file)
 
 
-current=0
+    # remove voices
+    print("remove voices")
+
+    for p in score.parts:
+        for el in p.recurse():
+            if hasattr(el,"voice"):
+                el.voice = None
 
 
-for e in events:
+
+    # remove chords
+    print("remove chords")
+
+    for p in score.parts:
+
+        for c in list(p.recurse().getElementsByClass(chord.Chord)):
+
+            n = note.Note(c.root())
+
+            n.duration = c.duration
+
+            c.activeSite.replace(c,n)
 
 
-    length=float(
-        e.duration.quarterLength
-    )
+
+    # remove ties beams
+    print("remove beams ties")
+
+    for n in score.recurse().notes:
+
+        n.beams.fill(0)
+
+        n.tie = None
 
 
-    # prevent over bar
 
-    if current + length > 4:
+    # force 4/4
+    print("force 4/4")
+
+    for m in score.recurse().getElementsByClass(
+            stream.Measure):
+
+        m.timeSignature = meter.TimeSignature("4/4")
 
 
-        rest=note.Rest()
 
-        rest.duration=duration.Duration(
-            4-current
+    # duration quantize
+    print("duration quantize")
+
+    for n in score.recurse().notes:
+
+        d = float(n.duration.quarterLength)
+
+        n.duration.quarterLength = quantize_duration(d)
+
+
+
+    # rebuild measures
+    print("rebuild measures")
+
+    score.makeMeasures(inPlace=True)
+
+
+
+    # split / repair measures
+    print("BAR REPAIR V30")
+
+    for p in score.parts:
+
+        new_score = stream.Part()
+
+        current = stream.Measure()
+
+        beat = 0
+
+
+        for n in p.recurse().notesAndRests:
+
+
+            length = float(n.duration.quarterLength)
+
+
+            # 超過4拍切斷
+            if beat + length > 4:
+
+                remain = 4 - beat
+
+
+                if remain > 0:
+
+                    n.duration.quarterLength = remain
+                    current.append(n)
+
+
+                current.number = len(
+                    new_score.getElementsByClass(
+                    stream.Measure
+                    )
+                ) + 1
+
+                new_score.append(current)
+
+
+                current = stream.Measure()
+                beat = 0
+
+
+
+            n.duration.quarterLength = min(
+                n.duration.quarterLength,
+                4
+            )
+
+
+            current.append(n)
+
+            beat += float(
+                n.duration.quarterLength
+            )
+
+
+
+        if current.notesAndRests:
+
+            while beat < 4:
+
+                r = note.Rest()
+
+                r.duration.quarterLength = 4-beat
+
+                current.append(r)
+
+                beat += 4-beat
+
+
+            new_score.append(current)
+
+
+
+        p.coreElementsChanged()
+
+
+    print("clear notation cache")
+
+    score.coreElementsChanged()
+
+
+    print("FINAL CHECK")
+
+
+    for i,m in enumerate(
+        score.recurse().getElementsByClass(stream.Measure),
+        1):
+
+        total=sum(
+            x.duration.quarterLength
+            for x in m.notesAndRests
         )
 
-        if current < 4:
-            part.append(rest)
-
-
-        current=0
-
-
-
-    part.append(e)
-
-    current += length
+        print(
+            "Measure",
+            i,
+            float(total)
+        )
 
 
 
-    if current == 4:
+    print("FINAL WRITE")
 
-        current=0
-
-
-
-# last bar fill
-
-if current < 4 and current>0:
-
-    r=note.Rest()
-
-    r.duration=duration.Duration(
-        4-current
-    )
-
-    part.append(r)
-
-
-
-clean.append(part)
-
-
-
-print("FINAL CHECK")
-
-
-measures=clean.makeMeasures(
-    inPlace=False
-)
-
-
-for i,m in enumerate(
-    measures.parts[0].getElementsByClass("Measure"),
-    1
-):
-
-    print(
-        "Measure",
-        i,
-        float(m.duration.quarterLength)
+    score.write(
+        "musicxml",
+        fp=output_file
     )
 
 
-
-print("FINAL WRITE")
-
-
-measures.write(
-    "musicxml",
-    fp=dst
-)
+    print("DONE")
+    print(output_file)
 
 
-print("DONE")
-print(dst)
+
+if __name__=="__main__":
+
+    if len(sys.argv)<3:
+
+        print(
+        "python clean_musicxml.py input.musicxml output.musicxml"
+        )
+
+        exit()
+
+
+    clean(
+        sys.argv[1],
+        sys.argv[2]
+    )
