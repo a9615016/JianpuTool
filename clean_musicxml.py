@@ -1,6 +1,6 @@
 # clean_musicxml.py
-# V40
-# jianpu_ly hard compatible edition
+# V41
+# jianpu_ly strict 4/4 edition
 
 from music21 import converter, stream, note, chord, meter, tempo
 import sys
@@ -8,28 +8,33 @@ import copy
 from fractions import Fraction
 
 
-VERSION = "CLEAN MUSICXML V40"
+VERSION = "CLEAN MUSICXML V41"
 
 
-STEP = Fraction(1,4)   # 16th note
+STEP = Fraction(1, 4)
 
 
-def remove_notation(score):
+def clean_note(n):
+
+    n.tie = None
+
+    if hasattr(n, "beams"):
+        n.beams = []
+
+    n.articulations = []
+    n.expressions = []
+
+    return n
+
+
+
+def remove_bad_elements(score):
+
+    print("clear notation cache")
 
     for n in score.recurse().notes:
 
-        # remove tie
-        n.tie = None
-
-        # remove beams
-        if hasattr(n,"beams"):
-            n.beams = []
-
-        # remove articulations
-        n.articulations = []
-
-        # remove expressions
-        n.expressions = []
+        clean_note(n)
 
     return score
 
@@ -51,51 +56,81 @@ def force_44(score):
 
 def quantize(part):
 
-    for n in part.recurse().notesAndRests:
+    print("duration quantize")
+
+    for n in part.recurse().notes:
 
         q = Fraction(
             n.duration.quarterLength
         )
 
-        new = round(q/STEP)*STEP
+        new_q = round(q / STEP) * STEP
 
-        if new <=0:
-            new = STEP
+        if new_q <= 0:
+            new_q = STEP
 
-        n.duration.quarterLength = new
-
-    return part
+        n.duration.quarterLength = new_q
 
 
 
-def rebuild_part(part):
+def expand_chords(part):
+
+    result=[]
+
+    for n in part.recurse().notes:
+
+        if isinstance(n, chord.Chord):
+
+            # 取最高音當旋律
+            result.append(
+                n.notes[-1]
+            )
+
+        else:
+
+            result.append(n)
+
+    return result
+
+
+
+def rebuild_measure(part):
+
+    print("rebuild measures")
 
     new_part = stream.Part()
 
-    new_part.append(
+    new_part.insert(
+        0,
         meter.TimeSignature("4/4")
     )
 
 
-    measure = stream.Measure(
-        number=1
+    measure_no = 1
+
+    m = stream.Measure(
+        number=measure_no
     )
+
 
     pos = Fraction(0)
 
 
-    for item in part.recurse().notesAndRests:
+    notes = expand_chords(part)
+
+
+    for old in notes:
 
 
         dur = Fraction(
-            item.duration.quarterLength
+            old.duration.quarterLength
         )
 
 
-        while dur>0:
+        while dur > 0:
 
 
-            remain = 4-pos
+            remain = Fraction(4)-pos
 
 
             take=min(
@@ -104,14 +139,21 @@ def rebuild_part(part):
             )
 
 
-            new = copy.deepcopy(item)
+            new = copy.deepcopy(old)
 
-            new.tie=None
+
+            clean_note(new)
+
 
             new.duration.quarterLength = take
 
 
-            measure.append(new)
+            # 強制重新 offset
+
+            m.insert(
+                pos,
+                new
+            )
 
 
             pos += take
@@ -120,35 +162,49 @@ def rebuild_part(part):
 
 
 
-            if pos>=4:
+            if pos >= 4:
 
-                new_part.append(measure)
 
-                measure=stream.Measure(
-                    number=len(new_part.getElementsByClass(stream.Measure))+1
+                new_part.append(m)
+
+
+                measure_no += 1
+
+                m = stream.Measure(
+                    number=measure_no
                 )
 
-                pos=0
+                pos = Fraction(0)
 
 
 
-    # 補滿最後小節
+    # 最後補滿小節
 
-    while pos<4:
+    while pos < 4:
 
-        r=note.Rest()
 
-        r.duration.quarterLength=min(
-            1,
-            4-pos
+        r = note.Rest()
+
+
+        r.duration.quarterLength = min(
+            STEP,
+            Fraction(4)-pos
         )
 
-        measure.append(r)
+
+        m.insert(
+            pos,
+            r
+        )
+
 
         pos += r.duration.quarterLength
 
 
-    new_part.append(measure)
+
+    if len(m.notesAndRests):
+
+        new_part.append(m)
 
 
     return new_part
@@ -157,10 +213,11 @@ def rebuild_part(part):
 
 def final_check(score):
 
-    print("V40 FINAL CHECK")
+    print("FINAL CHECK")
 
     for i,m in enumerate(
-        score.parts[0].getElementsByClass(stream.Measure),
+        score.parts[0]
+        .getElementsByClass(stream.Measure),
         1
     ):
 
@@ -168,6 +225,7 @@ def final_check(score):
             Fraction(x.duration.quarterLength)
             for x in m.notesAndRests
         )
+
 
         print(
             "Measure",
@@ -183,38 +241,51 @@ def clean(inp,out):
     print(VERSION)
 
 
-    score=converter.parse(inp)
+    score = converter.parse(inp)
 
 
     # remove tempo
+
     for t in score.recurse().getElementsByClass(
         tempo.MetronomeMark
     ):
+
         t.activeSite.remove(t)
 
 
-    score=remove_notation(score)
 
-    score=force_44(score)
+    score = remove_bad_elements(score)
 
 
-    new_score=stream.Score()
+    force_44(score)
+
+
+
+    new_score = stream.Score()
 
 
     for part in score.parts:
 
+
         quantize(part)
 
-        np=rebuild_part(part)
 
-        new_score.append(np)
+        rebuilt = rebuild_measure(part)
+
+
+        new_score.append(
+            rebuilt
+        )
 
 
 
     force_44(new_score)
 
 
-    final_check(new_score)
+
+    final_check(
+        new_score
+    )
 
 
     print("FINAL WRITE")
@@ -231,7 +302,16 @@ def clean(inp,out):
 
 
 
-if __name__=="__main__":
+if __name__ == "__main__":
+
+
+    if len(sys.argv)<2:
+
+        print(
+            "usage: python clean_musicxml.py input.musicxml output.musicxml"
+        )
+
+        sys.exit()
 
 
     inp=sys.argv[1]
@@ -239,8 +319,13 @@ if __name__=="__main__":
 
     out="clean.musicxml"
 
-    if len(sys.argv)>2:
+
+    if len(sys.argv)>=3:
+
         out=sys.argv[2]
 
 
-    clean(inp,out)
+    clean(
+        inp,
+        out
+    )
