@@ -1,290 +1,318 @@
-# CLEAN MUSICXML V92
-# Jianpu_ly dedicated version
-# note stream rebuild
-
-from music21 import converter, stream, meter, note, chord, tempo
+from music21 import converter, stream, meter, note, chord, tie
 import sys
 
 
-STEP = 1 / 12   # jianpu_ly friendly resolution
+INPUT = sys.argv[1]
+
+if len(sys.argv) >= 3:
+    OUTPUT = sys.argv[2]
+else:
+    OUTPUT = "clean.musicxml"
 
 
-def quantize_duration(q):
-    """
-    quantize to music21 quarterLength
-    """
-
-    values = [
-        0.25,
-        0.5,
-        0.75,
-        1,
-        1.25,
-        1.5,
-        1.75,
-        2,
-        2.5,
-        3,
-        4
-    ]
-
-    return min(values, key=lambda x: abs(x-q))
+print("CLEAN VERSION 20260729 v9")
 
 
+score = converter.parse(INPUT)
 
-def split_note(n, remain):
 
-    result=[]
+# ==========================
+# remove chords
+# ==========================
+print("remove chords")
 
-    length=n.duration.quarterLength
+for part in score.parts:
+    for element in list(part.recurse()):
+        if isinstance(element, chord.Chord):
 
-    while length > remain:
+            n = note.Note(
+                element.pitches[0]
+            )
 
-        part = remain
+            n.duration = element.duration
 
-        nn = note.Note(
-            n.pitch
+            element.activeSite.replace(
+                element,
+                n
+            )
+
+
+# ==========================
+# remove ties
+# ==========================
+print("remove ties")
+
+for n in score.recurse().notes:
+
+    if n.tie:
+        n.tie = None
+
+
+# ==========================
+# remove beams
+# ==========================
+print("remove beams")
+
+for n in score.recurse().notes:
+    try:
+        n.beams = []
+    except:
+        pass
+
+
+
+# ==========================
+# force 4/4
+# ==========================
+print("force 4/4")
+
+for part in score.parts:
+
+    for m in part.getElementsByClass(
+        stream.Measure
+    ):
+
+        m.insert(
+            0,
+            meter.TimeSignature("4/4")
         )
 
-        nn.duration.quarterLength = part
-
-        result.append(nn)
-
-        length -= part
-
-        remain = 4
 
 
-    if length > 0:
+# ==========================
+# duration quantize
+# ==========================
+print("duration quantize")
 
-        nn = note.Note(
-            n.pitch
+
+allowed = [
+    0.25,
+    0.5,
+    0.75,
+    1,
+    1.5,
+    2,
+    3,
+    4
+]
+
+
+for n in score.recurse().notesAndRests:
+
+    q = float(
+        n.duration.quarterLength
+    )
+
+    nearest = min(
+        allowed,
+        key=lambda x: abs(x-q)
+    )
+
+    if abs(q-nearest) > 0.001:
+
+        print(
+            "quantize",
+            q,
+            "->",
+            nearest
         )
 
-        nn.duration.quarterLength = length
-
-        result.append(nn)
-
-
-    return result
+    n.duration.quarterLength = nearest
 
 
 
-def rebuild_part(src):
+# ==========================
+# rebuild measures
+# ==========================
+print("rebuild measures")
+
+new_score = stream.Score()
+
+
+for part in score.parts:
 
     new_part = stream.Part()
 
-    new_part.insert(
+    meter_obj = meter.TimeSignature("4/4")
+
+    new_part.append(meter_obj)
+
+    measure_no = 1
+    current = stream.Measure(
+        number=measure_no
+    )
+
+    current.insert(
         0,
         meter.TimeSignature("4/4")
     )
 
 
-    current_measure = stream.Measure(
-        number=1
-    )
-
-    beat = 0
+    total = 0
 
 
-    notes=[]
+    for n in part.flatten().notesAndRests:
 
-
-    for n in src.recurse():
-
-        if isinstance(n, note.Note):
-
-            notes.append(n)
-
-        elif isinstance(n, chord.Chord):
-
-            # 取最高音旋律
-            nn = note.Note(
-                n.pitches[-1]
-            )
-
-            nn.duration = n.duration
-
-            notes.append(nn)
-
-
-
-    for n in notes:
-
-
-        dur = quantize_duration(
+        length = float(
             n.duration.quarterLength
         )
 
 
-        remain = 4 - beat
+        # 超長音拆分
+        while length > 4:
 
+            nn = n.clone()
 
-        if dur <= remain:
+            nn.duration.quarterLength = 4
 
-            nn = note.Note(
-                n.pitch
-            )
+            current.append(nn)
 
-            nn.duration.quarterLength = dur
+            length -= 4
 
-            current_measure.append(nn)
+            if current.duration.quarterLength >= 4:
 
-            beat += dur
+                new_part.append(current)
 
+                measure_no += 1
 
-
-        else:
-
-            # split over bar
-
-            first = remain
-
-            if first > 0:
-
-                nn = note.Note(
-                    n.pitch
+                current = stream.Measure(
+                    number=measure_no
                 )
 
-                nn.duration.quarterLength = first
-
-                current_measure.append(nn)
-
-
-
-            new_part.append(
-                current_measure
-            )
+                current.insert(
+                    0,
+                    meter.TimeSignature("4/4")
+                )
 
 
-            current_measure = stream.Measure(
-                number=len(new_part.getElementsByClass("Measure"))+1
-            )
+        if length > 0:
+
+            nn = n.clone()
+
+            nn.duration.quarterLength = length
+
+            if current.duration.quarterLength + length <= 4:
+
+                current.append(nn)
+
+            else:
+
+                remain = (
+                    4 -
+                    current.duration.quarterLength
+                )
+
+                if remain > 0:
+
+                    part1 = nn.clone()
+
+                    part1.duration.quarterLength = remain
+
+                    current.append(part1)
 
 
-            nn = note.Note(
-                n.pitch
-            )
+                new_part.append(current)
 
-            nn.duration.quarterLength = dur-first
+                measure_no += 1
 
-            current_measure.append(nn)
+                current = stream.Measure(
+                    number=measure_no
+                )
 
-            beat = dur-first
+                current.insert(
+                    0,
+                    meter.TimeSignature("4/4")
+                )
 
 
+                part2 = nn.clone()
 
-        if abs(beat-4)<0.001:
+                part2.duration.quarterLength = (
+                    length-remain
+                )
 
-
-            new_part.append(
-                current_measure
-            )
-
-            current_measure = stream.Measure(
-                number=len(new_part.getElementsByClass("Measure"))+1
-            )
-
-            beat=0
+                current.append(part2)
 
 
 
-    if len(current_measure.notes)>0:
+    if len(current.notesAndRests) > 0:
 
-        # 最後補休止
-
-        rest_len = 4-beat
-
-        if rest_len>0:
-
-            r=note.Rest()
-
-            r.duration.quarterLength=rest_len
-
-            current_measure.append(r)
+        new_part.append(current)
 
 
-        new_part.append(
-            current_measure
+    new_score.append(new_part)
+
+
+
+score = new_score
+
+
+
+# ==========================
+# FINAL duration normalize
+# ==========================
+print("FINAL DURATION FIX")
+
+
+for part in score.parts:
+
+    for m in part.getElementsByClass(
+        stream.Measure
+    ):
+
+        total = sum(
+            float(x.duration.quarterLength)
+            for x in m.notesAndRests
         )
 
 
-    return new_part
+        if abs(total-4) > 0.01:
+
+            print(
+                "WARNING measure mismatch",
+                m.number,
+                total
+            )
 
 
 
+# ==========================
+# FINAL CHECK
+# ==========================
 
-def clean(input_file, output_file):
-
-    print("================")
-    print("CLEAN MUSICXML V92")
-    print("NOTE STREAM REBUILD")
-    print("================")
+print("FINAL CHECK")
 
 
-    score = converter.parse(input_file)
+for part in score.parts:
 
+    for m in part.getElementsByClass(
+        stream.Measure
+    ):
 
-    out = stream.Score()
-
-
-    for p in score.parts:
-
-        print("rebuild part")
-
-        np = rebuild_part(p)
-
-        out.append(np)
-
-
-
-    print("FINAL CHECK")
-
-
-    for m in out.parts[0].getElementsByClass("Measure"):
-
-        q = m.duration.quarterLength
+        total = sum(
+            float(x.duration.quarterLength)
+            for x in m.notesAndRests
+        )
 
         print(
             "Measure",
             m.number,
-            q
+            total
         )
 
-        if abs(q-4)>0.01:
-
-            print(
-                "WARNING",
-                m.number,
-                q
-            )
 
 
-    out.write(
-        "musicxml",
-        fp=output_file
-    )
+# ==========================
+# WRITE
+# ==========================
+
+print("FINAL WRITE")
+
+score.write(
+    "musicxml",
+    fp=OUTPUT
+)
 
 
-    print("DONE")
-    print(output_file)
-
-
-
-if __name__=="__main__":
-
-
-    if len(sys.argv)<3:
-
-        print(
-            "usage: python clean_musicxml.py input.musicxml output.musicxml"
-        )
-
-        sys.exit()
-
-
-
-    clean(
-        sys.argv[1],
-        sys.argv[2]
-    )
+print("DONE")
+print(OUTPUT)
