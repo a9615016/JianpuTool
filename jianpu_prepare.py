@@ -1,320 +1,200 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
-"""
-jianpu_prepare_v2.py
-
-MusicXML preprocessor for jianpu_ly
-
-Fix:
-- backup
-- forward
-- chord
-- ties
-- voice
-- cross measure notes
-- measure overflow
-- fill rests
-"""
-
+from music21 import converter, stream, note, chord, meter
 import sys
-from pathlib import Path
-from lxml import etree
+import os
 
 
-BEATS = 4
+print("==============================")
+print("JIANPU PREPARE V2")
+print("==============================")
 
 
-def create_rest(duration):
+VALID_DURATIONS = [
+    0.5,    # 16分
+    0.75,
+    1,      # 8分
+    1.5,
+    2,      # 4分
+    3,
+    4,      # 2分
+    6,
+    8,      # 全音符
+    12
+]
 
-    note = etree.Element("note")
 
-    etree.SubElement(
-        note,
-        "rest"
+def quantize_duration(value):
+
+    return min(
+        VALID_DURATIONS,
+        key=lambda x: abs(x - value)
     )
 
-    dur = etree.SubElement(
-        note,
-        "duration"
-    )
-    dur.text = str(duration)
 
-    voice = etree.SubElement(
-        note,
-        "voice"
-    )
-    voice.text = "1"
+def remove_chords(score):
 
-    return note
+    print("remove chords")
 
+    for c in score.recurse().getElementsByClass(chord.Chord):
 
-
-def clone_note(note, duration):
-
-    new_note = etree.fromstring(
-        etree.tostring(note)
-    )
-
-    old = new_note.find("duration")
-
-    if old is not None:
-        old.text = str(duration)
-
-    else:
-        d = etree.SubElement(
-            new_note,
-            "duration"
-        )
-        d.text = str(duration)
-
-
-    voice = new_note.find("voice")
-
-    if voice is None:
-        voice = etree.SubElement(
-            new_note,
-            "voice"
+        n = note.Note(
+            c.root().pitch
         )
 
-    voice.text = "1"
+        n.duration = c.duration
+
+        c.activeSite.replace(
+            c,
+            n
+        )
 
 
-    return new_note
+def clean_notes(score):
 
+    print("quantize duration")
 
+    for n in score.recurse().notes:
 
-def prepare(src, dst):
+        old = n.duration.quarterLength
 
-    print("LOAD", src)
+        new = quantize_duration(old)
 
+        if old != new:
+            print(
+                "duration",
+                old,
+                "=>",
+                new
+            )
 
-    tree = etree.parse(src)
-    root = tree.getroot()
-
-
-    div_node = root.find(".//divisions")
-
-    divisions = 16
-
-    if div_node is not None:
-        divisions = int(div_node.text)
-
-
-    measure_length = divisions * BEATS
-
-
-    print(
-        "DIVISIONS",
-        divisions,
-        "MEASURE",
-        measure_length
-    )
-
-
-    # ------------------------
-    # remove global unwanted
-    # ------------------------
-
-    for x in root.xpath(".//backup"):
-        x.getparent().remove(x)
-
-    for x in root.xpath(".//forward"):
-        x.getparent().remove(x)
-
-
-    for x in root.xpath(".//tie"):
-        x.getparent().remove(x)
-
-
-    for x in root.xpath(".//notations"):
-        x.getparent().remove(x)
+        n.duration.quarterLength = new
 
 
 
-    # ------------------------
-    # measures
-    # ------------------------
+def remove_notation(score):
 
-    for measure in root.xpath(".//measure"):
+    print("remove notation")
 
-        number = measure.get("number")
+    for n in score.recurse().notes:
+
+        n.tie = None
+
+        try:
+            n.beams = []
+        except:
+            pass
+
+
+
+def force_44(score):
+
+    print("force 4/4")
+
+    for p in score.parts:
+
+        p.insert(
+            0,
+            meter.TimeSignature("4/4")
+        )
+
+
+
+def rebuild(score):
+
+    print("rebuild measures")
+
+    for p in score.parts:
+
+        p.makeMeasures(
+            inPlace=True
+        )
+
+
+def check(score):
+
+    print("================")
+    print("FINAL CHECK")
+    print("================")
+
+    for i,m in enumerate(
+        score.parts[0].getElementsByClass("Measure"),
+        1
+    ):
+
+        total = 0
+
+        for n in m.notesAndRests:
+
+            total += n.duration.quarterLength
+
 
         print(
-            "PROCESS MEASURE",
-            number
+            "Measure",
+            i,
+            total
         )
 
 
-        new_children=[]
-
-        current=0
-
-
-        for item in list(measure):
-
-            tag = etree.QName(item).localname
-
-
-            if tag != "note":
-                continue
-
-
-            # remove chord
-            chord=item.find("chord")
-
-            if chord is not None:
-                item.remove(chord)
-
-
-            # force voice
-
-            voice=item.find("voice")
-
-            if voice is None:
-                voice=etree.SubElement(
-                    item,
-                    "voice"
-                )
-
-            voice.text="1"
-
-
-            dur=item.find("duration")
-
-            if dur is None:
-                continue
-
-
-            duration=int(dur.text)
-
-
-            # ---------------------
-            # split overflow note
-            # ---------------------
-
-            while current + duration > measure_length:
-
-                remain = measure_length-current
-
-
-                if remain > 0:
-
-                    print(
-                        "split note",
-                        number,
-                        "remain",
-                        remain
-                    )
-
-
-                    part=clone_note(
-                        item,
-                        remain
-                    )
-
-                    new_children.append(part)
-
-
-                duration -= remain
-
-                current = measure_length
-
-
-                break
-
-
-
-            if current < measure_length and duration>0:
-
-
-                if current+duration <= measure_length:
-
-                    part=clone_note(
-                        item,
-                        duration
-                    )
-
-                    new_children.append(part)
-
-                    current += duration
-
-
-
-        # clear old notes
-
-        for item in list(measure):
-
-            if etree.QName(item).localname=="note":
-                measure.remove(item)
-
-
-
-        # write notes back
-
-        for n in new_children:
-
-            measure.append(n)
-
-
-
-        # fill rest
-
-        if current < measure_length:
-
-            missing=measure_length-current
+        if total > 4.01:
 
             print(
-                "fill rest",
-                number,
-                missing
+                "WARNING",
+                i,
+                total
             )
 
-            measure.append(
-                create_rest(missing)
-            )
-
-            current += missing
 
 
-
-        print(
-            "MEASURE",
-            number,
-            current/divisions
-        )
-
-
-    tree.write(
-        dst,
-        encoding="UTF-8",
-        xml_declaration=True
-    )
-
-
-    print()
-    print("DONE")
-    print(dst)
-
-
-
-if __name__=="__main__":
-
+def main():
 
     if len(sys.argv)<3:
-
-        print(
-            "usage:"
-        )
 
         print(
             "python jianpu_prepare_v2.py input.musicxml output.musicxml"
         )
 
-        sys.exit(1)
+        return
 
 
-    prepare(
-        sys.argv[1],
-        sys.argv[2]
+    infile=sys.argv[1]
+
+    outfile=sys.argv[2]
+
+
+    print("READ")
+
+    score = converter.parse(
+        infile
     )
+
+
+    remove_chords(score)
+
+    clean_notes(score)
+
+    remove_notation(score)
+
+    force_44(score)
+
+    rebuild(score)
+
+
+    check(score)
+
+
+    print("WRITE")
+
+    score.write(
+        "musicxml",
+        fp=outfile
+    )
+
+
+    print("DONE")
+
+    print(outfile)
+
+
+
+if __name__=="__main__":
+
+    main()
