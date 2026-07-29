@@ -9,12 +9,7 @@ import subprocess
 app = FastAPI()
 
 
-BASE_DIR = "/app"
-
-OUTPUT_DIR = os.path.join(
-    BASE_DIR,
-    "outputs"
-)
+OUTPUT_DIR = "/app/outputs"
 
 os.makedirs(
     OUTPUT_DIR,
@@ -36,7 +31,7 @@ def home():
 
         <input type="file" name="file">
 
-        <button type="submit">
+        <button>
         Upload
         </button>
 
@@ -91,9 +86,10 @@ async def upload(
 
 
 
-    # ======================
+    # =========================
     # MP3 -> MIDI
-    # ======================
+    # =========================
+
 
     midi_path = os.path.join(
         job_dir,
@@ -106,12 +102,6 @@ async def upload(
     )
 
 
-    # 這裡接你原本 BasicPitch / melody extractor
-    # 例如:
-    #
-    # python basicpitch_convert.py input.mp3 melody.mid
-    #
-
     subprocess.run(
         [
             "python",
@@ -123,7 +113,6 @@ async def upload(
     )
 
 
-
     print(
         "MIDI READY:",
         midi_path
@@ -131,9 +120,10 @@ async def upload(
 
 
 
-    # ======================
-    # MIDI -> CLEAN MUSICXML
-    # ======================
+    # =========================
+    # MIDI -> MUSICXML
+    # (新版，不使用 clean_musicxml.py)
+    # =========================
 
 
     clean_xml = os.path.join(
@@ -159,15 +149,15 @@ async def upload(
 
 
     print(
-        "MusicXML READY:",
+        "MUSICXML READY:",
         clean_xml
     )
 
 
 
-    # ======================
-    # MusicXML -> Jianpu LY
-    # ======================
+    # =========================
+    # MUSICXML -> JIANPU LY
+    # =========================
 
 
     ly_file = os.path.join(
@@ -185,7 +175,7 @@ async def upload(
         ly_file,
         "w",
         encoding="utf-8"
-    ) as out:
+    ) as f:
 
 
         subprocess.run(
@@ -195,11 +185,10 @@ async def upload(
                 "jianpu_ly",
                 clean_xml
             ],
-            stdout=out,
+            stdout=f,
             stderr=subprocess.STDOUT,
             check=True
         )
-
 
 
     print(
@@ -209,9 +198,9 @@ async def upload(
 
 
 
-    # ======================
-    # LilyPond PDF
-    # ======================
+    # =========================
+    # LY -> PDF
+    # =========================
 
 
     print(
