@@ -2,22 +2,27 @@ from music21 import converter
 import sys
 
 
-xml = sys.argv[1]
+file = sys.argv[1]
 
-score = converter.parse(xml)
+score = converter.parse(file)
 
 
 for part in score.parts:
 
-    for i, m in enumerate(part.getElementsByClass("Measure")):
+    print("PART")
 
-        length = 0
+    for i, m in enumerate(
+        part.getElementsByClass("Measure")
+    ):
+
+        total = 0
 
         for n in m.notesAndRests:
-            length += n.duration.quarterLength
+            total += n.duration.quarterLength
+
 
         print(
             "Measure",
             i+1,
-            float(length)
+            total
         )
