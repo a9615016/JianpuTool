@@ -1,6 +1,9 @@
+# midi_to_musicxml_clean.py
+# VERSION: v6
+# MIDI -> MusicXML strict rebuild
+
 from music21 import converter, stream, meter, note, chord
 import sys
-import os
 
 
 def convert_midi_to_musicxml(
@@ -8,11 +11,14 @@ def convert_midi_to_musicxml(
     output_file
 ):
 
+    print("================================")
     print("MIDI TO MUSICXML CLEAN v6")
+    print("================================")
 
-    # =====================
-    # LOAD MIDI
-    # =====================
+
+    # -------------------------
+    # Load MIDI
+    # -------------------------
 
     score = converter.parse(
         midi_file
@@ -23,14 +29,14 @@ def convert_midi_to_musicxml(
 
 
     print(
-        "TOTAL EVENTS:",
+        "TOTAL NOTES:",
         len(flat.notes)
     )
 
 
-    # =====================
-    # NEW PART
-    # =====================
+    # -------------------------
+    # New clean part
+    # -------------------------
 
     part = stream.Part()
 
@@ -52,13 +58,14 @@ def convert_midi_to_musicxml(
     for n in flat.notes:
 
 
-        # 移除 chord
+        # chord 只取最高音
+
         if isinstance(
             n,
             chord.Chord
         ):
 
-            pitch = n.pitches[0]
+            pitch = n.pitches[-1]
 
 
         else:
@@ -72,23 +79,25 @@ def convert_midi_to_musicxml(
         )
 
 
-        # =====================
-        # 強制節奏量化
-        # =====================
+        # -------------------------
+        # duration quantize
+        # -------------------------
 
         dur = float(
             n.duration.quarterLength
         )
 
 
-        # 最小16分音符
+        # 最短16分音符
+
         if dur < 0.25:
 
             dur = 0.25
 
 
 
-        # 四分之一拍網格
+        # 四分音符網格
+
         dur = round(
             dur * 4
         ) / 4
@@ -114,9 +123,9 @@ def convert_midi_to_musicxml(
 
 
 
-    # =====================
-    # REBUILD MEASURES
-    # =====================
+    # -------------------------
+    # rebuild score
+    # -------------------------
 
     print(
         "REBUILD MEASURES"
@@ -137,24 +146,56 @@ def convert_midi_to_musicxml(
 
 
 
-    # =====================
-    # FINAL CHECK
-    # =====================
+    # -------------------------
+    # Final check
+    # -------------------------
 
     print(
         "FINAL CHECK"
     )
 
 
+    bad = False
+
+
     for m in new_score.parts[0].getElementsByClass("Measure"):
 
-        print(
-            "Measure",
-            m.number,
+
+        length = float(
             m.duration.quarterLength
         )
 
 
+        print(
+            "Measure",
+            m.number,
+            length
+        )
+
+
+        if abs(length - 4.0) > 0.01:
+
+            bad = True
+
+
+
+    if bad:
+
+        print(
+            "WARNING measure mismatch"
+        )
+
+    else:
+
+        print(
+            "ALL MEASURES OK"
+        )
+
+
+
+    # -------------------------
+    # Write MusicXML
+    # -------------------------
 
     print(
         "WRITE XML"
@@ -168,10 +209,12 @@ def convert_midi_to_musicxml(
 
 
     print(
-        "DONE",
-        output_file
+        "DONE"
     )
 
+    print(
+        output_file
+    )
 
 
 
@@ -181,7 +224,11 @@ if __name__ == "__main__":
     if len(sys.argv) < 3:
 
         print(
-            "usage: python midi_to_musicxml_clean.py input.mid output.musicxml"
+            "usage:"
+        )
+
+        print(
+            "python midi_to_musicxml_clean.py input.mid output.musicxml"
         )
 
         sys.exit(1)
@@ -189,9 +236,6 @@ if __name__ == "__main__":
 
 
     convert_midi_to_musicxml(
-
         sys.argv[1],
-
         sys.argv[2]
-
     )
