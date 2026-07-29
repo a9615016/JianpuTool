@@ -2,27 +2,24 @@ from music21 import converter, stream, note, meter, clef
 import sys
 
 
-VERSION = "CLEAN MUSICXML V88 PURE JIANPU XML SANITIZER"
+VERSION = "CLEAN MUSICXML V89 PURE JIANPU FORCE 4/4"
 
 
-ALLOWED_DURATIONS = [
-    4.0,
-    2.0,
-    1.0,
-    0.5,
-    0.25,
-    0.125
-]
+# 16分音符以下不保留
+GRID = 0.25
 
 
 def clean_duration(x):
 
     x = float(x)
 
-    return min(
-        ALLOWED_DURATIONS,
-        key=lambda d: abs(d-x)
-    )
+    q = round(x / GRID) * GRID
+
+    if q <= 0:
+        q = GRID
+
+    return q
+
 
 
 def rebuild_from_zero(score):
@@ -33,10 +30,12 @@ def rebuild_from_zero(score):
 
     part = stream.Part()
 
+
     part.insert(
         0,
         meter.TimeSignature("4/4")
     )
+
 
     part.insert(
         0,
@@ -62,22 +61,6 @@ def rebuild_from_zero(score):
         )
 
 
-        # create totally new object
-
-        if old.isRest:
-
-            obj = note.Rest()
-
-        else:
-
-            obj = note.Note(
-                old.pitch
-            )
-
-
-        obj.duration.quarterLength = dur
-
-
         remain = dur
 
 
@@ -93,10 +76,24 @@ def rebuild_from_zero(score):
             )
 
 
-            new_obj = obj.clone()
+            # create fresh object
+            if old.isRest:
+
+                new_obj = note.Rest()
+
+            else:
+
+                new_obj = note.Note(
+                    old.pitch
+                )
 
 
             new_obj.duration.quarterLength = use
+
+
+            # remove musicxml leftovers
+            new_obj.tie = None
+            new_obj.beams = []
 
 
             m.append(
@@ -105,6 +102,7 @@ def rebuild_from_zero(score):
 
 
             beat += use
+
             remain -= use
 
 
@@ -122,21 +120,24 @@ def rebuild_from_zero(score):
                     number=measure_no
                 )
 
+
                 beat = 0.0
 
 
 
-    # fill last bar
+    # fill final measure
 
     if beat > 0:
 
 
         r = note.Rest()
 
-        r.duration.quarterLength = 4-beat
+        r.duration.quarterLength = round(
+            4 - beat,
+            2
+        )
 
         m.append(r)
-
 
         part.append(m)
 
@@ -149,9 +150,11 @@ def rebuild_from_zero(score):
 
 
 
+
+
 def check(score):
 
-    print("V88 FINAL CHECK")
+    print("V89 FINAL CHECK")
 
 
     for m in score.parts[0].getElementsByClass(
@@ -159,7 +162,7 @@ def check(score):
     ):
 
 
-        total=sum(
+        total = sum(
             n.duration.quarterLength
             for n in m.notesAndRests
         )
@@ -172,14 +175,16 @@ def check(score):
         )
 
 
-        if abs(total-4)>0.001:
+        if abs(total - 4.0) > 0.001:
 
             raise Exception(
-                "BAD BAR "+str(m.number)
+                "BAD BAR " + str(m.number)
             )
 
 
-    print("V88 SAFE")
+    print("V89 SAFE")
+
+
 
 
 
@@ -195,6 +200,7 @@ def clean(inp,out):
 
 
     print("remove EVERYTHING")
+
 
     new = rebuild_from_zero(old)
 
@@ -216,10 +222,12 @@ def clean(inp,out):
 
 
 
-if __name__=="__main__":
 
 
-    if len(sys.argv)<3:
+if __name__ == "__main__":
+
+
+    if len(sys.argv) < 3:
 
         print(
             "python clean_musicxml.py input.musicxml output.musicxml"
