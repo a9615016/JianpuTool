@@ -1,14 +1,16 @@
-print("=== MAIN VERSION DIRECT MIDI V1 ===")
 from fastapi import FastAPI, UploadFile, File
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 import os
 import uuid
-import subprocess
 import shutil
+import subprocess
+
+
+print("=== MAIN VERSION DIRECT MIDI V1 ===")
 
 
 app = FastAPI(
-    title="JianpuTool MIDI Direct"
+    title="JianpuTool"
 )
 
 
@@ -25,11 +27,27 @@ os.makedirs(
 @app.get("/")
 def home():
 
-    return {
-        "status": "JianpuTool running",
-        "pipeline":
-        "Audio -> MIDI -> LY -> PDF"
-    }
+    return HTMLResponse(
+        """
+        <h2>JianpuTool 簡譜產生器</h2>
+
+        <p>
+        MP3/WAV → MIDI → 簡譜 PDF
+        </p>
+
+        <form action="/upload"
+        enctype="multipart/form-data"
+        method="post">
+
+        <input type="file" name="file">
+
+        <button type="submit">
+        Convert
+        </button>
+
+        </form>
+        """
+    )
 
 
 
@@ -39,12 +57,13 @@ async def upload(
     file: UploadFile = File(...)
 ):
 
-    job = str(uuid.uuid4())
+
+    job_id = str(uuid.uuid4())
 
 
     out_dir = os.path.join(
         BASE_DIR,
-        job
+        job_id
     )
 
 
@@ -71,16 +90,17 @@ async def upload(
         )
 
 
-
-    print("INPUT:")
+    print("================")
+    print("INPUT")
     print(input_file)
+    print("================")
 
 
 
-    # =========================
-    # Step 1
-    # MP3 -> MIDI
-    # =========================
+    # ==========================
+    # 1. Audio -> MIDI
+    # ==========================
+
 
     midi_file = os.path.join(
         out_dir,
@@ -88,7 +108,7 @@ async def upload(
     )
 
 
-    print("START MIDI EXTRACTION")
+    print("START AUDIO TO MIDI")
 
 
 
@@ -103,24 +123,21 @@ async def upload(
     )
 
 
-
-    print("MIDI DONE")
+    print("MIDI CREATED")
     print(midi_file)
 
 
 
 
-    # =========================
-    # Step 2
-    # MIDI -> LilyPond
-    # =========================
+    # ==========================
+    # 2. MIDI -> Jianpu Lilypond
+    # ==========================
 
 
     ly_file = os.path.join(
         out_dir,
         "melody.ly"
     )
-
 
 
     print("MIDI DIRECT TO JIANPU LY")
@@ -138,17 +155,15 @@ async def upload(
     )
 
 
-
-    print("LY DONE")
+    print("LY CREATED")
     print(ly_file)
 
 
 
 
-    # =========================
-    # Step 3
-    # LilyPond PDF
-    # =========================
+    # ==========================
+    # 3. Lilypond PDF
+    # ==========================
 
 
     print("RUN LILYPOND")
@@ -166,24 +181,18 @@ async def upload(
 
 
 
-    pdf_file = os.path.join(
-        out_dir,
-        "melody.pdf"
+    pdf_file = ly_file.replace(
+        ".ly",
+        ".pdf"
     )
 
 
 
     if not os.path.exists(pdf_file):
 
-        # lilypond 預設名稱
-        generated = ly_file.replace(
-            ".ly",
-            ".pdf"
+        raise Exception(
+            "PDF NOT CREATED"
         )
-
-        if os.path.exists(generated):
-
-            pdf_file = generated
 
 
 
