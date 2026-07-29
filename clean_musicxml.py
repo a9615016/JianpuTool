@@ -1,7 +1,7 @@
 # clean_musicxml.py
-# V50
-# jianpu_ly strict 4/4 edition
-# fix real duration overflow
+# V51
+# jianpu_ly hard compatible
+# force measure-level 4/4
 
 from music21 import converter, stream, note, meter, tempo
 import sys
@@ -9,153 +9,155 @@ import copy
 from fractions import Fraction
 
 
-VERSION = "CLEAN MUSICXML V50"
+VERSION="CLEAN MUSICXML V51"
 
 
-STEP = Fraction(1,4)
+STEP=Fraction(1,4)
 
 
 
-def remove_bad(score):
+def remove_all_time_signature(score):
 
-    for n in score.recurse().notes:
+    for part in score.parts:
 
-        n.tie = None
-
-        try:
-            n.beams = []
-        except:
-            pass
-
-        n.articulations = []
-        n.expressions = []
+        for ts in list(
+            part.recurse()
+            .getElementsByClass(meter.TimeSignature)
+        ):
+            ts.activeSite.remove(ts)
 
     return score
 
 
 
-def quantize(score):
+def quantize(part):
 
-    for x in score.recurse().notesAndRests:
+    for n in part.recurse().notesAndRests:
 
-        q = Fraction(x.duration.quarterLength)
+        q=Fraction(n.duration.quarterLength)
 
-        q = round(q / STEP) * STEP
+        new=round(q/STEP)*STEP
 
-        if q <= 0:
-            q = STEP
+        if new<=0:
+            new=STEP
 
-        x.duration.quarterLength = q
-
-    return score
+        n.duration.quarterLength=new
 
 
+    return part
 
-def rebuild_strict(part):
 
-    result = stream.Part()
 
-    result.append(
+def rebuild(part):
+
+    new_part=stream.Part()
+
+
+    measure_no=1
+    measure=stream.Measure(number=measure_no)
+
+    measure.insert(
+        0,
         meter.TimeSignature("4/4")
     )
 
 
-    measure_no = 1
-    m = stream.Measure(number=measure_no)
-
-    pos = Fraction(0)
+    pos=Fraction(0)
 
 
-    items = sorted(
-        list(part.recurse().notesAndRests),
-        key=lambda x:x.offset
-    )
+    for item in part.recurse().notesAndRests:
+
+        dur=Fraction(item.duration.quarterLength)
 
 
-    for item in items:
+        while dur>0:
 
-        dur = Fraction(
-            item.duration.quarterLength
-        )
+            remain=Fraction(4)-pos
 
-
-        while dur > 0:
-
-
-            remain = Fraction(4)-pos
-
-
-            take=min(
-                dur,
-                remain
-            )
+            take=min(dur,remain)
 
 
             new=copy.deepcopy(item)
 
-            new.tie=None
-
             new.duration.quarterLength=take
 
-
-            m.append(new)
-
-
-            pos += take
-
-            dur -= take
+            new.tie=None
 
 
+            measure.append(new)
 
-            if pos >= 4:
+
+            pos+=take
+            dur-=take
 
 
-                result.append(m)
 
-                measure_no += 1
+            if pos>=4:
 
-                m=stream.Measure(
+                new_part.append(measure)
+
+                measure_no+=1
+
+                measure=stream.Measure(
                     number=measure_no
+                )
+
+                measure.insert(
+                    0,
+                    meter.TimeSignature("4/4")
                 )
 
                 pos=Fraction(0)
 
 
 
-    # 補最後小節
+    if len(measure.notesAndRests):
 
-    if len(m.notesAndRests):
-
-        while pos < 4:
+        while pos<4:
 
             r=note.Rest()
 
             r.duration.quarterLength=min(
-                Fraction(1),
+                1,
                 4-pos
             )
 
-            m.append(r)
+            measure.append(r)
 
-            pos += r.duration.quarterLength
-
-
-        result.append(m)
+            pos+=r.duration.quarterLength
 
 
-    return result
+        new_part.append(measure)
+
+
+
+    return new_part
+
 
 
 
 def check(score):
 
-    print("V50 CHECK")
+    print("V51 FINAL CHECK")
 
 
     for i,m in enumerate(
-        score.parts[0].getElementsByClass(stream.Measure),
+        score.parts[0]
+        .getElementsByClass(stream.Measure),
         1
     ):
+
+        ts=m.timeSignature
+
+        if ts:
+
+            print(
+                "Measure",
+                i,
+                "TS",
+                ts.ratioString
+            )
+
 
         total=sum(
             Fraction(x.duration.quarterLength)
@@ -164,19 +166,10 @@ def check(score):
 
 
         print(
-            "Measure",
-            i,
+            "Length",
             float(total)
         )
 
-
-        if total != 4:
-
-            print(
-                "ERROR measure",
-                i,
-                total
-            )
 
 
 
@@ -189,16 +182,17 @@ def clean(inp,out):
     score=converter.parse(inp)
 
 
+
+    # remove tempo
     for t in score.recurse().getElementsByClass(
         tempo.MetronomeMark
     ):
+
         t.activeSite.remove(t)
 
 
 
-    remove_bad(score)
-
-    quantize(score)
+    score=remove_all_time_signature(score)
 
 
 
@@ -208,9 +202,10 @@ def clean(inp,out):
 
     for part in score.parts:
 
+        quantize(part)
 
         new_score.append(
-            rebuild_strict(part)
+            rebuild(part)
         )
 
 
@@ -229,16 +224,15 @@ def clean(inp,out):
 
 
     print("DONE")
+    print(out)
 
 
 
 if __name__=="__main__":
 
-
     inp=sys.argv[1]
 
     out="clean.musicxml"
-
 
     if len(sys.argv)>2:
         out=sys.argv[2]
