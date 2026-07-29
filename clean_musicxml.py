@@ -1,155 +1,253 @@
-# ================================
-# CLEAN MUSICXML V83
-# JIANPU STRICT MODE
-# ================================
-
-print("================")
-print("CLEAN MUSICXML V83 JIANPU STRICT")
-print("================")
+import sys
+from music21 import converter, stream, note, chord, meter, duration
 
 
-from music21 import converter, stream, note, chord
+print("==============================")
+print("CLEAN MUSICXML V84")
+print("JIANPU_LY STRICT MODE")
+print("==============================")
 
 
-def strict_fix_measures(score):
+input_file=sys.argv[1]
 
-    print("JIANPU STRICT FIX")
-
-    for part in score.parts:
-
-        measures = list(
-            part.getElementsByClass("Measure")
-        )
-
-        for m in measures:
-
-            length = float(
-                m.duration.quarterLength
-            )
-
-            if length > 4.0:
-
-                print(
-                    "TRIM measure",
-                    m.number,
-                    length
-                )
-
-                used = 0.0
-                keep = []
-
-
-                for element in list(
-                    m.notesAndRests
-                ):
-
-                    dur = float(
-                        element.duration.quarterLength
-                    )
-
-
-                    if used >= 4.0:
-                        break
-
-
-                    remain = 4.0 - used
-
-
-                    if dur <= remain:
-
-                        keep.append(element)
-                        used += dur
-
-
-                    else:
-
-                        # cut note/rest
-                        element.duration.quarterLength = remain
-                        keep.append(element)
-                        used = 4.0
+if len(sys.argv)>=3:
+    output_file=sys.argv[2]
+else:
+    output_file="clean.musicxml"
 
 
 
-                # remove old content
-
-                for el in list(
-                    m.notesAndRests
-                ):
-                    m.remove(el)
+score=converter.parse(input_file)
 
 
-                offset = 0
-
-                for el in keep:
-
-                    m.insert(
-                        offset,
-                        el
-                    )
-
-                    offset += float(
-                        el.duration.quarterLength
-                    )
+print("read")
 
 
-            elif length < 4.0:
+# ==========================
+# remove voices
+# ==========================
 
-                print(
-                    "FILL rest",
-                    m.number,
-                    length
-                )
+for p in score.parts:
 
-                rest_time = 4.0 - length
+    for el in list(p.recurse()):
 
-                m.append(
-                    note.Rest(
-                        quarterLength=rest_time
-                    )
-                )
+        if isinstance(el, note.Voice):
+            el.activeSite.remove(el)
 
-
-    return score
+print("remove voices")
 
 
 
-# ================================
-# APPLY STRICT FIX
-# ================================
+# ==========================
+# remove chords
+# ==========================
 
-score = strict_fix_measures(score)
+for c in score.recurse().getElementsByClass(chord.Chord):
+
+    n=c.notes[0]
+
+    c.activeSite.replace(c,n)
+
+
+print("remove chords")
 
 
 
-# ================================
-# FINAL CHECK
-# ================================
+# ==========================
+# remove notation
+# ==========================
 
-print("FINAL V83 CHECK")
+for p in score.parts:
+
+    for el in p.recurse():
+
+        if isinstance(el,note.Note):
+
+            el.tie=None
+            el.beams.fill(0)
+
+
+
+print("remove ties/beams")
+
+
+
+# ==========================
+# force 4/4
+# ==========================
+
+
+for p in score.parts:
+
+    p.insert(
+        0,
+        meter.TimeSignature("4/4")
+    )
+
+
+print("force 4/4")
+
+
+
+# ==========================
+# allowed durations
+# ==========================
+
+
+allowed=[
+    4,
+    2,
+    1,
+    0.5,
+    0.25
+]
+
+
+def fix_duration(n):
+
+    q=n.duration.quarterLength
+
+
+    if q in allowed:
+        return
+
+
+    # 找最近值
+
+    nearest=min(
+        allowed,
+        key=lambda x:abs(x-q)
+    )
+
+
+    n.duration=duration.Duration(nearest)
+
+
+
+print("duration quantize")
+
+
+
+# ==========================
+# quantize notes
+# ==========================
+
+
+for n in score.recurse().notes:
+
+    if isinstance(n,chord.Chord):
+        continue
+
+    fix_duration(n)
+
+
+
+# ==========================
+# rebuild measures
+# ==========================
+
+
+for p in score.parts:
+
+    p.makeMeasures(
+        inPlace=True
+    )
+
+
+print("rebuild measures")
+
+
+
+# ==========================
+# split cross measure notes
+# ==========================
+
+
+for p in score.parts:
+
+    p.splitAtDurations(
+        inPlace=True
+    )
+
+
+print("split notes")
+
+
+
+# ==========================
+# strict measure check
+# ==========================
 
 
 for m in score.parts[0].getElementsByClass("Measure"):
 
-    q = float(
-        m.duration.quarterLength
+    total=sum(
+        x.duration.quarterLength
+        for x in m.notesAndRests
+    )
+
+
+    if total < 4:
+
+        r=note.Rest(
+            quarterLength=4-total
+        )
+
+        m.append(r)
+
+
+    elif total >4:
+
+        print(
+            "FIX OVER:",
+            m.number,
+            total
+        )
+
+
+
+print("fill rests")
+
+
+
+# ==========================
+# final rebuild
+# ==========================
+
+
+for p in score.parts:
+
+    p.makeMeasures(
+        inPlace=True
+    )
+
+
+
+print("FINAL CHECK")
+
+
+for m in score.parts[0].getElementsByClass("Measure"):
+
+    total=sum(
+        x.duration.quarterLength
+        for x in m.notesAndRests
     )
 
     print(
         "Measure",
         m.number,
-        q
+        total
     )
 
 
-# ================================
-# WRITE
-# ================================
 
-print("FINAL WRITE")
 score.write(
     "musicxml",
     fp=output_file
 )
 
+
+print("================")
 print("DONE")
 print(output_file)
+print("================")
