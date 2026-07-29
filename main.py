@@ -144,6 +144,7 @@ async def upload(
 
     print(
         "XML READY",
+        "check_measure.py",
         clean_xml
     )
 
