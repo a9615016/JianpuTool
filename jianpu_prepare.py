@@ -1,32 +1,29 @@
-from music21 import converter, stream, note, chord, meter
+from music21 import converter, note, chord, meter, stream, duration
 import sys
-import os
 
 
 print("==============================")
-print("JIANPU PREPARE V2")
+print("JIANPU PREPARE V3")
 print("==============================")
 
 
 VALID_DURATIONS = [
-    0.5,    # 16分
+    0.25,
+    0.5,
     0.75,
-    1,      # 8分
+    1,
     1.5,
-    2,      # 4分
+    2,
     3,
-    4,      # 2分
-    6,
-    8,      # 全音符
-    12
+    4
 ]
 
 
-def quantize_duration(value):
+def quantize_duration(x):
 
     return min(
         VALID_DURATIONS,
-        key=lambda x: abs(x - value)
+        key=lambda d: abs(d-x)
     )
 
 
@@ -34,10 +31,13 @@ def remove_chords(score):
 
     print("remove chords")
 
-    for c in score.recurse().getElementsByClass(chord.Chord):
+    for c in list(
+        score.recurse()
+        .getElementsByClass(chord.Chord)
+    ):
 
         n = note.Note(
-            c.root().pitch
+            c.root()
         )
 
         n.duration = c.duration
@@ -50,7 +50,7 @@ def remove_chords(score):
 
 def clean_notes(score):
 
-    print("quantize duration")
+    print("duration quantize")
 
     for n in score.recurse().notes:
 
@@ -69,8 +69,7 @@ def clean_notes(score):
         n.duration.quarterLength = new
 
 
-
-def remove_notation(score):
+def remove_articulation(score):
 
     print("remove notation")
 
@@ -84,8 +83,7 @@ def remove_notation(score):
             pass
 
 
-
-def force_44(score):
+def force_time(score):
 
     print("force 4/4")
 
@@ -97,8 +95,7 @@ def force_44(score):
         )
 
 
-
-def rebuild(score):
+def rebuild_measure(score):
 
     print("rebuild measures")
 
@@ -109,23 +106,68 @@ def rebuild(score):
         )
 
 
-def check(score):
+def fix_measure(score):
+
+    print("================")
+    print("FIX MEASURE")
+    print("================")
+
+    for p in score.parts:
+
+        measures = list(
+            p.getElementsByClass("Measure")
+        )
+
+        for m in measures:
+
+            total = sum(
+                n.duration.quarterLength
+                for n in m.notesAndRests
+            )
+
+
+            if total > 4:
+
+                print(
+                    "OVER",
+                    m.number,
+                    total
+                )
+
+
+                while total > 4:
+
+                    m.splitAtDurations()
+
+
+            elif total < 4:
+
+                rest = note.Rest()
+
+                rest.duration.quarterLength = (
+                    4-total
+                )
+
+                m.append(rest)
+
+
+
+def final_check(score):
 
     print("================")
     print("FINAL CHECK")
     print("================")
 
     for i,m in enumerate(
-        score.parts[0].getElementsByClass("Measure"),
+        score.parts[0]
+        .getElementsByClass("Measure"),
         1
     ):
 
-        total = 0
-
-        for n in m.notesAndRests:
-
-            total += n.duration.quarterLength
-
+        total=sum(
+            n.duration.quarterLength
+            for n in m.notesAndRests
+        )
 
         print(
             "Measure",
@@ -134,7 +176,7 @@ def check(score):
         )
 
 
-        if total > 4.01:
+        if abs(total-4)>0.01:
 
             print(
                 "WARNING",
@@ -149,20 +191,19 @@ def main():
     if len(sys.argv)<3:
 
         print(
-            "python jianpu_prepare_v2.py input.musicxml output.musicxml"
+            "python jianpu_prepare_v3.py input.musicxml output.musicxml"
         )
 
         return
 
 
     infile=sys.argv[1]
-
     outfile=sys.argv[2]
 
 
     print("READ")
 
-    score = converter.parse(
+    score=converter.parse(
         infile
     )
 
@@ -171,14 +212,17 @@ def main():
 
     clean_notes(score)
 
-    remove_notation(score)
+    remove_articulation(score)
 
-    force_44(score)
+    force_time(score)
 
-    rebuild(score)
+    rebuild_measure(score)
 
+    fix_measure(score)
 
-    check(score)
+    rebuild_measure(score)
+
+    final_check(score)
 
 
     print("WRITE")
@@ -190,11 +234,9 @@ def main():
 
 
     print("DONE")
-
     print(outfile)
 
 
 
 if __name__=="__main__":
-
     main()
