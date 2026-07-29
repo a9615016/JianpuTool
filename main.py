@@ -6,16 +6,15 @@ import shutil
 import subprocess
 
 
-print("=== MAIN VERSION DIRECT MIDI V1 ===")
+print("========== JIANPUTOOL V91 DIRECT MIDI ==========")
 
 
 app = FastAPI(
-    title="JianpuTool"
+    title="JianpuTool V91"
 )
 
 
 BASE_DIR = "/app/outputs"
-
 
 os.makedirs(
     BASE_DIR,
@@ -29,10 +28,10 @@ def home():
 
     return HTMLResponse(
         """
-        <h2>JianpuTool 簡譜產生器</h2>
+        <h2>JianpuTool V91</h2>
 
         <p>
-        MP3/WAV → MIDI → 簡譜 PDF
+        MP3/WAV → MIDI → Jianpu PDF
         </p>
 
         <form action="/upload"
@@ -51,12 +50,10 @@ def home():
 
 
 
-
 @app.post("/upload")
 async def upload(
     file: UploadFile = File(...)
 ):
-
 
     job_id = str(uuid.uuid4())
 
@@ -65,7 +62,6 @@ async def upload(
         BASE_DIR,
         job_id
     )
-
 
     os.makedirs(
         out_dir,
@@ -79,10 +75,7 @@ async def upload(
     )
 
 
-    with open(
-        input_file,
-        "wb"
-    ) as f:
+    with open(input_file, "wb") as f:
 
         shutil.copyfileobj(
             file.file,
@@ -91,16 +84,15 @@ async def upload(
 
 
     print("================")
-    print("INPUT")
+    print("INPUT FILE")
     print(input_file)
     print("================")
 
 
 
-    # ==========================
+    # =========================
     # 1. Audio -> MIDI
-    # ==========================
-
+    # =========================
 
     midi_file = os.path.join(
         out_dir,
@@ -109,7 +101,6 @@ async def upload(
 
 
     print("START AUDIO TO MIDI")
-
 
 
     subprocess.run(
@@ -128,20 +119,18 @@ async def upload(
 
 
 
-
-    # ==========================
-    # 2. MIDI -> Jianpu Lilypond
-    # ==========================
+    # =========================
+    # 2. MIDI -> Jianpu LY
+    # =========================
 
 
     ly_file = os.path.join(
         out_dir,
-        "melody.ly"
+        "jianpu.ly"
     )
 
 
     print("MIDI DIRECT TO JIANPU LY")
-
 
 
     subprocess.run(
@@ -160,10 +149,9 @@ async def upload(
 
 
 
-
-    # ==========================
+    # =========================
     # 3. Lilypond PDF
-    # ==========================
+    # =========================
 
 
     print("RUN LILYPOND")
@@ -187,13 +175,11 @@ async def upload(
     )
 
 
-
     if not os.path.exists(pdf_file):
 
         raise Exception(
             "PDF NOT CREATED"
         )
-
 
 
     print("PDF DONE")
