@@ -1,3 +1,4 @@
+print("######## CLEAN MUSICXML V34 ACTIVE ########")
 # ==========================================================
 # CLEAN MUSICXML V34
 # jianpu_ly compatible
