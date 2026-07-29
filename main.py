@@ -1,37 +1,60 @@
-print("######## MAIN V2 VERSION ########")
 import os
 import uuid
 import subprocess
+import shutil
 
 from fastapi import FastAPI, UploadFile, File
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 
 app = FastAPI()
 
 
+print("######## MAIN V2 VERSION ########")
+
+
 BASE_DIR = "/app"
 OUTPUT_DIR = "/app/outputs"
 
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-os.makedirs(
-    OUTPUT_DIR,
-    exist_ok=True
-)
+
+
+def run_cmd(cmd, cwd=None):
+
+    print("RUN:", " ".join(cmd))
+
+    result = subprocess.run(
+        cmd,
+        cwd=cwd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True
+    )
+
+    print(result.stdout)
+
+    if result.returncode != 0:
+        raise Exception(result.stdout)
+
+    return result.stdout
+
 
 
 @app.get("/")
 def home():
+
     return {
-        "message": "JianpuTool MIDI → Jianpu PDF"
+        "status": "JianpuTool",
+        "version": "MAIN V2 + PREPARE V3"
     }
 
 
 
+
 @app.post("/upload")
-async def upload(
-    file: UploadFile = File(...)
-):
+async def upload(file: UploadFile = File(...)):
+
 
     job_id = str(uuid.uuid4())
 
@@ -40,19 +63,17 @@ async def upload(
         job_id
     )
 
-    os.makedirs(
-        job_dir,
-        exist_ok=True
-    )
+    os.makedirs(job_dir, exist_ok=True)
 
 
     print("====================")
     print("開始任務:", job_id)
-    print("====================")
+    print("收到:", file.filename)
+
 
 
     # -----------------------
-    # save mp3
+    # Save MP3
     # -----------------------
 
     mp3_path = os.path.join(
@@ -62,8 +83,9 @@ async def upload(
 
 
     with open(mp3_path, "wb") as f:
-        f.write(
-            await file.read()
+        shutil.copyfileobj(
+            file.file,
+            f
         )
 
 
@@ -82,24 +104,12 @@ async def upload(
     )
 
 
-    cmd = [
+    run_cmd([
         "python",
         "basicpitch_convert.py",
         mp3_path,
         midi_path
-    ]
-
-
-    print(
-        "RUN:",
-        " ".join(cmd)
-    )
-
-
-    subprocess.run(
-        cmd,
-        check=True
-    )
+    ])
 
 
     print("MIDI完成")
@@ -116,24 +126,12 @@ async def upload(
     )
 
 
-    cmd = [
+    run_cmd([
         "python",
         "midi_to_musicxml.py",
         midi_path,
         xml_path
-    ]
-
-
-    print(
-        "RUN:",
-        " ".join(cmd)
-    )
-
-
-    subprocess.run(
-        cmd,
-        check=True
-    )
+    ])
 
 
     print("MusicXML完成")
@@ -141,7 +139,7 @@ async def upload(
 
 
     # -----------------------
-    # CLEAN MUSICXML
+    # Jianpu Prepare V3
     # -----------------------
 
     clean_xml = os.path.join(
@@ -150,83 +148,15 @@ async def upload(
     )
 
 
-    cmd = [
+    run_cmd([
         "python",
-        "clean_musicxml.py",
+        "jianpu_prepare_v3.py",
         xml_path,
         clean_xml
-    ]
-
-
-    print(
-        "RUN:",
-        " ".join(cmd)
-    )
-
-
-    subprocess.run(
-        cmd,
-        check=True
-    )
+    ])
 
 
     print("清理完成")
-
-
-
-    # =================================================
-    # NEW: JIANPU PREPARE V2
-    # =================================================
-
-
-    prepared_xml = os.path.join(
-        job_dir,
-        "prepared.musicxml"
-    )
-
-
-    print("====================")
-    print("開始 jianpu_prepare_v2")
-    print("====================")
-
-
-    cmd = [
-        "python",
-        "jianpu_prepare_v2.py",
-        clean_xml,
-        prepared_xml
-    ]
-
-
-    print(
-        "RUN:",
-        " ".join(cmd)
-    )
-
-
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True
-    )
-
-
-    print(result.stdout)
-
-
-    if result.stderr:
-        print(result.stderr)
-
-
-
-    if result.returncode != 0:
-        raise Exception(
-            "jianpu_prepare_v2 failed"
-        )
-
-
-    print("V2完成")
-    print(prepared_xml)
 
 
 
@@ -240,44 +170,16 @@ async def upload(
     )
 
 
-    print("====================")
-    print("開始 jianpu_ly")
-    print("====================")
+    print("CHECK jianpu input:")
+    print(clean_xml)
 
 
-    cmd = [
+    run_cmd([
         "python",
         "-m",
         "jianpu_ly",
-        prepared_xml
-    ]
-
-
-    print(
-        "RUN:",
-        " ".join(cmd)
-    )
-
-
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True
-    )
-
-
-    print(result.stdout)
-
-
-    if result.stderr:
-        print(result.stderr)
-
-
-
-    if result.returncode != 0:
-        raise Exception(
-            "jianpu_ly failed"
-        )
+        clean_xml
+    ])
 
 
     print("jianpu_ly完成")
@@ -285,56 +187,35 @@ async def upload(
 
 
     # -----------------------
-    # 找 ly
-    # -----------------------
-
-    for f in os.listdir(job_dir):
-
-        if f.endswith(".ly"):
-
-            ly_path = os.path.join(
-                job_dir,
-                f
-            )
-
-
-
-    # -----------------------
     # LilyPond PDF
     # -----------------------
 
-    pdf_path = ly_path.replace(
-        ".ly",
-        ".pdf"
-    )
-
-
-    cmd = [
+    run_cmd([
         "lilypond",
         "-o",
-        ly_path.replace(".ly",""),
+        os.path.join(job_dir,"jianpu"),
         ly_path
-    ]
+    ])
 
 
-    print(
-        "RUN:",
-        " ".join(cmd)
+    pdf = os.path.join(
+        job_dir,
+        "jianpu.pdf"
     )
 
 
-    subprocess.run(
-        cmd,
-        check=True
-    )
+    if not os.path.exists(pdf):
 
-
-    print("PDF完成")
-
+        return JSONResponse(
+            {
+                "error":"PDF產生失敗",
+                "folder":job_dir
+            }
+        )
 
 
     return FileResponse(
-        pdf_path,
+        pdf,
         media_type="application/pdf",
         filename="jianpu.pdf"
     )
