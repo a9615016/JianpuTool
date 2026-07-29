@@ -1,122 +1,172 @@
-# midi_to_jianpu_ly.py
-# MIDI -> Jianpu LilyPond
-# bypass jianpu_ly
-
+from music21 import converter, stream, note, meter, tempo
 import sys
-from music21 import converter, note
 
 
-def pitch_to_number(p):
+VERSION = "MIDI DIRECT TO JIANPU LY V1"
 
-    # C major 簡化版
+
+# 4/4
+BEATS_PER_BAR = 4
+
+
+
+def duration_to_ly(d):
+
+    """
+    music21 duration
+    轉 LilyPond duration
+    """
+
+    q = float(d)
+
+
     table = {
+        4.0: "1",
+        2.0: "2",
+        1.0: "4",
+        0.5: "8",
+        0.25: "16"
+    }
+
+
+    if q in table:
+        return table[q]
+
+
+    # fallback
+    return "4"
+
+
+
+
+
+def pitch_to_number(n):
+
+    """
+    MIDI pitch
+    轉簡譜數字
+    C=1 D=2...
+    """
+
+    mapping = {
         "C": "1",
         "D": "2",
         "E": "3",
         "F": "4",
         "G": "5",
         "A": "6",
-        "B": "7",
+        "B": "7"
     }
 
-    return table[p.step]
 
-
-def duration_to_ly(d):
-
-    q = float(d)
-
-    if q >= 4:
-        return "1"
-
-    if q >= 2:
-        return "2"
-
-    if q >= 1:
-        return "4"
-
-    if q >= 0.5:
-        return "8"
-
-    return "16"
+    return mapping[
+        n.pitch.step
+    ]
 
 
 
-def convert(mid, out):
 
-    print("READ MIDI")
 
-    score = converter.parse(mid)
+def midi_to_jianpu(inp, out):
 
-    notes=[]
 
-    for n in score.flat.notes:
+    print(VERSION)
 
-        if isinstance(n, note.Note):
 
-            num = pitch_to_number(n.pitch)
+    score = converter.parse(inp)
 
-            dur = duration_to_ly(
-                n.duration.quarterLength
-            )
+
+    notes = []
+
+
+    # 第一軌旋律
+
+    for n in score.recurse().notesAndRests:
+
+
+        if n.isRest:
 
             notes.append(
-                f"{num}{dur}"
+                "0" +
+                duration_to_ly(
+                    n.duration.quarterLength
+                )
             )
 
 
-    print("NOTES:",len(notes))
+        else:
+
+            num = pitch_to_number(n)
 
 
-    ly=[]
+            notes.append(
+                num +
+                duration_to_ly(
+                    n.duration.quarterLength
+                )
+            )
 
 
-    ly.append(r'''
-\version "2.24.0"
 
-\paper {
-  #(set-paper-size "a4")
-}
-
-
-melody = {
-
-\time 4/4
-
-''')
-
-
-    count=0
-
-    for x in notes:
-
-        ly.append(x+" ")
-
-        count+=1
-
-        if count%8==0:
-            ly.append("\n")
+    ly = []
 
 
     ly.append(
-r'''
-}
+        '\\version "2.24.0"'
+    )
 
 
-\score {
+    ly.append(
+        '\\paper { }'
+    )
 
-\new Staff {
 
-\melody
+    ly.append(
+        '\\score {'
+    )
 
-}
 
-\layout {}
+    ly.append(
+        '  \\new Staff {'
+    )
 
-}
 
-'''
-)
+    ly.append(
+        '    \\numericTimeSignature'
+    )
+
+
+    ly.append(
+        '    \\time 4/4'
+    )
+
+
+    ly.append(
+        '    \\relative c {'
+    )
+
+
+    # 寫入音符
+
+    ly.append(
+        " ".join(notes)
+    )
+
+
+    ly.append(
+        '    }'
+    )
+
+
+    ly.append(
+        '  }'
+    )
+
+
+    ly.append(
+        '}'
+    )
+
 
 
     with open(
@@ -126,26 +176,32 @@ r'''
     ) as f:
 
         f.write(
-            "".join(ly)
+            "\n".join(ly)
         )
 
 
+
     print("DONE")
+
     print(out)
 
 
 
-if __name__=="__main__":
+
+
+if __name__ == "__main__":
+
 
     if len(sys.argv)<3:
 
         print(
-        "python midi_to_jianpu_ly.py input.mid output.ly"
+            "python midi_to_jianpu_ly.py input.mid output.ly"
         )
 
-    else:
+        exit()
 
-        convert(
-            sys.argv[1],
-            sys.argv[2]
-        )
+
+    midi_to_jianpu(
+        sys.argv[1],
+        sys.argv[2]
+    )
