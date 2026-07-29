@@ -1,3 +1,5 @@
+print("######## JIANPU PREPARE V3 ########")
+
 import sys
 from music21 import converter, note, stream
 
