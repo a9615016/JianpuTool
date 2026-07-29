@@ -16,10 +16,7 @@ app = FastAPI(
 
 BASE_DIR = "/app/outputs"
 
-os.makedirs(
-    BASE_DIR,
-    exist_ok=True
-)
+os.makedirs(BASE_DIR, exist_ok=True)
 
 
 
@@ -30,19 +27,17 @@ def home():
         """
         <h2>JianpuTool V91</h2>
 
-        <p>
-        MP3/WAV → MIDI → Jianpu PDF
-        </p>
+        <p>MP3/WAV → MIDI → Jianpu PDF</p>
 
         <form action="/upload"
-        enctype="multipart/form-data"
-        method="post">
+              enctype="multipart/form-data"
+              method="post">
 
-        <input type="file" name="file">
+            <input type="file" name="file">
 
-        <button type="submit">
-        Convert
-        </button>
+            <button type="submit">
+                Convert
+            </button>
 
         </form>
         """
@@ -83,15 +78,15 @@ async def upload(
         )
 
 
-    print("================")
-    print("INPUT FILE")
+    print("======================")
+    print("INPUT")
     print(input_file)
-    print("================")
+    print("======================")
 
 
 
     # =========================
-    # 1. Audio -> MIDI
+    # 1. AUDIO -> MIDI
     # =========================
 
     midi_file = os.path.join(
@@ -120,9 +115,8 @@ async def upload(
 
 
     # =========================
-    # 2. MIDI -> Jianpu LY
+    # 2. MIDI -> JIANPU LY
     # =========================
-
 
     ly_file = os.path.join(
         out_dir,
@@ -150,9 +144,8 @@ async def upload(
 
 
     # =========================
-    # 3. Lilypond PDF
+    # 3. LY -> PDF
     # =========================
-
 
     print("RUN LILYPOND")
 
@@ -166,7 +159,6 @@ async def upload(
         cwd=out_dir,
         check=True
     )
-
 
 
     pdf_file = ly_file.replace(
