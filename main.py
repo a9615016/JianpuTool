@@ -1,3 +1,4 @@
+print("========== V91 LOADED ==========")
 from fastapi import FastAPI, UploadFile, File
 from fastapi.responses import FileResponse, HTMLResponse
 import os
@@ -6,181 +7,137 @@ import shutil
 import subprocess
 
 
-print("========== JIANPUTOOL V91 DIRECT MIDI ==========")
+print("========== JianpuTool V91 DIRECT MIDI ==========")
 
 
-app = FastAPI(
-    title="JianpuTool V91"
-)
+app = FastAPI()
 
 
-BASE_DIR = "/app/outputs"
+BASE_DIR="/app/outputs"
 
-os.makedirs(BASE_DIR, exist_ok=True)
+os.makedirs(BASE_DIR,exist_ok=True)
 
 
 
 @app.get("/")
 def home():
 
-    return HTMLResponse(
-        """
-        <h2>JianpuTool V91</h2>
+    return HTMLResponse("""
+    <h2>JianpuTool V91</h2>
 
-        <p>MP3/WAV → MIDI → Jianpu PDF</p>
+    MP3/WAV → MIDI → Jianpu PDF
 
-        <form action="/upload"
-              enctype="multipart/form-data"
-              method="post">
+    <form action="/upload"
+    method="post"
+    enctype="multipart/form-data">
 
-            <input type="file" name="file">
+    <input type="file" name="file">
 
-            <button type="submit">
-                Convert
-            </button>
+    <button>
+    Convert
+    </button>
 
-        </form>
-        """
-    )
+    </form>
+    """)
 
 
 
 @app.post("/upload")
-async def upload(
-    file: UploadFile = File(...)
-):
-
-    job_id = str(uuid.uuid4())
+async def upload(file:UploadFile=File(...)):
 
 
-    out_dir = os.path.join(
-        BASE_DIR,
-        job_id
-    )
+    job=str(uuid.uuid4())
 
-    os.makedirs(
-        out_dir,
-        exist_ok=True
-    )
+    out=os.path.join(BASE_DIR,job)
+
+    os.makedirs(out,exist_ok=True)
 
 
-    input_file = os.path.join(
-        out_dir,
-        file.filename
-    )
+    src=os.path.join(out,file.filename)
 
 
-    with open(input_file, "wb") as f:
-
-        shutil.copyfileobj(
-            file.file,
-            f
-        )
-
-
-    print("======================")
-    print("INPUT")
-    print(input_file)
-    print("======================")
+    with open(src,"wb") as f:
+        shutil.copyfileobj(file.file,f)
 
 
 
-    # =========================
-    # 1. AUDIO -> MIDI
-    # =========================
-
-    midi_file = os.path.join(
-        out_dir,
-        "melody.mid"
-    )
+    print("INPUT:",src)
 
 
-    print("START AUDIO TO MIDI")
+
+    midi=os.path.join(out,"melody.mid")
+
+
+    print("STEP1 AUDIO TO MIDI")
 
 
     subprocess.run(
         [
             "python",
             "voice_to_midi.py",
-            input_file,
-            midi_file
+            src,
+            midi
         ],
-        check=True
+        check=True,
+        timeout=300
     )
 
 
-    print("MIDI CREATED")
-    print(midi_file)
+    print("MIDI OK",midi)
 
 
 
-    # =========================
-    # 2. MIDI -> JIANPU LY
-    # =========================
-
-    ly_file = os.path.join(
-        out_dir,
-        "jianpu.ly"
-    )
+    ly=os.path.join(out,"jianpu.ly")
 
 
-    print("MIDI DIRECT TO JIANPU LY")
+    print("STEP2 MIDI TO LY")
 
 
     subprocess.run(
         [
             "python",
             "midi_to_jianpu_ly.py",
-            midi_file,
-            ly_file
+            midi,
+            ly
         ],
-        check=True
+        check=True,
+        timeout=120
     )
 
 
-    print("LY CREATED")
-    print(ly_file)
+    print("LY OK")
 
 
 
-    # =========================
-    # 3. LY -> PDF
-    # =========================
-
-    print("RUN LILYPOND")
+    print("STEP3 LILYPOND")
 
 
     subprocess.run(
         [
             "lilypond",
             "--pdf",
-            ly_file
+            ly
         ],
-        cwd=out_dir,
-        check=True
+        cwd=out,
+        check=True,
+        timeout=180
     )
 
 
-    pdf_file = ly_file.replace(
-        ".ly",
-        ".pdf"
-    )
+
+    pdf=ly.replace(".ly",".pdf")
 
 
-    if not os.path.exists(pdf_file):
-
-        raise Exception(
-            "PDF NOT CREATED"
-        )
+    if not os.path.exists(pdf):
+        raise Exception("PDF FAIL")
 
 
-    print("PDF DONE")
-    print(pdf_file)
 
+    print("DONE",pdf)
 
 
     return FileResponse(
-        pdf_file,
+        pdf,
         media_type="application/pdf",
         filename="jianpu.pdf"
     )
