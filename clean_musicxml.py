@@ -1,207 +1,305 @@
 # clean_musicxml.py
-# V70
-# jianpu_ly XML HARD COMPATIBLE
+# V80
+# jianpu_ly minimal MusicXML generator
 
 
-from lxml import etree
-from fractions import Fraction
+from music21 import converter, stream, note, meter, tempo, chord
 import sys
+from fractions import Fraction
+import copy
 
 
-VERSION = "CLEAN MUSICXML V70"
+VERSION = "CLEAN MUSICXML V80"
 
 
-GRID = {
-    1: 1,
-    2: 2,
-    4: 4,
-    8: 8,
-    16:16
-}
+DIVISIONS = 16
+BAR_LENGTH = 64
 
 
-def quantize_duration(x):
+# =========================
+# duration quantize
+# =========================
 
-    x=int(x)
+def quantize_duration(q):
 
-    best=min(
-        GRID.keys(),
-        key=lambda k:abs(x-k)
+    values = [
+        Fraction(64,16), # whole
+        Fraction(32,16), # half
+        Fraction(16,16), # quarter
+        Fraction(8,16),  # eighth
+        Fraction(4,16),  # 16th
+    ]
+
+    q = Fraction(q)
+
+    return min(
+        values,
+        key=lambda x:abs(x-q)
     )
 
-    return str(GRID[best])
+
+
+# =========================
+# extract melody
+# =========================
+
+def extract_notes(score):
+
+    result=[]
+
+
+    part=score.parts[0]
+
+
+    for n in part.recurse().notesAndRests:
+
+
+        if isinstance(n,chord.Chord):
+
+            # 只取最高音
+            nn=n.notes[-1]
+
+            item=copy.deepcopy(nn)
+
+        else:
+
+            item=copy.deepcopy(n)
+
+
+        dur=quantize_duration(
+            item.duration.quarterLength
+        )
+
+
+        item.duration.quarterLength=dur
+
+        result.append(item)
 
 
 
-def clean_xml(inp,out):
+    return result
+
+
+
+# =========================
+# rebuild score
+# =========================
+
+def rebuild(notes):
+
+
+    score=stream.Score()
+
+    part=stream.Part()
+
+
+    part.append(
+        meter.TimeSignature("4/4")
+    )
+
+
+    measure=stream.Measure(
+        number=1
+    )
+
+
+    pos=0
+
+
+
+    for n in notes:
+
+
+        dur=int(
+            Fraction(
+                n.duration.quarterLength
+            )
+            *
+            DIVISIONS
+        )
+
+
+        # 防止超小節
+
+        if pos + dur > BAR_LENGTH:
+
+
+            rest=note.Rest()
+
+            rest.duration.quarterLength = (
+                Fraction(
+                    BAR_LENGTH-pos,
+                    DIVISIONS
+                )
+            )
+
+            measure.append(rest)
+
+
+            part.append(measure)
+
+
+            measure=stream.Measure(
+                number=len(
+                    part.getElementsByClass(
+                        stream.Measure
+                    )
+                )+1
+            )
+
+
+            pos=0
+
+
+
+        new=copy.deepcopy(n)
+
+
+        new.duration.quarterLength = (
+            Fraction(dur,DIVISIONS)
+        )
+
+
+        # remove notation
+
+        new.tie=None
+
+        if hasattr(new,"beams"):
+            new.beams=[]
+
+
+        measure.append(new)
+
+        pos+=dur
+
+
+
+        if pos==BAR_LENGTH:
+
+
+            part.append(measure)
+
+
+            measure=stream.Measure(
+                number=len(
+                    part.getElementsByClass(
+                        stream.Measure
+                    )
+                )+1
+            )
+
+
+            pos=0
+
+
+
+    # last measure
+
+    if len(measure.notesAndRests):
+
+
+        while pos < BAR_LENGTH:
+
+            r=note.Rest()
+
+            remain=min(
+                16,
+                BAR_LENGTH-pos
+            )
+
+            r.duration.quarterLength=(
+                Fraction(
+                    remain,
+                    DIVISIONS
+                )
+            )
+
+            measure.append(r)
+
+            pos+=remain
+
+
+
+        part.append(measure)
+
+
+
+    score.append(part)
+
+
+    return score
+
+
+
+# =========================
+# check
+# =========================
+
+def check(score):
+
+    print("V80 FINAL CHECK")
+
+
+    for i,m in enumerate(
+        score.parts[0].getElementsByClass(
+            stream.Measure
+        ),
+        1
+    ):
+
+        total=sum(
+            n.duration.quarterLength
+            for n in m.notesAndRests
+        )
+
+
+        print(
+            "Measure",
+            i,
+            float(total)
+        )
+
+
+
+# =========================
+# main
+# =========================
+
+
+def clean(inp,out):
 
 
     print(VERSION)
 
 
-    tree=etree.parse(inp)
-
-    root=tree.getroot()
+    src=converter.parse(inp)
 
 
-    ns={
-        "m":"http://www.musicxml.org/ns/musicxml",
-    }
+    # remove tempo
 
-
-    # namespace fallback
-
-    if not root.nsmap.get(None):
-
-        ns={
-            "m":root.nsmap.get(None)
-        }
-
-
-
-    # =====================
-    # time signature
-    # =====================
-
-    for time in root.xpath(".//m:time",namespaces=ns):
-
-        nums=time.xpath(
-            "./m:numerator",
-            namespaces=ns
-        )
-
-        dens=time.xpath(
-            "./m:denominator",
-            namespaces=ns
-        )
-
-
-        if nums:
-            nums[0].text="4"
-
-        if dens:
-            dens[0].text="4"
-
-
-
-    # =====================
-    # remove backup forward
-    # =====================
-
-    for tag in [
-        "backup",
-        "forward"
-    ]:
-
-        for e in root.xpath(
-            ".//m:"+tag,
-            namespaces=ns
-        ):
-
-            parent=e.getparent()
-
-            if parent is not None:
-                parent.remove(e)
-
-
-
-    # =====================
-    # notes
-    # =====================
-
-
-    for note in root.xpath(
-        ".//m:note",
-        namespaces=ns
+    for t in src.recurse().getElementsByClass(
+        tempo.MetronomeMark
     ):
 
-
-        # voice
-
-        for v in note.xpath(
-            "./m:voice",
-            namespaces=ns
-        ):
-
-            v.text="1"
+        t.activeSite.remove(t)
 
 
 
-        # duration
-
-        for d in note.xpath(
-            "./m:duration",
-            namespaces=ns
-        ):
+    notes=extract_notes(src)
 
 
-            try:
+    new_score=rebuild(notes)
 
-                d.text=quantize_duration(
-                    d.text
-                )
 
-            except:
-
-                d.text="1"
+    check(new_score)
 
 
 
-        # remove beam
+    print("WRITE")
 
-        for b in note.xpath(
-            "./m:beam",
-            namespaces=ns
-        ):
-
-            note.remove(b)
-
-
-
-        # remove tie
-
-        for t in note.xpath(
-            "./m:tie",
-            namespaces=ns
-        ):
-
-            note.remove(t)
-
-
-
-        # remove notation
-
-        for n in note.xpath(
-            "./m:notations",
-            namespaces=ns
-        ):
-
-            note.remove(n)
-
-
-
-    # =====================
-    # remove invalid tempo
-    # =====================
-
-
-    for tempo in root.xpath(
-        ".//m:metronome",
-        namespaces=ns
-    ):
-
-        parent=tempo.getparent()
-
-        if parent is not None:
-
-            parent.remove(tempo)
-
-
-
-    tree.write(
-        out,
-        encoding="UTF-8",
-        xml_declaration=True
+    new_score.write(
+        "musicxml",
+        fp=out
     )
 
 
@@ -215,15 +313,18 @@ if __name__=="__main__":
 
     inp=sys.argv[1]
 
-    out="clean.musicxml"
-
 
     if len(sys.argv)>2:
 
         out=sys.argv[2]
 
+    else:
 
-    clean_xml(
+        out="clean.musicxml"
+
+
+
+    clean(
         inp,
         out
     )
