@@ -1,82 +1,100 @@
+# converter.py
+# CLEAN MUSICXML FOR JIANPU_LY
+
+from music21 import converter, stream, meter, note, chord
 import os
-import sys
-import music21
 
 
-def midi_to_musicxml(input_file):
+def rebuild_for_jianpu(input_file, output_file):
 
-    print("開始 MIDI → MusicXML")
+    print("READ SOURCE")
+    src = converter.parse(input_file)
 
-    folder=os.path.dirname(input_file)
+    print("EXTRACT NOTES")
 
-    output_file=os.path.join(
-        folder,
-        "input.musicxml"
-    )
+    notes = []
 
+    for n in src.recurse().notes:
 
-    score=music21.converter.parse(input_file)
+        if isinstance(n, chord.Chord):
+            # 只取最高音旋律
+            n = n.sortAscending().notes[-1]
 
-
-    print("保留第一聲部")
-
-    parts=score.parts
-
-    if len(parts)>0:
-        score=parts[0]
+        if isinstance(n, note.Note):
+            notes.append(n)
 
 
-    print("量化")
-
-    score.quantize(
-        quarterLengthDivisors=[4,8,16]
-    )
+    print("TOTAL NOTES:", len(notes))
 
 
-    print("強制4/4")
+    print("BUILD NEW SCORE")
+
+    score = stream.Score()
+    part = stream.Part()
+
+    part.append(meter.TimeSignature("4/4"))
 
 
-    # 清除舊拍號
-    for ts in score.recurse().getElementsByClass(
-        music21.meter.TimeSignature
-    ):
-        ts.ratioString="4/4"
+    measure = stream.Measure(number=1)
+
+    current = 0.0
 
 
-    if len(
-        score.recurse().getElementsByClass(
-            music21.meter.TimeSignature
+    for n in notes:
+
+        dur = n.duration.quarterLength
+
+
+        # 超過小節直接切
+        if current + dur > 4:
+
+            # 補休止
+            rest_time = 4-current
+
+            if rest_time > 0:
+                r = note.Rest()
+                r.duration.quarterLength = rest_time
+                measure.append(r)
+
+
+            part.append(measure)
+
+            measure = stream.Measure(
+                number=len(part.getElementsByClass(
+                    stream.Measure
+                ))+1
+            )
+
+            current = 0
+
+
+        new_note = note.Note(
+            n.pitch
         )
-    )==0:
 
-        score.insert(
-            0,
-            music21.meter.TimeSignature("4/4")
-        )
+        new_note.duration.quarterLength = dur
 
+        measure.append(new_note)
 
-
-    print("建立小節")
-
-
-    score.makeMeasures(
-        inPlace=True
-    )
-
-
-    print("修正小節")
-
-
-    for m in score.recurse().getElementsByClass(
-        music21.stream.Measure
-    ):
-
-        m.timeSignature = music21.meter.TimeSignature("4/4")
+        current += dur
 
 
 
-    print("輸出")
+    # 最後小節補滿
 
+    if current < 4:
+
+        r = note.Rest()
+        r.duration.quarterLength = 4-current
+        measure.append(r)
+
+
+    part.append(measure)
+
+    score.append(part)
+
+
+    print("WRITE MUSICXML")
 
     score.write(
         "musicxml",
@@ -84,15 +102,22 @@ def midi_to_musicxml(input_file):
     )
 
 
-    print(output_file)
-
-
-    return output_file
+    print("DONE:", output_file)
 
 
 
-if __name__=="__main__":
+if __name__ == "__main__":
 
-    midi=sys.argv[1]
+    import sys
 
-    midi_to_musicxml(midi)
+    if len(sys.argv)<3:
+        print(
+          "python converter.py input.musicxml output.musicxml"
+        )
+        exit()
+
+
+    rebuild_for_jianpu(
+        sys.argv[1],
+        sys.argv[2]
+    )
