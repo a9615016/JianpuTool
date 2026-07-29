@@ -1,267 +1,127 @@
-# midi_to_musicxml_clean.py v7.1
-# JianpuTool FINAL CLEANER
-
+from music21 import converter, stream, note, meter, duration
 import sys
-from music21 import converter, stream, note, meter, tempo
+import os
 
 
-BEAT = 4.0
+TARGET_BEATS = 4.0
 
 
-# =========================
-# duration quantize
-# =========================
+def normalize_measure(measure):
+    """
+    強制每小節 4/4
+    """
 
-def quantize_duration(x):
+    new_elements = []
 
-    values = [
-        4.0,      # whole
-        3.0,      # dotted half
-        2.0,      # half
-        1.5,
-        1.0,      # quarter
-        0.75,
-        0.5,      # eighth
-        0.25,     # sixteenth
-        0.125
-    ]
+    current = 0.0
 
-    return min(
-        values,
-        key=lambda v: abs(v-x)
-    )
+    for el in list(measure.notesAndRests):
 
-
-
-# =========================
-# clean note
-# =========================
-
-def clean_element(e):
-
-    if isinstance(e, note.Note):
-
-        n = note.Note(e.pitch)
-
-        n.duration.quarterLength = (
-            quantize_duration(
-                e.duration.quarterLength
-            )
-        )
-
-        # remove tie
-
-        n.tie = None
-
-        return n
-
-
-    if isinstance(e, note.Rest):
-
-        r = note.Rest()
-
-        r.duration.quarterLength = (
-            quantize_duration(
-                e.duration.quarterLength
-            )
-        )
-
-        return r
-
-
-    return None
-
-
-
-# =========================
-# rebuild measure
-# =========================
-
-def rebuild_measure(m):
-
-    new_m = stream.Measure(
-        number=m.number
-    )
-
-
-    used = 0.0
-
-
-    for e in m.flatten().notesAndRests:
-
-        obj = clean_element(e)
-
-
-        if obj is None:
-            continue
-
-
-        dur = obj.duration.quarterLength
-
+        dur = el.duration.quarterLength
 
         # 超過小節
+        if current + dur > TARGET_BEATS:
 
-        if used + dur > BEAT:
-
-            remain = BEAT-used
-
+            remain = TARGET_BEATS - current
 
             if remain > 0:
+                el2 = el.clone()
+                el2.duration.quarterLength = remain
+                new_elements.append(el2)
 
-                r = note.Rest()
+            overflow = current + dur - TARGET_BEATS
 
-                r.duration.quarterLength = (
-                    quantize_duration(remain)
-                )
+            if overflow > 0:
+                rest = note.Rest()
+                rest.duration.quarterLength = overflow
+                new_elements.append(rest)
 
-                new_m.append(r)
-
-
+            current = TARGET_BEATS
             break
 
+        else:
+            new_elements.append(el)
+            current += dur
 
 
-        new_m.append(obj)
-
-        used += dur
-
-
-
-    # 不足補 rest
-
-    if used < BEAT:
+    # 不足補休止符
+    if current < TARGET_BEATS:
 
         r = note.Rest()
-
-        r.duration.quarterLength = (
-            quantize_duration(
-                BEAT-used
-            )
-        )
-
-        new_m.append(r)
+        r.duration.quarterLength = TARGET_BEATS-current
+        new_elements.append(r)
 
 
-
-    return new_m
-
-
-
-# =========================
-# clean part
-# =========================
-
-def clean_part(part):
-
-    p = stream.Part()
-
-    p.id = part.id
+    # 清除原內容
+    for el in list(measure.notesAndRests):
+        measure.remove(el)
 
 
-    p.append(
-        meter.TimeSignature("4/4")
-    )
+    for el in new_elements:
+        measure.append(el)
 
 
-    for m in part.getElementsByClass(
-        stream.Measure
-    ):
-
-        p.append(
-            rebuild_measure(m)
-        )
-
-
-    return p
+    return measure
 
 
 
-# =========================
-# main convert
-# =========================
+def clean_musicxml(input_file, output_file):
 
-def convert(
-    midi_file,
-    output_file
-):
+    print("LOAD:", input_file)
 
-    print("LOAD MIDI")
-
-    score = converter.parse(
-        midi_file
-    )
+    score = converter.parse(input_file)
 
 
-    print("CLEAN")
-
-    out = stream.Score()
-
-
-    # tempo
-
-    for t in score.flatten().getElementsByClass(
-        tempo.MetronomeMark
-    ):
-
-        out.append(t)
-
-
-
+    # 強制 4/4
     for part in score.parts:
 
+        part.insert(
+            0,
+            meter.TimeSignature("4/4")
+        )
+
+
+        measures = part.makeMeasures()
+
         print(
-            "PART:",
-            part.id
-        )
-
-        out.append(
-            clean_part(part)
+            "MEASURES:",
+            len(measures)
         )
 
 
+        for m in measures:
 
-    print("FINAL CHECK")
-
-
-    for p in out.parts:
-
-        for m in p.getElementsByClass(
-            stream.Measure
-        ):
-
-            print(
-                "Measure",
-                m.number,
-                m.duration.quarterLength
-            )
+            normalize_measure(m)
 
 
-    print("WRITE MUSICXML")
+        part.removeByClass(stream.Measure)
+
+        for m in measures:
+            part.append(m)
 
 
-    out.write(
+    print("WRITE:", output_file)
+
+    score.write(
         "musicxml",
         fp=output_file
     )
 
 
     print("DONE")
-    print(output_file)
 
 
 
 if __name__ == "__main__":
 
     if len(sys.argv)<3:
-
         print(
-            "python midi_to_musicxml_clean.py input.mid output.musicxml"
+            "python midi_to_musicxml_clean.py input.musicxml output.musicxml"
         )
+        sys.exit()
 
-        sys.exit(1)
 
-
-    convert(
+    clean_musicxml(
         sys.argv[1],
         sys.argv[2]
     )
