@@ -1,8 +1,9 @@
-import sys
 from lxml import etree
+import sys
+import copy
 
 
-print("CLEAN VERSION 20260729 DEBUG")
+print("CLEAN VERSION 20260729 V2")
 
 
 VALID_DURATIONS = [
@@ -28,78 +29,9 @@ def closest_duration(value):
 
 
 
-def count_notes(root, label):
-
-    count = len(
-        root.xpath(".//note")
-    )
-
-    print(
-        label,
-        count
-    )
-
-
-
-def remove_chords(root):
-
-    print("remove chords")
-
-    for chord in root.xpath(".//chord"):
-
-        parent = chord.getparent()
-
-        if parent is not None:
-            parent.remove(chord)
-
-
-
-def remove_beams(root):
-
-    print("remove beams")
-
-    for beam in root.xpath(".//beam"):
-
-        parent = beam.getparent()
-
-        if parent is not None:
-            parent.remove(beam)
-
-
-
-def remove_ties(root):
-
-    print("remove ties")
-
-    for tie in root.xpath(".//tie"):
-
-        parent = tie.getparent()
-
-        if parent is not None:
-            parent.remove(tie)
-
-
-
-def force_44(root):
-
-    print("force 4/4")
-
-    for time in root.xpath(".//time"):
-
-        beats=time.find("beats")
-        beat=time.find("beat-type")
-
-        if beats is not None:
-            beats.text="4"
-
-        if beat is not None:
-            beat.text="4"
-
-
-
 def get_divisions(root):
 
-    div=root.find(".//divisions")
+    div = root.find(".//divisions")
 
     if div is None:
         return 16
@@ -108,21 +40,64 @@ def get_divisions(root):
 
 
 
+def remove_tags(root):
+
+    print("remove chords")
+
+    for x in root.xpath(".//chord"):
+        p=x.getparent()
+        if p is not None:
+            p.remove(x)
+
+
+    print("remove beams")
+
+    for x in root.xpath(".//beam"):
+        p=x.getparent()
+        if p is not None:
+            p.remove(x)
+
+
+    print("remove ties")
+
+    for x in root.xpath(".//tie"):
+        p=x.getparent()
+        if p is not None:
+            p.remove(x)
+
+
+
+def force_44(root):
+
+    print("force 4/4")
+
+    for t in root.xpath(".//time"):
+
+        b=t.find("beats")
+        bt=t.find("beat-type")
+
+        if b is not None:
+            b.text="4"
+
+        if bt is not None:
+            bt.text="4"
+
+
+
 def duration_quantize(root, divisions):
 
     print("duration quantize")
 
+
     for note in root.xpath(".//note"):
 
-        duration=note.find("duration")
+        d=note.find("duration")
 
-        if duration is None:
+        if d is None:
             continue
 
 
-        old_tick=int(duration.text)
-
-        old=old_tick/divisions
+        old=int(d.text)/divisions
 
 
         new=closest_duration(old)
@@ -131,16 +106,106 @@ def duration_quantize(root, divisions):
         if abs(old-new)>0.001:
 
             print(
-                "duration fix:",
+                "duration fix",
                 old,
                 "->",
                 new
             )
 
 
-            duration.text=str(
+            d.text=str(
                 int(new*divisions)
             )
+
+
+
+def split_cross_measure_notes(root, divisions):
+
+    print("split cross measure notes")
+
+
+    measures=root.xpath(".//measure")
+
+
+    limit=divisions*4
+
+
+    for measure in measures:
+
+
+        total=0
+
+
+        notes=measure.xpath("./note")
+
+
+        for note in notes:
+
+
+            d=note.find("duration")
+
+
+            if d is None:
+                continue
+
+
+            dur=int(d.text)
+
+
+            if total + dur > limit:
+
+
+                remain = limit-total
+
+
+                if remain > 0:
+
+                    print(
+                        "split note in measure",
+                        measure.get("number"),
+                        "duration",
+                        dur
+                    )
+
+
+                    # 原音符縮短
+                    d.text=str(remain)
+
+
+                    # 建立下一段
+                    new_note=copy.deepcopy(note)
+
+                    new_d=new_note.find("duration")
+
+                    new_d.text=str(
+                        dur-remain
+                    )
+
+
+                    next_measure=None
+
+
+                    index=measures.index(measure)
+
+
+                    if index+1 < len(measures):
+                        next_measure=measures[index+1]
+
+
+                    if next_measure is not None:
+
+                        next_measure.insert(
+                            0,
+                            new_note
+                        )
+
+
+                total=limit
+
+
+            else:
+
+                total+=dur
 
 
 
@@ -149,12 +214,12 @@ def check_measures(root, divisions):
     print("FINAL CHECK")
 
 
-    for measure in root.xpath(".//measure"):
+    for m in root.xpath(".//measure"):
 
         total=0
 
 
-        for d in measure.xpath("./note/duration"):
+        for d in m.xpath("./note/duration"):
 
             total+=int(d.text)
 
@@ -164,12 +229,12 @@ def check_measures(root, divisions):
 
         print(
             "Measure",
-            measure.get("number"),
+            m.get("number"),
             beat
         )
 
 
-        if abs(beat-4)>0.1:
+        if abs(beat-4)>0.01:
 
             print(
                 "WARNING measure mismatch"
@@ -177,7 +242,8 @@ def check_measures(root, divisions):
 
 
 
-def clean_musicxml(input_file, output_file):
+def clean(input_file, output_file):
+
 
     parser=etree.XMLParser(
         remove_blank_text=True
@@ -193,34 +259,28 @@ def clean_musicxml(input_file, output_file):
     root=tree.getroot()
 
 
-    # 原始音符數
-    count_notes(
-        root,
-        "INPUT NOTES:"
-    )
-
-
     divisions=get_divisions(root)
 
 
-    remove_chords(root)
-
-    remove_beams(root)
-
-    remove_ties(root)
-
-
-    # 清理後音符數
-    count_notes(
-        root,
-        "AFTER CLEAN NOTES:"
+    print(
+        "NOTES:",
+        len(root.xpath(".//note"))
     )
+
+
+    remove_tags(root)
 
 
     force_44(root)
 
 
     duration_quantize(
+        root,
+        divisions
+    )
+
+
+    split_cross_measure_notes(
         root,
         divisions
     )
@@ -244,7 +304,6 @@ def clean_musicxml(input_file, output_file):
 
 
     print("DONE")
-
     print(output_file)
 
 
@@ -261,20 +320,20 @@ if __name__=="__main__":
         exit()
 
 
-    input_file=sys.argv[1]
+    inp=sys.argv[1]
 
 
     if len(sys.argv)>=3:
 
-        output_file=sys.argv[2]
+        out=sys.argv[2]
 
     else:
 
-        output_file="clean.musicxml"
+        out="clean.musicxml"
 
 
 
-    clean_musicxml(
-        input_file,
-        output_file
+    clean(
+        inp,
+        out
     )
