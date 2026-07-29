@@ -109,14 +109,14 @@ async def upload(
 
 
     print(
-        "RUN clean_musicxml.py"
+        "RUN clean_musicxml_v25.py"
     )
 
 
     subprocess.run(
         [
             "python",
-            "clean_musicxml.py",
+            "clean_musicxml_v25.py",
             xml_file,
             clean_xml
         ],
