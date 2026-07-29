@@ -135,6 +135,7 @@ async def upload(
         [
             "python",
             "midi_to_musicxml_clean.py",
+            "clean_musicxml.py",
             midi_path,
             clean_xml
         ],
