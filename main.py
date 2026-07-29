@@ -141,7 +141,7 @@ async def upload(
     subprocess.run(
         [
             "python",
-            "clean_musicxml.py",
+            "JianpuTool/clean_musicxml.py",
             raw_xml,
             clean_xml
         ],
@@ -253,7 +253,7 @@ async def upload(
         "jianpu.pdf"
     )
 
-
+c
     if not os.path.exists(pdf):
 
         return JSONResponse(
