@@ -1,400 +1,319 @@
-from lxml import etree
+from music21 import converter, stream, note, chord, meter, tempo
 import sys
-import copy
 
 
-print("CLEAN VERSION 20260729 V5 FLATTEN")
+INPUT = sys.argv[1]
+OUTPUT = sys.argv[2]
 
 
-BAR_BEATS = 4
+print("================")
+print("CLEAN MUSICXML V25")
+print("JIANPU STRICT 4/4")
+print("================")
 
 
-def get_divisions(root):
+# ======================
+# Load
+# ======================
 
-    div = root.find(".//divisions")
+print("read")
 
-    if div is None:
-        return 16
-
-    return int(div.text)
-
+score = converter.parse(INPUT)
 
 
-def remove_time_tags(root):
-
-    print("remove backup forward")
-
-    for tag in ["backup", "forward"]:
-
-        for x in root.xpath(f".//{tag}"):
-
-            p=x.getparent()
-
-            if p is not None:
-                p.remove(x)
+part = score.parts[0]
 
 
+# ======================
+# Remove voices
+# ======================
 
-def remove_problem_tags(root):
+print("remove voices")
 
-    print("remove chord beam tie")
 
-    for tag in [
-        "chord",
-        "beam",
-        "tie"
-    ]:
+flat = part.flatten()
 
-        for x in root.xpath(f".//{tag}"):
 
-            p=x.getparent()
-
-            if p is not None:
-                p.remove(x)
+new_part = stream.Part()
 
 
 
-def force_voice(root):
+# ======================
+# Remove chords
+# ======================
 
-    print("force voice 1")
-
-    for note in root.xpath(".//note"):
-
-        voice=note.find("voice")
-
-        if voice is None:
-
-            voice=etree.Element("voice")
-
-            note.append(voice)
+print("remove chords")
 
 
-        voice.text="1"
+for n in flat.notesAndRests:
 
 
+    if isinstance(n, chord.Chord):
 
-def force_time(root):
+        x = note.Note(
+            n.pitches[-1]
+        )
 
-    print("force 4/4")
+        x.offset = n.offset
+        x.duration = n.duration
 
-    for t in root.xpath(".//time"):
+        new_part.append(x)
 
-        b=t.find("beats")
-        bt=t.find("beat-type")
 
-        if b is not None:
-            b.text="4"
+    else:
 
-        if bt is not None:
-            bt.text="4"
+        new_part.append(n)
 
 
 
-def rebuild_measures(part, divisions):
+# ======================
+# Remove ties
+# ======================
 
-    print("rebuild measures")
+print("remove ties")
 
 
-    limit=divisions*BAR_BEATS
+for n in new_part.notes:
+
+    n.tie = None
 
 
-    old=list(
-        part.findall("measure")
+
+# ======================
+# Remove beams
+# ======================
+
+print("remove beams")
+
+
+
+# ======================
+# Quantize timing
+# ======================
+
+print("duration quantize")
+
+
+GRID = [
+    4,
+    2,
+    1,
+    0.5,
+    0.25
+]
+
+
+def quantize(value):
+
+    return min(
+        GRID,
+        key=lambda x:
+        abs(x-value)
     )
 
 
-    notes=[]
+
+for n in new_part.notes:
 
 
-    attributes=None
+    d = float(
+        n.duration.quarterLength
+    )
 
 
-    for m in old:
-
-        if attributes is None:
-
-            a=m.find("attributes")
-
-            if a is not None:
-
-                attributes=copy.deepcopy(a)
+    n.duration.quarterLength = quantize(d)
 
 
 
-        for n in m.findall("note"):
+# ======================
+# force 4/4
+# ======================
 
-            notes.append(
-                copy.deepcopy(n)
-            )
+print("force 4/4")
 
+
+new_part.insert(
+    0,
+    meter.TimeSignature("4/4")
+)
+
+
+new_part.insert(
+    0,
+    tempo.MetronomeMark(
+        number=80
+    )
+)
+
+
+
+# ======================
+# Make measures
+# ======================
+
+print("rebuild measures")
+
+
+measures = new_part.makeMeasures()
+
+
+
+# ======================
+# Fix measure length
+# ======================
+
+print("fix measure")
+
+
+fixed = stream.Part()
+
+
+for m in measures.getElementsByClass(
+    "Measure"
+):
+
+
+    length = float(
+        m.duration.quarterLength
+    )
 
 
     print(
-        "NOTES",
-        len(notes)
+        "Before",
+        m.number,
+        length
     )
 
 
-    for m in old:
-
-        part.remove(m)
-
+    # 太長
+    if length > 4:
 
 
-    measure_no=1
-
-    current=[]
-
-    current_tick=0
+        remain = 4
 
 
-
-    for note in notes:
-
-
-        d=note.find("duration")
+        rebuilt = []
 
 
-        if d is None:
-            continue
+        for n in m.notesAndRests:
 
 
-        tick=int(d.text)
+            if remain <= 0:
+                break
 
 
-
-        while current_tick + tick > limit:
-
-
-            remain=limit-current_tick
-
-
-            if remain>0:
-
-                n=copy.deepcopy(note)
-
-                n.find(
-                    "duration"
-                ).text=str(remain)
-
-
-                current.append(n)
-
-
-                tick-=remain
-
-
-
-            m=etree.Element(
-                "measure",
-                number=str(measure_no)
+            d = min(
+                float(n.duration.quarterLength),
+                remain
             )
 
 
-            if measure_no==1 and attributes is not None:
+            n.duration.quarterLength = d
 
-                m.append(
-                    copy.deepcopy(attributes)
-                )
+            rebuilt.append(n)
 
-
-            for n in current:
-
-                m.append(n)
-
-
-            part.append(m)
-
-
-            measure_no+=1
-
-            current=[]
-
-            current_tick=0
+            remain -= d
 
 
 
-            note=copy.deepcopy(note)
-
-            note.find(
-                "duration"
-            ).text=str(tick)
-
-
-
-        current.append(note)
-
-        current_tick+=tick
-
-
-
-        if current_tick==limit:
-
-
-            m=etree.Element(
-                "measure",
-                number=str(measure_no)
-            )
-
-
-            if measure_no==1 and attributes is not None:
-
-                m.append(
-                    copy.deepcopy(attributes)
-                )
-
-
-            for n in current:
-
-                m.append(n)
-
-
-            part.append(m)
-
-
-            measure_no+=1
-
-            current=[]
-
-            current_tick=0
-
-
-
-    if current:
-
-
-        m=etree.Element(
-            "measure",
-            number=str(measure_no)
+        m = stream.Measure(
+            number=m.number
         )
 
 
-        for n in current:
+        for n in rebuilt:
 
             m.append(n)
 
 
-        part.append(m)
+
+        length = m.duration.quarterLength
 
 
 
-def check(root, divisions):
+    # 太短補 rest
 
-    print("FINAL CHECK")
-
-
-    for m in root.xpath(".//measure"):
-
-        total=0
+    if length < 4:
 
 
-        for d in m.xpath("./note/duration"):
+        r = note.Rest()
 
-            total+=int(d.text)
-
-
-        print(
-            "Measure",
-            m.get("number"),
-            "ticks",
-            total
+        r.duration.quarterLength = (
+            4-length
         )
 
+        m.append(r)
 
 
-def clean(inp,out):
+
+    fixed.append(m)
 
 
-    parser=etree.XMLParser(
-        remove_blank_text=True
+
+# ======================
+# FINAL CHECK
+# ======================
+
+print("clear notation cache")
+
+
+fixed.coreElementsChanged()
+
+
+print("FINAL CHECK")
+
+
+ok=True
+
+
+for m in fixed.getElementsByClass(
+    "Measure"
+):
+
+
+    length=round(
+        float(
+            m.duration.quarterLength
+        ),
+        3
     )
-
-
-    tree=etree.parse(
-        inp,
-        parser
-    )
-
-
-    root=tree.getroot()
-
-
-    divisions=get_divisions(root)
 
 
     print(
-        "INPUT NOTES",
-        len(root.xpath(".//note"))
+        "Measure",
+        m.number,
+        length
     )
 
 
-    remove_time_tags(root)
+    if length != 4:
 
-    remove_problem_tags(root)
-
-    force_voice(root)
-
-    force_time(root)
+        ok=False
 
 
 
-    for part in root.findall("part"):
+if ok:
 
-        rebuild_measures(
-            part,
-            divisions
-        )
+    print("PASS 4/4")
 
+else:
 
-
-    check(
-        root,
-        divisions
-    )
-
-
-    print("WRITE")
-
-
-    tree.write(
-        out,
-        encoding="UTF-8",
-        xml_declaration=True,
-        pretty_print=True
-    )
-
-
-    print("DONE")
-    print(out)
+    print("WARNING mismatch")
 
 
 
-if __name__=="__main__":
+# ======================
+# Write
+# ======================
+
+print("FINAL WRITE")
 
 
-    if len(sys.argv)<2:
-
-        print(
-            "python clean_musicxml.py input.musicxml output.musicxml"
-        )
-
-        exit()
+fixed.write(
+    "musicxml",
+    fp=OUTPUT
+)
 
 
-    inp=sys.argv[1]
-
-
-    if len(sys.argv)>=3:
-
-        out=sys.argv[2]
-
-    else:
-
-        out="clean.musicxml"
-
-
-
-    clean(
-        inp,
-        out
-    )
+print("DONE")
+print(OUTPUT)
