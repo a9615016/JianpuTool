@@ -1,242 +1,196 @@
-from music21 import converter, note, chord, meter, stream, duration
 import sys
+from music21 import converter, note, stream
 
 
-print("==============================")
-print("JIANPU PREPARE V3")
-print("==============================")
+print("######## JIANPU PREPARE V3 ########")
 
 
-VALID_DURATIONS = [
-    0.25,
-    0.5,
-    0.75,
-    1,
-    1.5,
-    2,
-    3,
-    4
-]
+def fix_measure(measure):
+
+    target = 4.0
+
+    total = 0.0
+    new_elements = []
+
+    for e in list(measure.notesAndRests):
+
+        dur = float(e.duration.quarterLength)
+
+        if total >= target:
+            break
+
+        remain = target - total
 
 
-def quantize_duration(x):
+        # 完整放入
+        if dur <= remain:
 
-    return min(
-        VALID_DURATIONS,
-        key=lambda d: abs(d-x)
-    )
-
-
-def remove_chords(score):
-
-    print("remove chords")
-
-    for c in list(
-        score.recurse()
-        .getElementsByClass(chord.Chord)
-    ):
-
-        n = note.Note(
-            c.root()
-        )
-
-        n.duration = c.duration
-
-        c.activeSite.replace(
-            c,
-            n
-        )
+            new_elements.append(e)
+            total += dur
 
 
-def clean_notes(score):
+        # 超過切割
+        else:
 
-    print("duration quantize")
+            try:
 
-    for n in score.recurse().notes:
+                e2 = e
 
-        old = n.duration.quarterLength
+                e2.duration.quarterLength = remain
 
-        new = quantize_duration(old)
+                new_elements.append(e2)
 
-        if old != new:
-            print(
-                "duration",
-                old,
-                "=>",
-                new
-            )
+                total = target
 
-        n.duration.quarterLength = new
+            except:
+                pass
 
 
-def remove_articulation(score):
 
-    print("remove notation")
+    # 不足補休止符
 
-    for n in score.recurse().notes:
+    if total < target:
 
-        n.tie = None
+        r = note.Rest()
 
-        try:
-            n.beams = []
-        except:
-            pass
+        r.duration.quarterLength = target-total
 
+        new_elements.append(r)
 
-def force_time(score):
-
-    print("force 4/4")
-
-    for p in score.parts:
-
-        p.insert(
-            0,
-            meter.TimeSignature("4/4")
-        )
+        total = target
 
 
-def rebuild_measure(score):
 
-    print("rebuild measures")
+    # 清除舊內容
 
-    for p in score.parts:
+    for e in list(measure.notesAndRests):
 
-        p.makeMeasures(
-            inPlace=True
-        )
+        measure.remove(e)
 
 
-def fix_measure(score):
+    for e in new_elements:
 
-    print("================")
-    print("FIX MEASURE")
-    print("================")
+        measure.append(e)
 
-    for p in score.parts:
 
-        measures = list(
-            p.getElementsByClass("Measure")
-        )
+
+    return total
+
+
+
+def process(input_xml, output_xml):
+
+
+    print("READ:", input_xml)
+
+
+    score = converter.parse(input_xml)
+
+
+
+    print("REMOVE VOICES")
+
+    for part in score.parts:
+
+        for m in part.getElementsByClass("Measure"):
+
+            # 移除 chord
+            for c in list(m.notes):
+
+                if c.isChord:
+
+                    n = c.notes[0]
+
+                    m.replace(c,n)
+
+
+
+    print("######## FORCE 4/4 ########")
+
+
+    for part in score.parts:
+
+
+        measures = part.getElementsByClass("Measure")
+
 
         for m in measures:
 
-            total = sum(
-                n.duration.quarterLength
-                for n in m.notesAndRests
+            before = float(
+                m.duration.quarterLength
             )
 
 
-            if total > 4:
+            after = fix_measure(m)
 
-                print(
-                    "OVER",
-                    m.number,
-                    total
-                )
-
-
-                while total > 4:
-
-                    m.splitAtDurations()
-
-
-            elif total < 4:
-
-                rest = note.Rest()
-
-                rest.duration.quarterLength = (
-                    4-total
-                )
-
-                m.append(rest)
-
-
-
-def final_check(score):
-
-    print("================")
-    print("FINAL CHECK")
-    print("================")
-
-    for i,m in enumerate(
-        score.parts[0]
-        .getElementsByClass("Measure"),
-        1
-    ):
-
-        total=sum(
-            n.duration.quarterLength
-            for n in m.notesAndRests
-        )
-
-        print(
-            "Measure",
-            i,
-            total
-        )
-
-
-        if abs(total-4)>0.01:
 
             print(
-                "WARNING",
-                i,
-                total
+                "Measure",
+                m.number,
+                before,
+                "=>",
+                after
             )
 
 
 
-def main():
-
-    if len(sys.argv)<3:
-
-        print(
-            "python jianpu_prepare_v3.py input.musicxml output.musicxml"
-        )
-
-        return
+    print("######## FINAL CHECK ########")
 
 
-    infile=sys.argv[1]
-    outfile=sys.argv[2]
+    for part in score.parts:
+
+        for m in part.getElementsByClass("Measure"):
 
 
-    print("READ")
-
-    score=converter.parse(
-        infile
-    )
+            d=float(
+                m.duration.quarterLength
+            )
 
 
-    remove_chords(score)
+            print(
+                "CHECK",
+                m.number,
+                d
+            )
 
-    clean_notes(score)
 
-    remove_articulation(score)
+            if abs(d-4.0)>0.01:
 
-    force_time(score)
+                print(
+                    "WARNING",
+                    m.number,
+                    d
+                )
 
-    rebuild_measure(score)
-
-    fix_measure(score)
-
-    rebuild_measure(score)
-
-    final_check(score)
 
 
     print("WRITE")
 
     score.write(
         "musicxml",
-        fp=outfile
+        fp=output_xml
     )
 
 
     print("DONE")
-    print(outfile)
+
 
 
 
 if __name__=="__main__":
-    main()
+
+
+    if len(sys.argv)<3:
+
+        print(
+            "usage: python jianpu_prepare_v3.py input.musicxml output.musicxml"
+        )
+
+        sys.exit(1)
+
+
+
+    process(
+        sys.argv[1],
+        sys.argv[2]
+    )
