@@ -253,7 +253,7 @@ async def upload(
         "jianpu.pdf"
     )
 
-c
+
     if not os.path.exists(pdf):
 
         return JSONResponse(
