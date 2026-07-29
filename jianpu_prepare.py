@@ -1,91 +1,190 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+"""
+jianpu_prepare.py
+
+MusicXML -> jianpu_ly 前處理
+修正：
+- backup / forward
+- voice 多層
+- chord
+- 小節長度
+"""
+
 import sys
-import xml.etree.ElementTree as ET
+from pathlib import Path
+from lxml import etree
 
 
-print("================")
-print("JIANPU PREPARE V1")
-print("================")
+DIVISION_DEFAULT = 16
+BEAT = 4
 
 
-src=sys.argv[1]
-dst=sys.argv[2]
+def qlen(duration, divisions):
+    return duration / divisions
 
 
-tree=ET.parse(src)
+def make_rest(duration):
+    rest = etree.Element("note")
 
-root=tree.getroot()
+    etree.SubElement(rest, "rest")
 
+    dur = etree.SubElement(rest, "duration")
+    dur.text = str(duration)
 
-for elem in root.iter():
+    voice = etree.SubElement(rest, "voice")
+    voice.text = "1"
 
-    if "}" in elem.tag:
-        elem.tag=elem.tag.split("}",1)[1]
-
-
-
-print("remove unsupported notation")
-
-
-remove_tags=[
-    "notations",
-    "articulations",
-    "ornaments",
-    "technical",
-    "dynamics"
-]
+    return rest
 
 
-for tag in remove_tags:
+def prepare(input_file, output_file):
 
-    for x in root.findall(".//"+tag):
+    print("LOAD:", input_file)
 
-        parent=None
+    tree = etree.parse(input_file)
+    root = tree.getroot()
 
+    divisions = DIVISION_DEFAULT
 
+    div = root.find(".//divisions")
+    if div is not None:
+        divisions = int(div.text)
 
-print("force note duration")
-
-
-
-for duration in root.findall(".//duration"):
-
-    try:
-
-        value=int(duration.text)
-
-        if value < 1:
-            duration.text="1"
-
-    except:
-        pass
+    print("DIVISIONS:", divisions)
 
 
+    # -------------------------
+    # 清理 note
+    # -------------------------
 
-print("remove empty measures")
+    for measure in root.xpath(".//measure"):
 
+        current = 0
+        notes = []
 
-for measure in root.findall(".//measure"):
+        for item in list(measure):
 
-    notes=measure.findall("note")
-
-    if len(notes)==0:
-
-        rest=ET.SubElement(measure,"note")
-
-        ET.SubElement(rest,"rest")
-
-        d=ET.SubElement(rest,"duration")
-
-        d.text="64"
+            tag = etree.QName(item).localname
 
 
+            # remove backup
+            if tag == "backup":
+                measure.remove(item)
+                print("remove backup")
+                continue
 
-tree.write(
-    dst,
-    encoding="utf-8",
-    xml_declaration=True
-)
+
+            # remove forward
+            if tag == "forward":
+                measure.remove(item)
+                print("remove forward")
+                continue
 
 
-print("PREPARE DONE")
-print(dst)
+            if tag != "note":
+                continue
+
+
+            # remove chord
+            chord = item.find("chord")
+            if chord is not None:
+                item.remove(chord)
+
+
+            # force voice 1
+            voice = item.find("voice")
+            if voice is None:
+                voice = etree.SubElement(item, "voice")
+
+            voice.text = "1"
+
+
+            duration = item.find("duration")
+
+            if duration is None:
+                continue
+
+
+            d = int(duration.text)
+
+            current += d
+
+            notes.append(item)
+
+
+        # -------------------------
+        # 補滿小節
+        # -------------------------
+
+        measure_target = divisions * BEAT
+
+
+        if current < measure_target:
+
+            missing = measure_target-current
+
+            print(
+                "Measure",
+                measure.get("number"),
+                "fill rest",
+                missing
+            )
+
+            rest = make_rest(missing)
+
+            measure.append(rest)
+
+            current += missing
+
+
+        print(
+            "Measure",
+            measure.get("number"),
+            qlen(current, divisions)
+        )
+
+
+    # -------------------------
+    # 移除 notation cache
+    # -------------------------
+
+    for x in root.xpath(".//notations"):
+        parent = x.getparent()
+
+        if parent is not None:
+            parent.remove(x)
+
+    print("clear notation cache")
+
+
+    tree.write(
+        output_file,
+        encoding="UTF-8",
+        xml_declaration=True
+    )
+
+
+    print()
+    print("DONE")
+    print(output_file)
+
+
+
+if __name__ == "__main__":
+
+    if len(sys.argv) < 3:
+        print(
+            "Usage:"
+        )
+        print(
+            "python jianpu_prepare.py input.musicxml output.musicxml"
+        )
+        sys.exit(1)
+
+
+    prepare(
+        sys.argv[1],
+        sys.argv[2]
+    )
