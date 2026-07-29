@@ -1,3 +1,4 @@
+print("######## CLEAN MUSICXML V82 LOADED ########")
 from music21 import converter, stream, note, chord, meter
 import sys
 import os
