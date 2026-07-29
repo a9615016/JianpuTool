@@ -10,7 +10,7 @@ else:
     OUTPUT = "clean.musicxml"
 
 
-print("CLEAN VERSION 20260729 v13 PRESERVE STRUCTURE")
+print("CLEAN VERSION 20260729 v14")
 
 
 score = converter.parse(INPUT)
@@ -36,13 +36,15 @@ print(
 
 
 # ==========================
-# remove chords
+# chord -> single note
 # ==========================
 
 print("remove chords")
 
 
-for c in list(score.recurse().getElementsByClass(chord.Chord)):
+for c in list(
+    score.recurse().getElementsByClass(chord.Chord)
+):
 
     n = note.Note(
         c.pitches[0]
@@ -88,25 +90,28 @@ for n in score.recurse().notes:
 
 
 # ==========================
-# quantize
+# duration normalize
 # ==========================
 
-print("duration quantize")
+print("duration normalize")
 
 
 allowed = [
-    0.25,
-    0.5,
+    0.25,   # 16th
+    0.5,    # 8th
     0.75,
-    1,
+    1.0,    # quarter
     1.5,
-    2,
-    3,
-    4
+    2.0,    # half
+    3.0,
+    4.0
 ]
 
 
 for n in score.recurse().notesAndRests:
+
+
+    old_type = n.duration.type
 
     q = float(
         n.duration.quarterLength
@@ -115,10 +120,30 @@ for n in score.recurse().notesAndRests:
 
     nearest = min(
         allowed,
-        key=lambda x:abs(x-q)
+        key=lambda x: abs(x-q)
     )
 
 
+    if old_type in [
+        "128th",
+        "64th",
+        "32nd"
+    ]:
+
+        print(
+            "FIX SHORT NOTE",
+            old_type,
+            q,
+            "->",
+            nearest
+        )
+
+
+    # 清除舊 duration type
+    n.duration.clear()
+
+
+    # 重新設定
     n.duration.quarterLength = nearest
 
 
@@ -132,82 +157,14 @@ print("force 4/4")
 
 for part in score.parts:
 
-    for m in part.getElementsByClass("Measure"):
+    for m in part.getElementsByClass(
+        "Measure"
+    ):
 
         m.insert(
             0,
             meter.TimeSignature("4/4")
         )
-
-
-
-# ==========================
-# FIX MEASURE OVERSHOOT
-# ==========================
-
-print("fix measure overflow")
-
-
-for part in score.parts:
-
-    for m in part.getElementsByClass("Measure"):
-
-
-        total = sum(
-            float(x.duration.quarterLength)
-            for x in m.notesAndRests
-        )
-
-
-        if total > 4.0:
-
-
-            print(
-                "TRIM",
-                m.number,
-                total
-            )
-
-
-            remain = 4.0
-
-
-            remove_list=[]
-
-
-            for n in list(m.notesAndRests):
-
-
-                if remain <= 0:
-
-                    remove_list.append(n)
-
-                    continue
-
-
-
-                d=float(
-                    n.duration.quarterLength
-                )
-
-
-
-                if d <= remain:
-
-                    remain -= d
-
-
-                else:
-
-                    n.duration.quarterLength = remain
-
-                    remain=0
-
-
-
-            for x in remove_list:
-
-                m.remove(x)
 
 
 
@@ -223,7 +180,6 @@ print(
     len(score.recurse().notes)
 )
 
-
 print(
     "FINAL RESTS",
     len(score.recurse().rests)
@@ -233,9 +189,11 @@ print(
 
 for part in score.parts:
 
-    for m in part.getElementsByClass("Measure"):
+    for m in part.getElementsByClass(
+        "Measure"
+    ):
 
-        total=sum(
+        total = sum(
             float(x.duration.quarterLength)
             for x in m.notesAndRests
         )
@@ -262,5 +220,4 @@ score.write(
 
 
 print("DONE")
-
 print(OUTPUT)
