@@ -4,178 +4,194 @@ from fractions import Fraction
 
 
 print("==============================")
-print("CLEAN MUSICXML V32")
+print("CLEAN MUSICXML V33")
+print("STRICT JIANPU COMPATIBLE")
 print("MEASURE REBUILDER")
-print("JIANPU_LY COMPATIBLE")
 print("==============================")
 
 
-GRID = Fraction(1,16)
-BAR = Fraction(4,1)
+STEP = Fraction(1, 16)
+BAR = Fraction(4, 1)
 
 
-def quantize(v):
-    return round(Fraction(v) / GRID) * GRID
+# jianpu_ly 安全 duration
+ALLOWED = [
+    Fraction(4),
+    Fraction(2),
+    Fraction(1),
+    Fraction(1,2),
+    Fraction(1,4),
+    Fraction(1,8),
+    Fraction(1,16)
+]
 
 
-def normalize_duration(v):
+def snap_duration(x):
 
-    q = quantize(v)
+    x = Fraction(x)
 
-    if q <= 0:
-        q = Fraction(1,16)
+    best=min(
+        ALLOWED,
+        key=lambda a:abs(a-x)
+    )
 
-    return q
+    return best
 
 
 
-def extract_notes(score):
+def split_note(n, remain):
 
-    notes=[]
+    new = note.Note(
+        n.pitch,
+        quarterLength=float(remain)
+    )
+
+    return new
+
+
+
+def collect_notes(score):
+
+    result=[]
 
     for n in score.recurse().notes:
 
-        if isinstance(n, chord.Chord):
+        if isinstance(n,chord.Chord):
 
             n = note.Note(
                 n.pitches[-1]
             )
 
-        n.duration.quarterLength = float(
-            normalize_duration(
-                n.duration.quarterLength
-            )
-        )
 
-        notes.append(n)
-
-    return notes
-
-
-
-def rebuild_measures(notes):
-
-    result = stream.Part()
-
-    result.insert(
-        0,
-        meter.TimeSignature("4/4")
-    )
-
-
-    current_measure = stream.Measure()
-
-    beat = Fraction(0)
-
-
-    measure_no = 1
-
-
-    for n in notes:
-
-        dur = Fraction(
+        dur=snap_duration(
             n.duration.quarterLength
         )
 
 
-        # 跨小節拆開
+        n.duration.quarterLength=float(dur)
 
-        while beat + dur > BAR:
-
-
-            remain = BAR - beat
+        result.append(n)
 
 
-            if remain > 0:
+    return result
 
-                part = note.Note(
+
+
+def rebuild(notes):
+
+    part=stream.Part()
+
+    part.append(
+        meter.TimeSignature("4/4")
+    )
+
+
+    measure=stream.Measure()
+
+    pos=Fraction(0)
+
+    number=1
+
+
+    for n in notes:
+
+
+        dur=Fraction(
+            n.duration.quarterLength
+        )
+
+
+        while dur > 0:
+
+
+            space=BAR-pos
+
+
+            if dur <= space:
+
+                nn=note.Note(
                     n.pitch,
-                    quarterLength=float(remain)
+                    quarterLength=float(dur)
                 )
 
-                current_measure.append(part)
+                measure.append(nn)
+
+                pos += dur
+                dur=0
 
 
-            result.append(
-                current_measure
-            )
+            else:
+
+                nn=split_note(
+                    n,
+                    space
+                )
+
+                measure.append(nn)
+
+                dur -= space
+
+
+                part.append(measure)
+
+
+                print(
+                    "Measure",
+                    number,
+                    4.0
+                )
+
+                number+=1
+
+
+                measure=stream.Measure()
+
+                pos=Fraction(0)
+
+
+
+        if pos == BAR:
+
+            part.append(measure)
 
 
             print(
                 "Measure",
-                measure_no,
+                number,
                 4.0
             )
 
-            measure_no += 1
 
+            number+=1
 
-            current_measure = stream.Measure()
+            measure=stream.Measure()
 
-
-            dur -= remain
-
-            beat = Fraction(0)
+            pos=Fraction(0)
 
 
 
-        if dur > 0:
+    # 補最後小節
 
-            part = note.Note(
-                n.pitch,
-                quarterLength=float(dur)
-            )
+    if pos>0:
 
-            current_measure.append(part)
-
-            beat += dur
-
-
-
-        if beat == BAR:
-
-            result.append(
-                current_measure
-            )
-
-            print(
-                "Measure",
-                measure_no,
-                4.0
-            )
-
-            measure_no += 1
-
-            current_measure = stream.Measure()
-
-            beat = Fraction(0)
-
-
-
-    # 最後補滿
-
-    if beat > 0:
-
-        rest = note.Rest(
+        rest=note.Rest(
             quarterLength=float(
-                BAR-beat
+                BAR-pos
             )
         )
 
-        current_measure.append(rest)
+        measure.append(rest)
 
-        result.append(
-            current_measure
-        )
+        part.append(measure)
 
         print(
             "Measure",
-            measure_no,
+            number,
             4.0
         )
 
 
-    return result
+    return part
 
 
 
@@ -184,9 +200,8 @@ def main():
     if len(sys.argv)<3:
 
         print(
-            "python clean_musicxml.py input.musicxml output.musicxml"
+            "python clean_musicxml.py input output"
         )
-
         return
 
 
@@ -205,7 +220,7 @@ def main():
     print("remove ties")
 
 
-    notes=extract_notes(score)
+    notes=collect_notes(score)
 
 
     print(
@@ -217,7 +232,7 @@ def main():
     new_score=stream.Score()
 
 
-    part=rebuild_measures(notes)
+    part=rebuild(notes)
 
 
     new_score.append(part)
@@ -230,11 +245,22 @@ def main():
         stream.Measure
     ):
 
+        length=float(
+            m.duration.quarterLength
+        )
+
         print(
             "Measure",
             m.number,
-            float(m.duration.quarterLength)
+            length
         )
+
+        if length != 4.0:
+
+            print(
+                "ERROR BAD BAR",
+                m.number
+            )
 
 
     print("FINAL WRITE")
