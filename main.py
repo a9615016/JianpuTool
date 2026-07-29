@@ -242,7 +242,7 @@ async def upload(
             [
                 "python",
                 "-m",
-                "jianpu_ly",
+                "midi_to_jianpu_ly.py",
                 clean_xml
             ],
             stdout=f,
