@@ -10,15 +10,17 @@ else:
     OUTPUT = "clean.musicxml"
 
 
-print("CLEAN VERSION 20260729 v10")
+print("CLEAN VERSION 20260729 v11")
 
 
 score = converter.parse(INPUT)
 
 
+
 # ==========================
 # remove chords
 # ==========================
+
 print("remove chords")
 
 
@@ -42,6 +44,7 @@ for element in list(score.recurse()):
 # ==========================
 # remove ties
 # ==========================
+
 print("remove ties")
 
 
@@ -54,6 +57,7 @@ for n in score.recurse().notes:
 # ==========================
 # remove beams
 # ==========================
+
 print("remove beams")
 
 
@@ -61,33 +65,16 @@ for n in score.recurse().notes:
 
     try:
         n.beams = []
+
     except:
         pass
 
 
 
 # ==========================
-# force 4/4
-# ==========================
-print("force 4/4")
-
-
-for part in score.parts:
-
-    for m in part.getElementsByClass(
-        stream.Measure
-    ):
-
-        m.insert(
-            0,
-            meter.TimeSignature("4/4")
-        )
-
-
-
-# ==========================
 # duration quantize
 # ==========================
+
 print("duration quantize")
 
 
@@ -109,20 +96,11 @@ for n in score.recurse().notesAndRests:
         n.duration.quarterLength
     )
 
+
     nearest = min(
         allowed,
-        key=lambda x:abs(x-q)
+        key=lambda x: abs(x-q)
     )
-
-
-    if abs(q-nearest)>0.001:
-
-        print(
-            "FIX",
-            q,
-            "->",
-            nearest
-        )
 
 
     n.duration.quarterLength = nearest
@@ -130,23 +108,29 @@ for n in score.recurse().notesAndRests:
 
 
 # ==========================
-# rebuild measures
+# REBUILD ALL MEASURES
 # ==========================
-print("rebuild measures")
+
+print("rebuild measures v11")
 
 
 new_score = stream.Score()
 
 
+
 for part in score.parts:
+
 
     new_part = stream.Part()
 
+
     measure_no = 1
+
 
     m = stream.Measure(
         number=measure_no
     )
+
 
     m.insert(
         0,
@@ -154,100 +138,93 @@ for part in score.parts:
     )
 
 
-    current = 0
+    used = 0.0
+
 
 
     for n in part.flatten().notesAndRests:
 
-        d = float(
+
+        duration = float(
             n.duration.quarterLength
         )
 
 
-        # split long note
-
-        while d > 4:
-
-            nn = n.clone()
-
-            nn.duration.quarterLength = 4
-
-            m.append(nn)
-
-            new_part.append(m)
+        while duration > 0:
 
 
-            measure_no += 1
-
-            m = stream.Measure(
-                number=measure_no
-            )
-
-            m.insert(
-                0,
-                meter.TimeSignature("4/4")
-            )
-
-
-            d -= 4
+            remain = 4.0 - used
 
 
 
-        if current + d <= 4:
+            # 放得下
 
-            nn = n.clone()
+            if duration <= remain:
 
-            nn.duration.quarterLength = d
-
-            m.append(nn)
-
-            current += d
-
-
-        else:
-
-            remain = 4-current
-
-
-            if remain > 0:
 
                 nn = n.clone()
 
-                nn.duration.quarterLength = remain
+                nn.duration.quarterLength = duration
+
 
                 m.append(nn)
 
 
-
-            new_part.append(m)
-
-
-            measure_no += 1
+                used += duration
 
 
-            m = stream.Measure(
-                number=measure_no
-            )
-
-            m.insert(
-                0,
-                meter.TimeSignature("4/4")
-            )
-
-
-            nn = n.clone()
-
-            nn.duration.quarterLength = d-remain
-
-            m.append(nn)
-
-            current = d-remain
+                duration = 0
 
 
 
-    if len(m.notesAndRests)>0:
+            # 放不下，需要切小節
+
+            else:
+
+
+                if remain > 0:
+
+
+                    nn = n.clone()
+
+                    nn.duration.quarterLength = remain
+
+                    m.append(nn)
+
+
+
+                new_part.append(m)
+
+
+
+                measure_no += 1
+
+
+
+                m = stream.Measure(
+                    number=measure_no
+                )
+
+
+                m.insert(
+                    0,
+                    meter.TimeSignature("4/4")
+                )
+
+
+                used = 0.0
+
+
+                duration -= remain
+
+
+
+    # 最後一小節
+
+    if len(m.notesAndRests) > 0:
 
         new_part.append(m)
+
 
 
     new_score.append(new_part)
@@ -255,79 +232,6 @@ for part in score.parts:
 
 
 score = new_score
-
-
-
-# ==========================
-# FINAL FORCE 4/4
-# ==========================
-print("FINAL MEASURE FORCE 4/4")
-
-
-for part in score.parts:
-
-    for m in part.getElementsByClass(
-        stream.Measure
-    ):
-
-        total = sum(
-            float(n.duration.quarterLength)
-            for n in m.notesAndRests
-        )
-
-
-        if total > 4.001:
-
-            print(
-                "TRIM MEASURE",
-                m.number,
-                total
-            )
-
-
-            remain = 4.0
-
-            keep=[]
-
-
-            for n in list(m.notesAndRests):
-
-                if remain <= 0:
-                    break
-
-
-                d=float(
-                    n.duration.quarterLength
-                )
-
-
-                if d <= remain:
-
-                    keep.append(n)
-
-                    remain -= d
-
-
-                else:
-
-                    nn=n.clone()
-
-                    nn.duration.quarterLength=remain
-
-                    keep.append(nn)
-
-                    remain=0
-
-
-
-            for old in list(m.notesAndRests):
-
-                m.remove(old)
-
-
-            for n in keep:
-
-                m.append(n)
 
 
 
@@ -344,9 +248,9 @@ for part in score.parts:
         stream.Measure
     ):
 
-        total=sum(
-            float(n.duration.quarterLength)
-            for n in m.notesAndRests
+        total = sum(
+            float(x.duration.quarterLength)
+            for x in m.notesAndRests
         )
 
 
