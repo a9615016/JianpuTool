@@ -1,3 +1,4 @@
+print("######## MAIN V2 VERSION ########")
 import os
 import uuid
 import subprocess
