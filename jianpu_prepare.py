@@ -2,14 +2,19 @@
 # -*- coding: utf-8 -*-
 
 """
-jianpu_prepare.py
+jianpu_prepare_v2.py
 
-MusicXML -> jianpu_ly 前處理
-修正：
-- backup / forward
-- voice 多層
+MusicXML preprocessor for jianpu_ly
+
+Fix:
+- backup
+- forward
 - chord
-- 小節長度
+- ties
+- voice
+- cross measure notes
+- measure overflow
+- fill rests
 """
 
 import sys
@@ -17,70 +22,138 @@ from pathlib import Path
 from lxml import etree
 
 
-DIVISION_DEFAULT = 16
-BEAT = 4
+BEATS = 4
 
 
-def qlen(duration, divisions):
-    return duration / divisions
+def create_rest(duration):
 
+    note = etree.Element("note")
 
-def make_rest(duration):
-    rest = etree.Element("note")
+    etree.SubElement(
+        note,
+        "rest"
+    )
 
-    etree.SubElement(rest, "rest")
-
-    dur = etree.SubElement(rest, "duration")
+    dur = etree.SubElement(
+        note,
+        "duration"
+    )
     dur.text = str(duration)
 
-    voice = etree.SubElement(rest, "voice")
+    voice = etree.SubElement(
+        note,
+        "voice"
+    )
     voice.text = "1"
 
-    return rest
+    return note
 
 
-def prepare(input_file, output_file):
 
-    print("LOAD:", input_file)
+def clone_note(note, duration):
 
-    tree = etree.parse(input_file)
+    new_note = etree.fromstring(
+        etree.tostring(note)
+    )
+
+    old = new_note.find("duration")
+
+    if old is not None:
+        old.text = str(duration)
+
+    else:
+        d = etree.SubElement(
+            new_note,
+            "duration"
+        )
+        d.text = str(duration)
+
+
+    voice = new_note.find("voice")
+
+    if voice is None:
+        voice = etree.SubElement(
+            new_note,
+            "voice"
+        )
+
+    voice.text = "1"
+
+
+    return new_note
+
+
+
+def prepare(src, dst):
+
+    print("LOAD", src)
+
+
+    tree = etree.parse(src)
     root = tree.getroot()
 
-    divisions = DIVISION_DEFAULT
 
-    div = root.find(".//divisions")
-    if div is not None:
-        divisions = int(div.text)
+    div_node = root.find(".//divisions")
 
-    print("DIVISIONS:", divisions)
+    divisions = 16
+
+    if div_node is not None:
+        divisions = int(div_node.text)
 
 
-    # -------------------------
-    # 清理 note
-    # -------------------------
+    measure_length = divisions * BEATS
+
+
+    print(
+        "DIVISIONS",
+        divisions,
+        "MEASURE",
+        measure_length
+    )
+
+
+    # ------------------------
+    # remove global unwanted
+    # ------------------------
+
+    for x in root.xpath(".//backup"):
+        x.getparent().remove(x)
+
+    for x in root.xpath(".//forward"):
+        x.getparent().remove(x)
+
+
+    for x in root.xpath(".//tie"):
+        x.getparent().remove(x)
+
+
+    for x in root.xpath(".//notations"):
+        x.getparent().remove(x)
+
+
+
+    # ------------------------
+    # measures
+    # ------------------------
 
     for measure in root.xpath(".//measure"):
 
-        current = 0
-        notes = []
+        number = measure.get("number")
+
+        print(
+            "PROCESS MEASURE",
+            number
+        )
+
+
+        new_children=[]
+
+        current=0
+
 
         for item in list(measure):
 
             tag = etree.QName(item).localname
-
-
-            # remove backup
-            if tag == "backup":
-                measure.remove(item)
-                print("remove backup")
-                continue
-
-
-            # remove forward
-            if tag == "forward":
-                measure.remove(item)
-                print("remove forward")
-                continue
 
 
             if tag != "note":
@@ -88,79 +161,132 @@ def prepare(input_file, output_file):
 
 
             # remove chord
-            chord = item.find("chord")
+            chord=item.find("chord")
+
             if chord is not None:
                 item.remove(chord)
 
 
-            # force voice 1
-            voice = item.find("voice")
+            # force voice
+
+            voice=item.find("voice")
+
             if voice is None:
-                voice = etree.SubElement(item, "voice")
+                voice=etree.SubElement(
+                    item,
+                    "voice"
+                )
 
-            voice.text = "1"
+            voice.text="1"
 
 
-            duration = item.find("duration")
+            dur=item.find("duration")
 
-            if duration is None:
+            if dur is None:
                 continue
 
 
-            d = int(duration.text)
-
-            current += d
-
-            notes.append(item)
+            duration=int(dur.text)
 
 
-        # -------------------------
-        # 補滿小節
-        # -------------------------
+            # ---------------------
+            # split overflow note
+            # ---------------------
 
-        measure_target = divisions * BEAT
+            while current + duration > measure_length:
+
+                remain = measure_length-current
 
 
-        if current < measure_target:
+                if remain > 0:
 
-            missing = measure_target-current
+                    print(
+                        "split note",
+                        number,
+                        "remain",
+                        remain
+                    )
+
+
+                    part=clone_note(
+                        item,
+                        remain
+                    )
+
+                    new_children.append(part)
+
+
+                duration -= remain
+
+                current = measure_length
+
+
+                break
+
+
+
+            if current < measure_length and duration>0:
+
+
+                if current+duration <= measure_length:
+
+                    part=clone_note(
+                        item,
+                        duration
+                    )
+
+                    new_children.append(part)
+
+                    current += duration
+
+
+
+        # clear old notes
+
+        for item in list(measure):
+
+            if etree.QName(item).localname=="note":
+                measure.remove(item)
+
+
+
+        # write notes back
+
+        for n in new_children:
+
+            measure.append(n)
+
+
+
+        # fill rest
+
+        if current < measure_length:
+
+            missing=measure_length-current
 
             print(
-                "Measure",
-                measure.get("number"),
                 "fill rest",
+                number,
                 missing
             )
 
-            rest = make_rest(missing)
-
-            measure.append(rest)
+            measure.append(
+                create_rest(missing)
+            )
 
             current += missing
 
 
+
         print(
-            "Measure",
-            measure.get("number"),
-            qlen(current, divisions)
+            "MEASURE",
+            number,
+            current/divisions
         )
 
 
-    # -------------------------
-    # 移除 notation cache
-    # -------------------------
-
-    for x in root.xpath(".//notations"):
-        parent = x.getparent()
-
-        if parent is not None:
-            parent.remove(x)
-
-    print("clear notation cache")
-
-
     tree.write(
-        output_file,
+        dst,
         encoding="UTF-8",
         xml_declaration=True
     )
@@ -168,19 +294,23 @@ def prepare(input_file, output_file):
 
     print()
     print("DONE")
-    print(output_file)
+    print(dst)
 
 
 
-if __name__ == "__main__":
+if __name__=="__main__":
 
-    if len(sys.argv) < 3:
+
+    if len(sys.argv)<3:
+
         print(
-            "Usage:"
+            "usage:"
         )
+
         print(
-            "python jianpu_prepare.py input.musicxml output.musicxml"
+            "python jianpu_prepare_v2.py input.musicxml output.musicxml"
         )
+
         sys.exit(1)
 
 
