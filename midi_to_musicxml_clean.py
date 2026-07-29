@@ -1,8 +1,3 @@
-# midi_to_musicxml_clean.py
-# VERSION v7
-# MIDI -> MusicXML strict rebuild for jianpu_ly
-
-
 from music21 import converter
 from music21 import stream
 from music21 import note
@@ -11,20 +6,13 @@ from music21 import meter
 import sys
 
 
-
-def convert_midi_to_musicxml(
-        midi_file,
-        output_file
+def convert(
+    midi_file,
+    output
 ):
 
-    print("==============================")
-    print("MIDI TO MUSICXML CLEAN v7")
-    print("==============================")
+    print("MIDI TO MUSICXML CLEAN v8")
 
-
-    # --------------------------
-    # read midi
-    # --------------------------
 
     src = converter.parse(
         midi_file
@@ -34,15 +22,7 @@ def convert_midi_to_musicxml(
     notes = src.flatten().notes
 
 
-    print(
-        "SOURCE NOTES:",
-        len(notes)
-    )
-
-
-    # --------------------------
-    # create new part
-    # --------------------------
+    score = stream.Score()
 
     part = stream.Part()
 
@@ -53,21 +33,22 @@ def convert_midi_to_musicxml(
     )
 
 
-    current_offset = 0
+    measure_no = 1
+
+    measure = stream.Measure(
+        number=measure_no
+    )
+
+
+    beat_used = 0
 
 
     count = 0
 
 
 
-    # --------------------------
-    # rebuild notes
-    # --------------------------
-
     for n in notes:
 
-
-        # chord -> highest pitch
 
         if isinstance(
             n,
@@ -87,23 +68,12 @@ def convert_midi_to_musicxml(
         )
 
 
-        # remove strange duration
-
-        if dur <= 0:
-
-            dur = 0.25
-
-
-
-        # minimum 16th
-
         if dur < 0.25:
 
             dur = 0.25
 
 
-
-        # quantize
+        # 強制16分音符網格
 
         dur = round(
             dur * 4
@@ -111,49 +81,78 @@ def convert_midi_to_musicxml(
 
 
 
-        new_note = note.Note(
+        # 防止跨小節
+
+        if beat_used + dur > 4:
+
+
+            rest = 4 - beat_used
+
+
+            if rest > 0:
+
+                r = note.Rest()
+
+                r.duration.quarterLength = rest
+
+                measure.append(r)
+
+
+
+            part.append(
+                measure
+            )
+
+
+            measure_no += 1
+
+
+            measure = stream.Measure(
+                number=measure_no
+            )
+
+
+            beat_used = 0
+
+
+
+        nn = note.Note(
             pitch
         )
 
 
-        new_note.duration.quarterLength = dur
+        nn.duration.quarterLength = dur
 
 
-
-        # IMPORTANT
-        # rebuild timeline
-
-        part.insert(
-            current_offset,
-            new_note
+        measure.append(
+            nn
         )
 
 
-        current_offset += dur
+        beat_used += dur
 
 
         count += 1
 
 
 
-    print(
-        "NEW NOTES:",
-        count
+    # 最後補滿
+
+    if beat_used < 4:
+
+        r = note.Rest()
+
+        r.duration.quarterLength = (
+            4 - beat_used
+        )
+
+        measure.append(r)
+
+
+
+    part.append(
+        measure
     )
-
-
-    print(
-        "TOTAL QUARTER:",
-        current_offset
-    )
-
-
-
-    # --------------------------
-    # rebuild score
-    # --------------------------
-
-    score = stream.Score()
 
 
     score.append(
@@ -161,111 +160,40 @@ def convert_midi_to_musicxml(
     )
 
 
-    print(
-        "MAKE MEASURES"
-    )
-
-
-    score.makeMeasures(
-        inPlace=True
-    )
-
-
-
-    # --------------------------
-    # check measures
-    # --------------------------
 
     print(
         "FINAL CHECK"
     )
 
 
-    bad = False
-
-
-    for m in score.parts[0].getElementsByClass(
+    for m in part.getElementsByClass(
         "Measure"
     ):
-
-
-        length = float(
-            m.duration.quarterLength
-        )
-
 
         print(
             "Measure",
             m.number,
-            length
+            float(m.duration.quarterLength)
         )
 
-
-        if abs(length - 4.0) > 0.01:
-
-            bad = True
-
-
-
-    if bad:
-
-        print(
-            "WARNING measure mismatch"
-        )
-
-    else:
-
-        print(
-            "ALL MEASURES OK"
-        )
-
-
-
-    # --------------------------
-    # write
-    # --------------------------
-
-    print(
-        "WRITE MUSICXML"
-    )
 
 
     score.write(
         "musicxml",
-        fp=output_file
+        fp=output
     )
 
 
     print(
-        "DONE"
-    )
-
-    print(
-        output_file
+        "DONE",
+        output
     )
 
 
 
+if __name__=="__main__":
 
-
-if __name__ == "__main__":
-
-
-    if len(sys.argv) < 3:
-
-        print(
-            "usage:"
-        )
-
-        print(
-            "python midi_to_musicxml_clean.py input.mid output.musicxml"
-        )
-
-        sys.exit(1)
-
-
-
-    convert_midi_to_musicxml(
+    convert(
         sys.argv[1],
         sys.argv[2]
     )
