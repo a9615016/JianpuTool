@@ -1,231 +1,172 @@
 # clean_musicxml.py
-# V41
-# jianpu_ly strict 4/4 edition
+# V42
+# jianpu_ly strict compatible rebuild
 
-from music21 import converter, stream, note, chord, meter, tempo
-import sys
-import copy
+from music21 import converter, stream, note, meter, tempo
 from fractions import Fraction
+import copy
+import sys
 
 
-VERSION = "CLEAN MUSICXML V41"
+VERSION = "CLEAN MUSICXML V42"
 
 
-STEP = Fraction(1, 4)
+TICK = 16          # divisions
+BAR = 64           # 4/4
 
 
 def clean_note(n):
 
-    n.tie = None
+    n2 = copy.deepcopy(n)
 
-    if hasattr(n, "beams"):
-        n.beams = []
+    n2.tie = None
 
-    n.articulations = []
-    n.expressions = []
+    if hasattr(n2, "beams"):
+        n2.beams.clear()
 
-    return n
+    if hasattr(n2, "articulations"):
+        n2.articulations = []
 
+    if hasattr(n2, "expressions"):
+        n2.expressions = []
 
-
-def remove_bad_elements(score):
-
-    print("clear notation cache")
-
-    for n in score.recurse().notes:
-
-        clean_note(n)
-
-    return score
+    return n2
 
 
 
-def force_44(score):
+def quantize_duration(q):
 
-    for part in score.parts:
+    ticks = round(
+        float(q) * TICK
+    )
 
-        for ts in part.recurse().getElementsByClass(
-            meter.TimeSignature
-        ):
-            ts.numerator = 4
-            ts.denominator = 4
+    if ticks <= 0:
+        ticks = 4
 
-    return score
-
-
-
-def quantize(part):
-
-    print("duration quantize")
-
-    for n in part.recurse().notes:
-
-        q = Fraction(
-            n.duration.quarterLength
-        )
-
-        new_q = round(q / STEP) * STEP
-
-        if new_q <= 0:
-            new_q = STEP
-
-        n.duration.quarterLength = new_q
+    return ticks
 
 
 
-def expand_chords(part):
-
-    result=[]
-
-    for n in part.recurse().notes:
-
-        if isinstance(n, chord.Chord):
-
-            # 取最高音當旋律
-            result.append(
-                n.notes[-1]
-            )
-
-        else:
-
-            result.append(n)
-
-    return result
-
-
-
-def rebuild_measure(part):
-
-    print("rebuild measures")
+def rebuild_part(part):
 
     new_part = stream.Part()
 
-    new_part.insert(
-        0,
+    new_part.append(
         meter.TimeSignature("4/4")
     )
 
 
-    measure_no = 1
+    measure = stream.Measure(number=1)
 
-    m = stream.Measure(
-        number=measure_no
-    )
+    used = 0
 
 
-    pos = Fraction(0)
+    # 注意：
+    # 不使用 notesAndRests
+    # 只重新建立音符
+    for n in part.recurse().notes:
 
-
-    notes = expand_chords(part)
-
-
-    for old in notes:
-
-
-        dur = Fraction(
-            old.duration.quarterLength
+        remain_ticks = quantize_duration(
+            n.duration.quarterLength
         )
 
 
-        while dur > 0:
+        while remain_ticks > 0:
 
+            free = BAR - used
 
-            remain = Fraction(4)-pos
-
-
-            take=min(
-                dur,
-                remain
+            take = min(
+                free,
+                remain_ticks
             )
 
 
-            new = copy.deepcopy(old)
+            nn = clean_note(n)
 
-
-            clean_note(new)
-
-
-            new.duration.quarterLength = take
-
-
-            # 強制重新 offset
-
-            m.insert(
-                pos,
-                new
+            nn.duration.quarterLength = Fraction(
+                take,
+                TICK
             )
 
 
-            pos += take
-
-            dur -= take
+            measure.append(nn)
 
 
-
-            if pos >= 4:
-
-
-                new_part.append(m)
+            used += take
+            remain_ticks -= take
 
 
-                measure_no += 1
+            if used == BAR:
 
-                m = stream.Measure(
-                    number=measure_no
+                new_part.append(measure)
+
+                measure = stream.Measure(
+                    number=len(
+                        new_part.getElementsByClass(
+                            stream.Measure
+                        )
+                    ) + 1
                 )
 
-                pos = Fraction(0)
+                used = 0
 
 
 
-    # 最後補滿小節
+    # 補最後小節
+    if used > 0:
 
-    while pos < 4:
+        while used < BAR:
 
+            r = note.Rest()
 
-        r = note.Rest()
+            r.duration.quarterLength = Fraction(
+                min(4, BAR-used),
+                TICK
+            )
 
+            measure.append(r)
 
-        r.duration.quarterLength = min(
-            STEP,
-            Fraction(4)-pos
-        )
-
-
-        m.insert(
-            pos,
-            r
-        )
-
-
-        pos += r.duration.quarterLength
+            used += min(
+                4,
+                BAR-used
+            )
 
 
+        new_part.append(measure)
 
-    if len(m.notesAndRests):
-
-        new_part.append(m)
 
 
     return new_part
 
 
 
+def force_44(score):
+
+    for p in score.parts:
+
+        p.insert(
+            0,
+            meter.TimeSignature("4/4")
+        )
+
+    return score
+
+
+
 def final_check(score):
 
-    print("FINAL CHECK")
+    print("V42 FINAL CHECK")
+
 
     for i,m in enumerate(
-        score.parts[0]
-        .getElementsByClass(stream.Measure),
+        score.parts[0].getElementsByClass(stream.Measure),
         1
     ):
 
-        total=sum(
-            Fraction(x.duration.quarterLength)
+        total = sum(
+            x.duration.quarterLength
             for x in m.notesAndRests
         )
-
 
         print(
             "Measure",
@@ -237,61 +178,42 @@ def final_check(score):
 
 def clean(inp,out):
 
-
     print(VERSION)
 
 
-    score = converter.parse(inp)
+    src = converter.parse(inp)
 
 
-    # remove tempo
-
-    for t in score.recurse().getElementsByClass(
+    # 移除 tempo
+    for t in src.recurse().getElementsByClass(
         tempo.MetronomeMark
     ):
-
         t.activeSite.remove(t)
 
 
 
-    score = remove_bad_elements(score)
+    dst = stream.Score()
 
 
-    force_44(score)
+    for part in src.parts:
 
+        print("REBUILD STRICT PART")
 
-
-    new_score = stream.Score()
-
-
-    for part in score.parts:
-
-
-        quantize(part)
-
-
-        rebuilt = rebuild_measure(part)
-
-
-        new_score.append(
-            rebuilt
+        dst.append(
+            rebuild_part(part)
         )
 
 
-
-    force_44(new_score)
-
+    force_44(dst)
 
 
-    final_check(
-        new_score
-    )
+    final_check(dst)
 
 
     print("FINAL WRITE")
 
 
-    new_score.write(
+    dst.write(
         "musicxml",
         fp=out
     )
@@ -302,30 +224,14 @@ def clean(inp,out):
 
 
 
-if __name__ == "__main__":
-
-
-    if len(sys.argv)<2:
-
-        print(
-            "usage: python clean_musicxml.py input.musicxml output.musicxml"
-        )
-
-        sys.exit()
-
+if __name__=="__main__":
 
     inp=sys.argv[1]
 
-
     out="clean.musicxml"
 
-
-    if len(sys.argv)>=3:
-
+    if len(sys.argv)>2:
         out=sys.argv[2]
 
 
-    clean(
-        inp,
-        out
-    )
+    clean(inp,out)
