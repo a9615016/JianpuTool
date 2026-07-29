@@ -1,26 +1,31 @@
-# clean_musicxml.py
-# CLEAN MUSICXML V28
-# Publication quantize + jianpu_ly compatible
+# CLEAN MUSICXML V29
+# JIANPU_LY FINAL BAR REPAIR
+
 
 import sys
-from music21 import converter, stream, note, chord, meter, duration, bar
+from music21 import converter
+from music21 import stream
+from music21 import note
+from music21 import chord
+from music21 import meter
+from music21 import duration
 
 
 print("================")
-print("CLEAN MUSICXML V28")
-print("PUBLICATION QUANTIZE + JIANPU COMPATIBLE")
+print("CLEAN MUSICXML V29")
+print("FINAL BAR REPAIR")
 print("================")
 
 
 if len(sys.argv) < 3:
     print(
-        "usage: python clean_musicxml.py input.musicxml output.musicxml"
+        "python clean_musicxml.py input.musicxml output.musicxml"
     )
-    sys.exit()
+    exit()
 
 
 src = sys.argv[1]
-out = sys.argv[2]
+dst = sys.argv[2]
 
 
 print("read")
@@ -28,87 +33,127 @@ print("read")
 score = converter.parse(src)
 
 
-# =========================
-# create clean score
-# =========================
-
 clean = stream.Score()
-
 part = stream.Part()
+
 
 part.append(
     meter.TimeSignature("4/4")
 )
 
 
+
 print("remove voices")
 print("remove chords")
-print("remove beams")
 print("remove ties")
+print("remove beams")
 
 
-# =========================
-# duration normalize
-# =========================
+def quantize_length(x):
 
-def normalize_duration(d):
-
-    q = float(d.quarterLength)
-
-    # publication grid
-    grid = [
-        0.25,   # 16th
-        0.5,    # 8th
-        1.0,    # quarter
-        2.0,    # half
-        4.0
+    values = [
+        0.25,
+        0.5,
+        1,
+        2,
+        4
     ]
 
-    best = min(
-        grid,
-        key=lambda x: abs(x-q)
+    return min(
+        values,
+        key=lambda y:abs(y-x)
     )
 
-    return best
 
+
+events=[]
 
 
 for n in score.flat.notesAndRests:
 
 
-    if isinstance(n, chord.Chord):
+    if isinstance(n,chord.Chord):
 
-        # remove chord
-        n = n.notes[0]
-
-
-    new = n.clone()
+        n=n.notes[0]
 
 
-    # remove unsupported durations
-    ql = normalize_duration(
-        new.duration
+    n2=n.clone()
+
+
+    q=float(
+        n2.duration.quarterLength
     )
 
 
-    new.duration = duration.Duration(
-        ql
+    q=quantize_length(q)
+
+
+    n2.duration=duration.Duration(q)
+
+
+    n2.tie=None
+
+
+    events.append(n2)
+
+
+
+print("rebuild measures")
+
+
+current=0
+
+
+for e in events:
+
+
+    length=float(
+        e.duration.quarterLength
     )
 
 
-    # remove ties
+    # prevent over bar
 
-    if hasattr(new, "tie"):
-        new.tie = None
-
-
-    # remove beams
-
-    if hasattr(new, "beams"):
-        new.beams = None
+    if current + length > 4:
 
 
-    part.append(new)
+        rest=note.Rest()
+
+        rest.duration=duration.Duration(
+            4-current
+        )
+
+        if current < 4:
+            part.append(rest)
+
+
+        current=0
+
+
+
+    part.append(e)
+
+    current += length
+
+
+
+    if current == 4:
+
+        current=0
+
+
+
+# last bar fill
+
+if current < 4 and current>0:
+
+    r=note.Rest()
+
+    r.duration=duration.Duration(
+        4-current
+    )
+
+    part.append(r)
 
 
 
@@ -116,79 +161,35 @@ clean.append(part)
 
 
 
-# =========================
-# rebuild measures
-# =========================
-
-print("force 4/4")
-print("duration quantize")
-print("rebuild measures")
+print("FINAL CHECK")
 
 
-clean = clean.makeMeasures(
+measures=clean.makeMeasures(
     inPlace=False
 )
 
 
-
-# =========================
-# split notes
-# =========================
-
-print("split cross measure notes")
-
-
-try:
-
-    clean = clean.expandRepeats(
-        inPlace=False
-    )
-
-except:
-
-    pass
-
-
-
-# =========================
-# check bars
-# =========================
-
-
-print("FINAL CHECK")
-
-
 for i,m in enumerate(
-    clean.parts[0].getElementsByClass(
-        "Measure"
-    ),
+    measures.parts[0].getElementsByClass("Measure"),
     1
 ):
-
-    length = float(
-        m.duration.quarterLength
-    )
 
     print(
         "Measure",
         i,
-        length
+        float(m.duration.quarterLength)
     )
 
-
-# =========================
-# write
-# =========================
 
 
 print("FINAL WRITE")
 
 
-clean.write(
+measures.write(
     "musicxml",
-    fp=out
+    fp=dst
 )
 
 
 print("DONE")
-print(out)
+print(dst)
