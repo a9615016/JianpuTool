@@ -141,7 +141,7 @@ async def upload(
     subprocess.run(
         [
             "python",
-            "JianpuTool/clean_musicxml.py",
+            "clean_musicxml.py",
             raw_xml,
             clean_xml
         ],
