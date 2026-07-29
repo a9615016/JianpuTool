@@ -1,5 +1,6 @@
+print("CLEAN MUSICXML V25 FINAL JIANPU COMPATIBLE")
 
-from music21 import converter, meter, note, chord
+from music21 import converter, meter, note, chord, stream
 import sys
 
 
@@ -16,15 +17,13 @@ else:
     OUTPUT = "clean.musicxml"
 
 
-
-# ==========================
-# read
-# ==========================
+# ======================
+# READ
+# ======================
 
 print("read")
 
 score = converter.parse(INPUT)
-
 
 
 print(
@@ -33,50 +32,45 @@ print(
 )
 
 
-
-# ==========================
-# remove chords
-# ==========================
+# ======================
+# REMOVE CHORDS
+# ======================
 
 print("remove chords")
 
 
-for c in list(
-    score.recurse().getElementsByClass(chord.Chord)
-):
+for c in list(score.recurse().getElementsByClass(chord.Chord)):
 
-    n = note.Note(
-        c.pitches[0]
-    )
+    n = note.Note(c.pitches[0])
 
     n.duration = c.duration
 
-    c.activeSite.replace(
-        c,
-        n
-    )
-
-
-
-# ==========================
-# remove voices
-# ==========================
-
-print("remove voices")
-
-
-for v in score.recurse().voices:
-
     try:
-        v.id = None
+        c.activeSite.replace(c, n)
     except:
         pass
 
 
 
-# ==========================
-# remove beams
-# ==========================
+# ======================
+# REMOVE VOICES
+# ======================
+
+print("remove voices")
+
+
+for v in score.recurse().getElementsByClass('Voice'):
+
+    try:
+        v.activeSite.remove(v)
+    except:
+        pass
+
+
+
+# ======================
+# REMOVE BEAMS
+# ======================
 
 print("remove beams")
 
@@ -85,15 +79,14 @@ for n in score.recurse().notes:
 
     try:
         n.beams = []
-
     except:
         pass
 
 
 
-# ==========================
-# remove ties
-# ==========================
+# ======================
+# REMOVE TIES
+# ======================
 
 print("remove ties")
 
@@ -104,9 +97,9 @@ for n in score.recurse().notes:
 
 
 
-# ==========================
-# duration quantize
-# ==========================
+# ======================
+# QUANTIZE
+# ======================
 
 print("duration quantize")
 
@@ -115,163 +108,191 @@ allowed = [
     0.25,
     0.5,
     0.75,
-    1.0,
+    1,
     1.5,
-    2.0,
-    3.0,
-    4.0
+    2,
+    3,
+    4
 ]
 
 
 for n in score.recurse().notesAndRests:
 
-
-    q = float(
-        n.duration.quarterLength
-    )
-
+    q = float(n.duration.quarterLength)
 
     nearest = min(
         allowed,
         key=lambda x: abs(x-q)
     )
 
-
-    # remove 128th / 64th / 32nd
-    n.duration.clear()
-
     n.duration.quarterLength = nearest
 
 
 
-# ==========================
-# force 4/4
-# ==========================
+# ======================
+# FORCE 4/4
+# ======================
 
 print("force 4/4")
 
 
 for part in score.parts:
 
-    for m in part.getElementsByClass("Measure"):
-
-        m.insert(
-            0,
-            meter.TimeSignature("4/4")
-        )
+    part.insert(
+        0,
+        meter.TimeSignature("4/4")
+    )
 
 
 
-# ==========================
-# final measure repair
-# ==========================
+# ======================
+# REBUILD MEASURES
+# ======================
 
-print("repair measures")
-
-
-for part in score.parts:
+print("rebuild measures")
 
 
-    for m in part.getElementsByClass("Measure"):
-
-
-        total = sum(
-            float(x.duration.quarterLength)
-            for x in m.notesAndRests
-        )
-
-
-        # 超過4拍，縮短最後音符
-        if total > 4:
-
-
-            diff = total - 4
-
-
-            for n in reversed(
-                list(m.notesAndRests)
-            ):
-
-
-                d = float(
-                    n.duration.quarterLength
-                )
-
-
-                if d > diff:
-
-
-                    n.duration.quarterLength = (
-                        d - diff
-                    )
-
-                    break
-
-
-# ==========================
-# fill rests
-# ==========================
-
-print("fill measure rest")
+new_score = stream.Score()
 
 
 for part in score.parts:
 
 
-    for m in part.getElementsByClass("Measure"):
+    new_part = stream.Part()
+
+    new_part.id = part.id
 
 
-        total = sum(
-            float(x.duration.quarterLength)
-            for x in m.notesAndRests
+    measure = stream.Measure(
+        number=1
+    )
+
+
+    beat = 0
+
+
+    for n in part.flatten().notesAndRests:
+
+
+        dur = float(
+            n.duration.quarterLength
         )
 
 
-        if total < 4:
+        # 超過4拍切割
+        if beat + dur > 4:
 
+
+            remain = 4 - beat
+
+
+            if remain > 0:
+
+
+                a = n.deepcopy()
+
+                a.duration.quarterLength = remain
+
+                measure.append(a)
+
+
+            new_part.append(measure)
+
+
+            measure = stream.Measure(
+                number=len(new_part.getElementsByClass("Measure"))+1
+            )
+
+
+            beat = 0
+
+
+
+            left = dur - remain
+
+
+            if left > 0:
+
+
+                b = n.deepcopy()
+
+                b.duration.quarterLength = left
+
+                measure.append(b)
+
+                beat += left
+
+
+        else:
+
+            measure.append(
+                n.deepcopy()
+            )
+
+            beat += dur
+
+
+
+        if beat >= 4:
+
+            new_part.append(
+                measure
+            )
+
+            measure = stream.Measure(
+                number=len(new_part.getElementsByClass("Measure"))+1
+            )
+
+            beat = 0
+
+
+
+    if len(measure.notesAndRests)>0:
+
+        while beat < 4:
 
             r = note.Rest()
 
-            r.duration.quarterLength = (
-                4-total
+            r.duration.quarterLength = min(
+                4-beat,
+                0.25
             )
 
-            m.append(r)
+            measure.append(r)
+
+            beat += 0.25
+
+
+        new_part.append(measure)
 
 
 
-# ==========================
-# clear cache
-# ==========================
-
-print("clear notation cache")
-
-
-score.stripTies()
+    new_score.append(new_part)
 
 
 
-# ==========================
+score = new_score
+
+
+
+# ======================
 # FINAL CHECK
-# ==========================
+# ======================
 
 print("FINAL CHECK")
 
 
-print(
-    "FINAL NOTES",
-    len(score.recurse().notes)
-)
-
-
 for part in score.parts:
 
+
     for m in part.getElementsByClass("Measure"):
+
 
         total = sum(
             float(x.duration.quarterLength)
             for x in m.notesAndRests
         )
+
 
         print(
             "Measure",
@@ -280,10 +301,19 @@ for part in score.parts:
         )
 
 
+        if total > 4.001:
 
-# ==========================
+            print(
+                "ERROR OVER 4 BEATS",
+                m.number,
+                total
+            )
+
+
+
+# ======================
 # WRITE
-# ==========================
+# ======================
 
 print("FINAL WRITE")
 
