@@ -1,41 +1,96 @@
-# midi_to_musicxml_clean.py v7
-# FINAL VERSION
-# MIDI -> MusicXML -> jianpu_ly friendly
+# midi_to_musicxml_clean.py v7.1
+# JianpuTool FINAL CLEANER
 
 import sys
-from pathlib import Path
-
 from music21 import converter, stream, note, meter, tempo
 
 
-TARGET_BEATS = 4.0
+BEAT = 4.0
 
 
-def clean_note(n):
+# =========================
+# duration quantize
+# =========================
 
-    # remove chord
-    if isinstance(n, note.Note):
+def quantize_duration(x):
+
+    values = [
+        4.0,      # whole
+        3.0,      # dotted half
+        2.0,      # half
+        1.5,
+        1.0,      # quarter
+        0.75,
+        0.5,      # eighth
+        0.25,     # sixteenth
+        0.125
+    ]
+
+    return min(
+        values,
+        key=lambda v: abs(v-x)
+    )
+
+
+
+# =========================
+# clean note
+# =========================
+
+def clean_element(e):
+
+    if isinstance(e, note.Note):
+
+        n = note.Note(e.pitch)
+
+        n.duration.quarterLength = (
+            quantize_duration(
+                e.duration.quarterLength
+            )
+        )
+
+        # remove tie
+
+        n.tie = None
+
         return n
 
-    if isinstance(n, note.Rest):
-        return n
+
+    if isinstance(e, note.Rest):
+
+        r = note.Rest()
+
+        r.duration.quarterLength = (
+            quantize_duration(
+                e.duration.quarterLength
+            )
+        )
+
+        return r
+
 
     return None
 
 
 
-def rebuild_measure(measure):
+# =========================
+# rebuild measure
+# =========================
 
-    new_measure = stream.Measure(
-        number=measure.number
+def rebuild_measure(m):
+
+    new_m = stream.Measure(
+        number=m.number
     )
 
-    total = 0.0
+
+    used = 0.0
 
 
-    for element in measure.flatten().notesAndRests:
+    for e in m.flatten().notesAndRests:
 
-        obj = clean_note(element)
+        obj = clean_element(e)
+
 
         if obj is None:
             continue
@@ -44,81 +99,102 @@ def rebuild_measure(measure):
         dur = obj.duration.quarterLength
 
 
-        # 超過小節直接裁掉
-        if total + dur > TARGET_BEATS:
+        # 超過小節
 
-            remain = TARGET_BEATS - total
+        if used + dur > BEAT:
+
+            remain = BEAT-used
+
 
             if remain > 0:
-                obj.duration.quarterLength = remain
-                new_measure.append(obj)
 
-            total = TARGET_BEATS
+                r = note.Rest()
+
+                r.duration.quarterLength = (
+                    quantize_duration(remain)
+                )
+
+                new_m.append(r)
+
+
             break
 
 
-        new_measure.append(obj)
 
-        total += dur
+        new_m.append(obj)
 
-
-        if total >= TARGET_BEATS:
-            break
+        used += dur
 
 
 
     # 不足補 rest
 
-    if total < TARGET_BEATS:
+    if used < BEAT:
 
         r = note.Rest()
 
-        r.duration.quarterLength = TARGET_BEATS-total
+        r.duration.quarterLength = (
+            quantize_duration(
+                BEAT-used
+            )
+        )
 
-        new_measure.append(r)
+        new_m.append(r)
 
 
-    return new_measure
+
+    return new_m
 
 
+
+# =========================
+# clean part
+# =========================
 
 def clean_part(part):
 
-    new_part = stream.Part()
+    p = stream.Part()
 
-    new_part.id = part.id
-
-
-    # 保留 4/4
-
-    ts = meter.TimeSignature("4/4")
-
-    new_part.append(ts)
+    p.id = part.id
 
 
-    for m in part.getElementsByClass(stream.Measure):
-
-        nm = rebuild_measure(m)
-
-        new_part.append(nm)
+    p.append(
+        meter.TimeSignature("4/4")
+    )
 
 
-    return new_part
+    for m in part.getElementsByClass(
+        stream.Measure
+    ):
+
+        p.append(
+            rebuild_measure(m)
+        )
+
+
+    return p
 
 
 
+# =========================
+# main convert
+# =========================
 
-def convert(input_file, output_file):
+def convert(
+    midi_file,
+    output_file
+):
 
     print("LOAD MIDI")
 
-    score = converter.parse(input_file)
+    score = converter.parse(
+        midi_file
+    )
 
 
-    print("REMOVE OLD MEASURES")
+    print("CLEAN")
 
-
-    new_score = stream.Score()
+    out = stream.Score()
 
 
     # tempo
@@ -126,43 +202,44 @@ def convert(input_file, output_file):
     for t in score.flatten().getElementsByClass(
         tempo.MetronomeMark
     ):
-        new_score.append(t)
+
+        out.append(t)
+
 
 
     for part in score.parts:
 
         print(
-            "PROCESS PART",
+            "PART:",
             part.id
         )
 
-        new_score.append(
+        out.append(
             clean_part(part)
         )
+
 
 
     print("FINAL CHECK")
 
 
-    for p in new_score.parts:
+    for p in out.parts:
 
         for m in p.getElementsByClass(
             stream.Measure
         ):
 
-            length = m.duration.quarterLength
-
             print(
                 "Measure",
                 m.number,
-                length
+                m.duration.quarterLength
             )
 
 
     print("WRITE MUSICXML")
 
 
-    new_score.write(
+    out.write(
         "musicxml",
         fp=output_file
     )
