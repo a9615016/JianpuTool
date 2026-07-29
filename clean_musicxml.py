@@ -144,7 +144,7 @@ print("rebuild measures")
 
 for p in score.parts:
 
-    p.makeMeasures(inPlace=True)
+    stream.Measure()
 
 
 
@@ -258,7 +258,7 @@ print("FINAL REBUILD")
 
 for p in score.parts:
 
-    p.makeMeasures(inPlace=True)
+   stream.Measure()
 
 
 
