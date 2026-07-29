@@ -1,212 +1,181 @@
-from music21 import converter, stream, note, chord, meter, bar
+# clean_musicxml.py
+# V27 MUSICXML QUANTIZER FOR JIANPU_LY
+
 import sys
-import os
+import xml.etree.ElementTree as ET
+from fractions import Fraction
 
 
-print("==============================")
-print("CLEAN MUSICXML V27 JIANPU")
-print("==============================")
+DIVISIONS = 16
+BEATS_PER_MEASURE = 4
 
 
-if len(sys.argv) < 3:
-    print("usage: python clean_musicxml.py input.musicxml output.musicxml")
-    sys.exit()
+def snap(value):
+    """
+    四分音符網格量化
+    """
+    step = Fraction(1, 16)
+
+    return float(
+        round(
+            Fraction(value) / step
+        ) * step
+    )
 
 
-input_file = sys.argv[1]
-output_file = sys.argv[2]
+def duration_snap(d):
 
-
-print("READ")
-
-score = converter.parse(input_file)
-
-
-
-# ==========================
-# create clean score
-# ==========================
-
-new_score = stream.Score()
-
-
-
-allowed = [
-    4,
-    2,
-    1,
-    0.5,
-    0.25
-]
-
-
-def quantize(x):
+    allowed = [
+        0.25,   #16分
+        0.5,    #8分
+        1.0,    #4分
+        2.0,    #2分
+        4.0     #全音符
+    ]
 
     return min(
         allowed,
-        key=lambda y: abs(y-x)
+        key=lambda x: abs(x-d)
     )
 
 
 
-for old_part in score.parts:
+def clean(input_file, output_file):
 
-    print("PROCESS PART")
-
-    new_part = stream.Part()
-
-
-    # force 4/4
-    new_part.insert(
-        0,
-        meter.TimeSignature("4/4")
-    )
+    print("================")
+    print("CLEAN MUSICXML V27 QUANTIZER")
+    print("================")
 
 
-    current_measure = stream.Measure()
-    current_measure.number = 1
-
-    beat_used = 0
+    tree = ET.parse(input_file)
+    root = tree.getroot()
 
 
-    for obj in old_part.recurse().notes:
+    ns = {
+        "m":
+        "http://www.musicxml.org"
+    }
 
 
-        # ======================
-        # chord -> single note
-        # ======================
+    # ----------------------
+    # 強制4/4
+    # ----------------------
 
-        if isinstance(obj, chord.Chord):
+    for time in root.iter():
 
-            n = note.Note(
-                obj.pitches[0]
-            )
+        if time.tag.endswith("time"):
 
-            dur = obj.duration.quarterLength
+            for child in list(time):
 
-        else:
+                if child.tag.endswith("beats"):
+                    child.text="4"
 
-            n = note.Note(
-                obj.pitch
-            )
-
-            dur = obj.duration.quarterLength
+                if child.tag.endswith("beat-type"):
+                    child.text="4"
 
 
 
-        # quantize
+    # ----------------------
+    # 修正 duration
+    # ----------------------
 
-        dur = quantize(
-            float(dur)
-        )
+    for dur in root.iter():
 
+        if dur.tag.endswith("duration"):
 
-        remaining = dur
+            try:
 
+                old = int(dur.text)
 
-        # ======================
-        # split measure
-        # ======================
+                beats = old / DIVISIONS
 
-        while remaining > 0:
-
-
-            space = 4 - beat_used
+                new = duration_snap(beats)
 
 
-            use = min(
-                remaining,
-                space
-            )
-
-
-            nn = note.Note(
-                n.pitch
-            )
-
-            nn.duration.quarterLength = use
-
-
-            current_measure.append(
-                nn
-            )
-
-
-            beat_used += use
-            remaining -= use
-
-
-
-            if beat_used >= 4:
-
-
-                new_part.append(
-                    current_measure
+                dur.text=str(
+                    int(new * DIVISIONS)
                 )
 
 
-                current_measure = stream.Measure()
+            except:
 
-                current_measure.number = (
-                    len(new_part.getElementsByClass("Measure"))
-                    + 1
-                )
-
-                beat_used = 0
+                pass
 
 
 
-    # ======================
-    # fill rest
-    # ======================
+    # ----------------------
+    # 移除危險元素
+    # ----------------------
 
-    if beat_used > 0:
-
-        r = note.Rest()
-
-        r.duration.quarterLength = (
-            4 - beat_used
-        )
-
-        current_measure.append(r)
-
-        new_part.append(
-            current_measure
-        )
+    remove_tags=[
+        "voice",
+        "chord",
+        "tie",
+        "beam"
+    ]
 
 
-    new_score.append(
-        new_part
+    for parent in root.iter():
+
+        for child in list(parent):
+
+            name = child.tag.split("}")[-1]
+
+            if name in remove_tags:
+                parent.remove(child)
+
+
+
+    # ----------------------
+    # 檢查小節
+    # ----------------------
+
+    print()
+    print("FINAL CHECK")
+
+
+    measure_no=1
+
+    for measure in root.iter():
+
+        if measure.tag.endswith("measure"):
+
+            total=0
+
+            for d in measure.iter():
+
+                if d.tag.endswith("duration"):
+
+                    total += int(d.text)/DIVISIONS
+
+
+            print(
+                "Measure",
+                measure_no,
+                total
+            )
+
+
+            measure_no+=1
+
+
+
+    tree.write(
+        output_file,
+        encoding="utf-8",
+        xml_declaration=True
     )
 
 
-
-# ==========================
-# final check
-# ==========================
-
-
-print("FINAL CHECK")
+    print()
+    print("DONE")
+    print(output_file)
 
 
-for m in new_score.parts[0].getElementsByClass("Measure"):
 
-    print(
-        "Measure",
-        m.number,
-        float(m.duration.quarterLength)
+if __name__=="__main__":
+
+    clean(
+        sys.argv[1],
+        sys.argv[2]
     )
-
-
-
-print("WRITE")
-
-
-new_score.write(
-    "musicxml",
-    fp=output_file
-)
-
-
-print("DONE")
-print(output_file)
