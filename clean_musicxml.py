@@ -2,10 +2,10 @@ from music21 import *
 import sys
 
 
-print("################################")
-print("CLEAN MUSICXML V90 LOADED")
-print("JIANPU_LY STRICT 4/4 MODE")
-print("################################")
+print("====================================")
+print("CLEAN MUSICXML V91 LOADED")
+print("NOTE STREAM REBUILD FOR JIANPU_LY")
+print("====================================")
 
 
 if len(sys.argv) < 3:
@@ -25,261 +25,210 @@ score = converter.parse(src)
 
 
 
-# ==========================
-# remove voices
-# ==========================
+# =========================
+# collect notes
+# =========================
 
-print("remove voices")
-
-for n in score.recurse().notes:
-
-    try:
-        n.voice = None
-    except:
-        pass
+print("COLLECT NOTE STREAM")
 
 
-
-# ==========================
-# remove chords
-# ==========================
-
-print("remove chords")
-
-for c in list(
-    score.recurse().getElementsByClass(chord.Chord)
-):
-
-    if len(c.notes):
-
-        n = c.notes[0]
-
-        n.duration = c.duration
-
-        c.activeSite.replace(c,n)
-
-
-
-# ==========================
-# remove beams
-# ==========================
-
-print("remove beams")
-
-for n in score.recurse().notes:
-
-    n.beams = beam.Beams()
-
-
-
-# ==========================
-# remove ties
-# ==========================
-
-print("remove ties")
-
-for n in score.recurse().notes:
-
-    n.tie = None
-
-
-
-# ==========================
-# force 4/4
-# ==========================
-
-print("force 4/4")
-
-
-for part in score.parts:
-
-    part.insert(
-        0,
-        meter.TimeSignature("4/4")
-    )
-
-
-
-# ==========================
-# quantize duration
-# ==========================
-
-print("duration quantize")
-
-
-allowed = [
-    0.25,
-    0.5,
-    0.75,
-    1,
-    1.5,
-    2,
-    3,
-    4
-]
-
-
-def qduration(x):
-
-    return min(
-        allowed,
-        key=lambda a:abs(a-x)
-    )
+notes=[]
 
 
 for n in score.recurse().notesAndRests:
 
-    n.duration.quarterLength = qduration(
-        float(n.duration.quarterLength)
+    x=n
+
+    x.duration.quarterLength = min(
+        [
+            0.25,
+            0.5,
+            0.75,
+            1,
+            1.5,
+            2,
+            3,
+            4
+        ],
+        key=lambda a:
+        abs(a-float(x.duration.quarterLength))
     )
 
 
+    x.tie=None
 
-# ==========================
-# rebuild measures
-# ==========================
+    try:
+        x.beams = beam.Beams()
+    except:
+        pass
 
-print("rebuild measures")
 
-
-for p in score.parts:
-
-    stream.Measure()
+    notes.append(x)
 
 
 
-# ==========================
-# JIANPU STRICT BAR FIX
-# ==========================
-
-print("JIANPU STRICT NORMALIZE")
-
-
-for part in score.parts:
+print(
+    "TOTAL EVENTS:",
+    len(notes)
+)
 
 
-    measures = list(
-        part.getElementsByClass(stream.Measure)
+
+# =========================
+# create new score
+# =========================
+
+print("REBUILD SCORE")
+
+
+new_score = stream.Score()
+
+part = stream.Part()
+
+
+part.insert(
+    0,
+    meter.TimeSignature("4/4")
+)
+
+
+
+measure_no=1
+
+m=stream.Measure(
+    number=measure_no
+)
+
+
+pos=0.0
+
+
+
+for n in notes:
+
+
+    length=float(
+        n.duration.quarterLength
     )
 
 
-    for m in measures:
+    # ----------------------
+    # split cross bar notes
+    # ----------------------
+
+    while length > 0:
 
 
-        total = float(
-            m.duration.quarterLength
+        remain = 4-pos
+
+
+        take=min(
+            length,
+            remain
         )
 
 
-        print(
-            "Before",
-            m.number,
-            total
-        )
+        if n.isRest:
+
+            obj=note.Rest()
+
+        else:
+
+            obj=n.clone()
 
 
-        # ------------------
-        # trim > 4
-        # ------------------
 
-        if total > 4:
+        obj.duration.quarterLength=take
 
 
-            print(
-                "TRIM",
-                m.number
+        m.append(obj)
+
+
+        pos += take
+        length -= take
+
+
+
+        # next measure
+
+        if abs(pos-4)<0.001:
+
+
+            # fill safety
+
+            total=sum(
+                float(x.duration.quarterLength)
+                for x in m.notesAndRests
             )
 
 
-            remain = 4.0
+            if total < 4:
 
+                r=note.Rest()
 
-            for n in list(
-                m.notesAndRests
-            ):
+                r.duration.quarterLength=4-total
 
-                length = float(
-                    n.duration.quarterLength
-                )
-
-
-                if remain <= 0:
-
-                    m.remove(n)
-
-
-                elif length <= remain:
-
-                    remain -= length
-
-
-                else:
-
-                    n.duration.quarterLength = remain
-                    remain = 0
+                m.append(r)
 
 
 
-        # ------------------
-        # fill < 4
-        # ------------------
-
-        total = float(
-            m.duration.quarterLength
-        )
+            part.append(m)
 
 
-        if total < 4:
+            measure_no+=1
 
 
-            r = note.Rest()
-
-            r.duration.quarterLength = (
-                4-total
-            )
-
-            print(
-                "REST",
-                m.number,
-                r.duration.quarterLength
+            m=stream.Measure(
+                number=measure_no
             )
 
 
-            m.append(r)
+            pos=0.0
 
 
 
-# ==========================
-# rebuild again
-# ==========================
+# =========================
+# final rest
+# =========================
 
-print("FINAL REBUILD")
-
-
-for p in score.parts:
-
-   stream.Measure()
+if pos>0:
 
 
+    r=note.Rest()
 
-# ==========================
+    r.duration.quarterLength=4-pos
+
+    m.append(r)
+
+
+    part.append(m)
+
+
+
+new_score.append(part)
+
+
+
+# =========================
 # FINAL CHECK
-# ==========================
+# =========================
 
-print("================")
-print("FINAL CHECK")
-print("================")
+print("====================")
+print("FINAL CHECK V91")
+print("====================")
 
 
 bad=False
 
 
-for m in score.parts[0].getElementsByClass(
+for m in part.getElementsByClass(
     stream.Measure
 ):
 
-    total=float(
-        m.duration.quarterLength
+
+    total=sum(
+        float(x.duration.quarterLength)
+        for x in m.notesAndRests
     )
 
 
@@ -290,7 +239,7 @@ for m in score.parts[0].getElementsByClass(
     )
 
 
-    if abs(total-4.0)>0.01:
+    if abs(total-4)>0.01:
 
         bad=True
 
@@ -310,10 +259,14 @@ else:
 
 
 
-print("WRITE")
+# =========================
+# write
+# =========================
+
+print("WRITE MUSICXML")
 
 
-score.write(
+new_score.write(
     "musicxml",
     fp=dst
 )
