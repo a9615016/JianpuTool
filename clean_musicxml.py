@@ -2,14 +2,15 @@ from music21 import converter, stream, note, meter, clef
 import sys
 
 
-VERSION = "CLEAN MUSICXML V89 PURE JIANPU FORCE 4/4"
+VERSION = "CLEAN MUSICXML V90 JIANPU LY PURE SANITIZER"
 
 
-# 16分音符以下不保留
+# 以四分音符為最小單位
 GRID = 0.25
 
 
-def clean_duration(x):
+
+def quantize_duration(x):
 
     x = float(x)
 
@@ -22,11 +23,54 @@ def clean_duration(x):
 
 
 
+def clean_note(old, duration):
+
+    """
+    建立全新的 note/rest
+    不保留任何舊 MusicXML 資訊
+    """
+
+    if old.isRest:
+
+        obj = note.Rest()
+
+    else:
+
+        obj = note.Note(
+            old.pitch.pitchClassString
+        )
+
+        obj.pitch.octave = old.pitch.octave
+
+
+    obj.duration.quarterLength = duration
+
+
+    # 清除所有附加資訊
+
+    obj.tie = None
+
+    obj.lyric = None
+
+    obj.expressions = []
+
+    obj.articulations = []
+
+    obj.beams = []
+
+
+    return obj
+
+
+
+
 def rebuild_from_zero(score):
 
-    print("PURE REBUILD FROM ZERO")
+    print("V90 PURE REBUILD")
+
 
     result = stream.Score()
+
 
     part = stream.Part()
 
@@ -45,7 +89,8 @@ def rebuild_from_zero(score):
 
     measure_no = 1
 
-    m = stream.Measure(
+
+    measure = stream.Measure(
         number=measure_no
     )
 
@@ -53,15 +98,17 @@ def rebuild_from_zero(score):
     beat = 0.0
 
 
+
     for old in score.recurse().notesAndRests:
 
 
-        dur = clean_duration(
+        duration = quantize_duration(
             old.duration.quarterLength
         )
 
 
-        remain = dur
+        remain = duration
+
 
 
         while remain > 0:
@@ -76,47 +123,34 @@ def rebuild_from_zero(score):
             )
 
 
-            # create fresh object
-            if old.isRest:
-
-                new_obj = note.Rest()
-
-            else:
-
-                new_obj = note.Note(
-                    old.pitch
-                )
-
-
-            new_obj.duration.quarterLength = use
-
-
-            # remove musicxml leftovers
-            new_obj.tie = None
-            new_obj.beams = []
-
-
-            m.append(
-                new_obj
+            obj = clean_note(
+                old,
+                use
             )
 
 
+            measure.append(obj)
+
+
             beat += use
+
 
             remain -= use
 
 
 
+            # 完成一小節
+
             if beat >= 4.0 - 0.0001:
 
 
-                part.append(m)
+                part.append(measure)
 
 
                 measure_no += 1
 
 
-                m = stream.Measure(
+                measure = stream.Measure(
                     number=measure_no
                 )
 
@@ -125,21 +159,24 @@ def rebuild_from_zero(score):
 
 
 
-    # fill final measure
+    # 最後補滿
 
     if beat > 0:
 
 
-        r = note.Rest()
+        rest = note.Rest()
 
-        r.duration.quarterLength = round(
-            4 - beat,
+
+        rest.duration.quarterLength = round(
+            4.0 - beat,
             2
         )
 
-        m.append(r)
 
-        part.append(m)
+        measure.append(rest)
+
+
+        part.append(measure)
 
 
 
@@ -152,9 +189,10 @@ def rebuild_from_zero(score):
 
 
 
-def check(score):
+def jianpu_check(score):
 
-    print("V89 FINAL CHECK")
+
+    print("V90 FINAL CHECK")
 
 
     for m in score.parts[0].getElementsByClass(
@@ -178,37 +216,63 @@ def check(score):
         if abs(total - 4.0) > 0.001:
 
             raise Exception(
-                "BAD BAR " + str(m.number)
+                "BAD BAR "
+                + str(m.number)
             )
 
 
-    print("V89 SAFE")
+    print("V90 SAFE")
 
 
 
 
 
-def clean(inp,out):
+def clean(inp, out):
 
 
-    print("================")
+    print("====================")
     print(VERSION)
-    print("================")
+    print("====================")
 
 
     old = converter.parse(inp)
 
 
-    print("remove EVERYTHING")
+    print("REMOVE EVERYTHING")
 
 
     new = rebuild_from_zero(old)
 
 
-    check(new)
+
+    # 重新建立 measure
+
+    new.parts[0].makeMeasures(
+        inPlace=True
+    )
 
 
-    print("WRITE XML")
+
+    # 清除 offset / cache
+
+    for n in new.recurse().notesAndRests:
+
+        n.tie = None
+
+        n.beams = []
+
+
+
+    new.parts[0].flatten()
+
+
+
+    jianpu_check(new)
+
+
+
+    print("WRITE MUSICXML")
+
 
 
     new.write(
@@ -218,6 +282,7 @@ def clean(inp,out):
 
 
     print("DONE")
+
     print(out)
 
 
@@ -233,7 +298,8 @@ if __name__ == "__main__":
             "python clean_musicxml.py input.musicxml output.musicxml"
         )
 
-        exit()
+        sys.exit()
+
 
 
     clean(
