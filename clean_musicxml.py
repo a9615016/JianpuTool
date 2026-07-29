@@ -3,24 +3,7 @@ import sys
 import copy
 
 
-print("CLEAN VERSION 20260729 V3 REBUILD")
-
-
-BAR_BEATS = 4
-
-
-VALID_DURATIONS = [
-    0.5,
-    0.75,
-    1,
-    1.5,
-    2,
-    3,
-    4,
-    6,
-    8,
-    12
-]
+print("CLEAN VERSION 20260729 V4 STRICT REBUILD")
 
 
 def get_divisions(root):
@@ -34,7 +17,7 @@ def get_divisions(root):
 
 
 
-def remove_tags(root):
+def remove_problem_tags(root):
 
     print("remove chords")
 
@@ -44,14 +27,12 @@ def remove_tags(root):
             p.remove(x)
 
 
-
     print("remove beams")
 
     for x in root.xpath(".//beam"):
         p=x.getparent()
         if p is not None:
             p.remove(x)
-
 
 
     print("remove ties")
@@ -63,83 +44,72 @@ def remove_tags(root):
 
 
 
-def force_44(root):
+def force_time(root):
 
     print("force 4/4")
 
     for t in root.xpath(".//time"):
 
-        b=t.find("beats")
-        bt=t.find("beat-type")
+        beats=t.find("beats")
+        beat_type=t.find("beat-type")
 
-        if b is not None:
-            b.text="4"
+        if beats is not None:
+            beats.text="4"
 
-        if bt is not None:
-            bt.text="4"
-
-
-
-def quantize_duration(root, divisions):
-
-    print("duration quantize")
-
-
-    for d in root.xpath(".//duration"):
-
-        value=int(d.text)
-
-
-        # 四捨五入到最近 tick
-
-        if value <= 0:
-            value = divisions // 2
-
-
-        d.text=str(value)
+        if beat_type is not None:
+            beat_type.text="4"
 
 
 
-def rebuild_measures(root, divisions):
+def rebuild_part(part, divisions):
 
-    print("REBUILD MEASURES")
-
-
-    limit = divisions * BAR_BEATS
-
-
-    part=root.find(".//part")
+    print(
+        "REBUILD PART",
+        part.get("id")
+    )
 
 
-    if part is None:
-        return
+    measure_limit = divisions * 4
 
 
-    old_measures=list(
+    old_measures = list(
         part.findall("measure")
     )
 
 
-    all_notes=[]
+    if len(old_measures)==0:
+        return
+
+
+    # 保留第一個 measure 的 attributes
+
+    first_attributes = old_measures[0].find(
+        "attributes"
+    )
+
+
+    notes=[]
 
 
     for m in old_measures:
 
-        for n in m.findall("note"):
+        for child in m:
 
-            all_notes.append(
-                copy.deepcopy(n)
-            )
+            if child.tag=="note":
+
+                notes.append(
+                    copy.deepcopy(child)
+                )
 
 
 
     print(
-        "TOTAL NOTES",
-        len(all_notes)
+        "TOTAL NOTES:",
+        len(notes)
     )
 
 
-    # 清空舊小節
+    # 移除舊 measures
 
     for m in old_measures:
 
@@ -147,106 +117,123 @@ def rebuild_measures(root, divisions):
 
 
 
-    measure_no=1
+    new_measure_no=1
 
-    current=[]
+    current_measure=[]
 
-    current_time=0
-
-
-
-    for note in all_notes:
+    current_ticks=0
 
 
-        d=note.find("duration")
+
+    for note in notes:
 
 
-        if d is None:
+        duration=note.find("duration")
+
+
+        if duration is None:
 
             continue
 
 
-        dur=int(d.text)
+        ticks=int(duration.text)
 
 
-
-        # 音符超過小節
-
-        while current_time + dur > limit:
+        while current_ticks + ticks > measure_limit:
 
 
-            remain = limit-current_time
+            remain = measure_limit-current_ticks
 
 
             if remain > 0:
 
-                first=copy.deepcopy(note)
+                part_note=copy.deepcopy(note)
 
-                first.find("duration").text=str(remain)
+                part_note.find(
+                    "duration"
+                ).text=str(remain)
 
 
-                current.append(first)
-
-
-                dur -= remain
+                current_measure.append(
+                    part_note
+                )
 
 
                 print(
-                    "split note",
+                    "split",
                     remain,
-                    dur
+                    ticks-remain
                 )
+
+
+                ticks -= remain
 
 
 
             new_measure=etree.Element(
                 "measure",
-                number=str(measure_no)
+                number=str(new_measure_no)
             )
 
 
-            for n in current:
+            if new_measure_no==1 and first_attributes is not None:
+
+                new_measure.append(
+                    copy.deepcopy(first_attributes)
+                )
+
+
+            for n in current_measure:
 
                 new_measure.append(n)
 
 
-
-            part.append(
-                new_measure
-            )
+            part.append(new_measure)
 
 
-            measure_no+=1
+            new_measure_no+=1
 
 
-            current=[]
+            current_measure=[]
 
-            current_time=0
+            current_ticks=0
 
 
 
             note=copy.deepcopy(note)
 
-            note.find("duration").text=str(dur)
+            note.find(
+                "duration"
+            ).text=str(ticks)
 
 
 
-        current.append(note)
+        current_measure.append(
+            note
+        )
 
-        current_time += dur
+
+        current_ticks += ticks
 
 
 
-        if current_time == limit:
+        if current_ticks == measure_limit:
 
 
             new_measure=etree.Element(
                 "measure",
-                number=str(measure_no)
+                number=str(new_measure_no)
             )
 
 
-            for n in current:
+            if new_measure_no==1 and first_attributes is not None:
+
+                new_measure.append(
+                    copy.deepcopy(first_attributes)
+                )
+
+
+            for n in current_measure:
 
                 new_measure.append(n)
 
@@ -256,57 +243,64 @@ def rebuild_measures(root, divisions):
             )
 
 
-            measure_no+=1
+            new_measure_no+=1
 
-            current=[]
+            current_measure=[]
 
-            current_time=0
+            current_ticks=0
 
 
 
-    # 最後小節
+    # 最後不足的小節
 
-    if current:
+    if current_measure:
 
 
         new_measure=etree.Element(
             "measure",
-            number=str(measure_no)
+            number=str(new_measure_no)
         )
 
 
-        for n in current:
+        for n in current_measure:
 
             new_measure.append(n)
 
 
-        part.append(
-            new_measure
-        )
+        part.append(new_measure)
 
 
 
-def check(root, divisions):
+def strict_check(root, divisions):
 
-    print("FINAL CHECK")
+    print("STRICT CHECK")
 
 
     for m in root.xpath(".//measure"):
 
-        total=0
+        ticks=0
 
 
         for d in m.xpath("./note/duration"):
 
-            total+=int(d.text)
-
+            ticks += int(d.text)
 
 
         print(
             "Measure",
             m.get("number"),
-            total/divisions
+            "ticks=",
+            ticks,
+            "beats=",
+            ticks/divisions
         )
+
+
+        if ticks > divisions*4:
+
+            print(
+                "ERROR OVER BAR"
+            )
 
 
 
@@ -331,32 +325,29 @@ def clean(inp,out):
 
 
     print(
-        "INPUT NOTES:",
+        "INPUT NOTES",
         len(root.xpath(".//note"))
     )
 
 
-    remove_tags(root)
+    remove_problem_tags(root)
 
-    force_44(root)
 
-    quantize_duration(
+    force_time(root)
+
+
+    for part in root.findall("part"):
+
+        rebuild_part(
+            part,
+            divisions
+        )
+
+
+    strict_check(
         root,
         divisions
     )
-
-
-    rebuild_measures(
-        root,
-        divisions
-    )
-
-
-    check(
-        root,
-        divisions
-    )
-
 
 
     print("FINAL WRITE")
@@ -387,13 +378,15 @@ if __name__=="__main__":
         exit()
 
 
-
     inp=sys.argv[1]
 
 
     if len(sys.argv)>=3:
+
         out=sys.argv[2]
+
     else:
+
         out="clean.musicxml"
 
 
