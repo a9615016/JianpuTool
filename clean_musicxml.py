@@ -1,3 +1,8 @@
+print("==============================")
+print("CLEAN MUSICXML V33 ACTIVE")
+print("==============================")
+
+
 import sys
 from music21 import converter, stream, note, chord, meter
 from fractions import Fraction
