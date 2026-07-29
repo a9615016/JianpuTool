@@ -1,5 +1,5 @@
 from fastapi import FastAPI, UploadFile, File
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 import os
 import uuid
 import shutil
@@ -46,15 +46,12 @@ async def upload(
     file: UploadFile = File(...)
 ):
 
-
     job_id = str(uuid.uuid4())
-
 
     job_dir = os.path.join(
         OUTPUT_DIR,
         job_id
     )
-
 
     os.makedirs(
         job_dir,
@@ -86,10 +83,9 @@ async def upload(
 
 
 
-    # =========================
+    # =====================
     # MP3 -> MIDI
-    # =========================
-
+    # =====================
 
     midi_path = os.path.join(
         job_dir,
@@ -98,7 +94,7 @@ async def upload(
 
 
     print(
-        "START MIDI EXTRACTION"
+        "START MIDI"
     )
 
 
@@ -114,17 +110,15 @@ async def upload(
 
 
     print(
-        "MIDI READY:",
+        "MIDI READY",
         midi_path
     )
 
 
 
-    # =========================
-    # MIDI -> MUSICXML
-    # (新版，不使用 clean_musicxml.py)
-    # =========================
-
+    # =====================
+    # MIDI -> MusicXML
+    # =====================
 
     clean_xml = os.path.join(
         job_dir,
@@ -149,15 +143,26 @@ async def upload(
 
 
     print(
-        "MUSICXML READY:",
+        "XML READY",
         clean_xml
     )
 
 
 
-    # =========================
-    # MUSICXML -> JIANPU LY
-    # =========================
+    if not os.path.exists(clean_xml):
+
+        return JSONResponse(
+            {
+                "error":
+                "沒有產生 musicxml"
+            }
+        )
+
+
+
+    # =====================
+    # MusicXML -> Jianpu LY
+    # =====================
 
 
     ly_file = os.path.join(
@@ -171,36 +176,74 @@ async def upload(
     )
 
 
+    result = subprocess.run(
+        [
+            "python",
+            "-m",
+            "jianpu_ly",
+            clean_xml
+        ],
+        capture_output=True,
+        text=True
+    )
+
+
+    print(
+        result.stdout
+    )
+
+
+    print(
+        result.stderr
+    )
+
+
+    if result.returncode != 0:
+
+        return JSONResponse(
+            {
+                "error":
+                "jianpu_ly failed",
+                "detail":
+                result.stderr[-1000:]
+            }
+        )
+
+
+
     with open(
         ly_file,
         "w",
         encoding="utf-8"
     ) as f:
 
+        f.write(
+            result.stdout
+        )
 
-        subprocess.run(
-            [
-                "python",
-                "-m",
-                "jianpu_ly",
-                clean_xml
-            ],
-            stdout=f,
-            stderr=subprocess.STDOUT,
-            check=True
+
+
+    if not os.path.exists(ly_file) or os.path.getsize(ly_file) == 0:
+
+        return JSONResponse(
+            {
+                "error":
+                "沒有產生 ly"
+            }
         )
 
 
     print(
-        "LY READY:",
-        ly_file
+        "LY READY",
+        ly_file,
+        os.path.getsize(ly_file)
     )
 
 
 
-    # =========================
-    # LY -> PDF
-    # =========================
+    # =====================
+    # LilyPond
+    # =====================
 
 
     print(
@@ -229,11 +272,20 @@ async def upload(
     )
 
 
+    if not os.path.exists(pdf_file):
+
+        return JSONResponse(
+            {
+                "error":
+                "沒有產生 PDF"
+            }
+        )
+
+
     print(
-        "PDF DONE:",
+        "PDF DONE",
         pdf_file
     )
-
 
 
     return FileResponse(
