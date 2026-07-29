@@ -1,3 +1,4 @@
+print("===== USING V25 CLEAN MUSICXML =====")
 from music21 import converter, meter, note, chord
 import sys
 
