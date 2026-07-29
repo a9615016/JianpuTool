@@ -3,7 +3,10 @@ import sys
 import copy
 
 
-print("CLEAN VERSION 20260729 V2")
+print("CLEAN VERSION 20260729 V3 REBUILD")
+
+
+BAR_BEATS = 4
 
 
 VALID_DURATIONS = [
@@ -18,15 +21,6 @@ VALID_DURATIONS = [
     8,
     12
 ]
-
-
-def closest_duration(value):
-
-    return min(
-        VALID_DURATIONS,
-        key=lambda x: abs(x-value)
-    )
-
 
 
 def get_divisions(root):
@@ -50,12 +44,14 @@ def remove_tags(root):
             p.remove(x)
 
 
+
     print("remove beams")
 
     for x in root.xpath(".//beam"):
         p=x.getparent()
         if p is not None:
             p.remove(x)
+
 
 
     print("remove ties")
@@ -84,132 +80,213 @@ def force_44(root):
 
 
 
-def duration_quantize(root, divisions):
+def quantize_duration(root, divisions):
 
     print("duration quantize")
 
 
-    for note in root.xpath(".//note"):
+    for d in root.xpath(".//duration"):
+
+        value=int(d.text)
+
+
+        # 四捨五入到最近 tick
+
+        if value <= 0:
+            value = divisions // 2
+
+
+        d.text=str(value)
+
+
+
+def rebuild_measures(root, divisions):
+
+    print("REBUILD MEASURES")
+
+
+    limit = divisions * BAR_BEATS
+
+
+    part=root.find(".//part")
+
+
+    if part is None:
+        return
+
+
+    old_measures=list(
+        part.findall("measure")
+    )
+
+
+    all_notes=[]
+
+
+    for m in old_measures:
+
+        for n in m.findall("note"):
+
+            all_notes.append(
+                copy.deepcopy(n)
+            )
+
+
+
+    print(
+        "TOTAL NOTES",
+        len(all_notes)
+    )
+
+
+    # 清空舊小節
+
+    for m in old_measures:
+
+        part.remove(m)
+
+
+
+    measure_no=1
+
+    current=[]
+
+    current_time=0
+
+
+
+    for note in all_notes:
+
 
         d=note.find("duration")
 
+
         if d is None:
+
             continue
 
 
-        old=int(d.text)/divisions
+        dur=int(d.text)
 
 
-        new=closest_duration(old)
+
+        # 音符超過小節
+
+        while current_time + dur > limit:
 
 
-        if abs(old-new)>0.001:
+            remain = limit-current_time
 
-            print(
-                "duration fix",
-                old,
-                "->",
-                new
+
+            if remain > 0:
+
+                first=copy.deepcopy(note)
+
+                first.find("duration").text=str(remain)
+
+
+                current.append(first)
+
+
+                dur -= remain
+
+
+                print(
+                    "split note",
+                    remain,
+                    dur
+                )
+
+
+
+            new_measure=etree.Element(
+                "measure",
+                number=str(measure_no)
             )
 
 
-            d.text=str(
-                int(new*divisions)
+            for n in current:
+
+                new_measure.append(n)
+
+
+
+            part.append(
+                new_measure
             )
 
 
-
-def split_cross_measure_notes(root, divisions):
-
-    print("split cross measure notes")
+            measure_no+=1
 
 
-    measures=root.xpath(".//measure")
+            current=[]
 
-
-    limit=divisions*4
-
-
-    for measure in measures:
-
-
-        total=0
-
-
-        notes=measure.xpath("./note")
-
-
-        for note in notes:
-
-
-            d=note.find("duration")
-
-
-            if d is None:
-                continue
-
-
-            dur=int(d.text)
-
-
-            if total + dur > limit:
-
-
-                remain = limit-total
-
-
-                if remain > 0:
-
-                    print(
-                        "split note in measure",
-                        measure.get("number"),
-                        "duration",
-                        dur
-                    )
-
-
-                    # 原音符縮短
-                    d.text=str(remain)
-
-
-                    # 建立下一段
-                    new_note=copy.deepcopy(note)
-
-                    new_d=new_note.find("duration")
-
-                    new_d.text=str(
-                        dur-remain
-                    )
-
-
-                    next_measure=None
-
-
-                    index=measures.index(measure)
-
-
-                    if index+1 < len(measures):
-                        next_measure=measures[index+1]
-
-
-                    if next_measure is not None:
-
-                        next_measure.insert(
-                            0,
-                            new_note
-                        )
-
-
-                total=limit
-
-
-            else:
-
-                total+=dur
+            current_time=0
 
 
 
-def check_measures(root, divisions):
+            note=copy.deepcopy(note)
+
+            note.find("duration").text=str(dur)
+
+
+
+        current.append(note)
+
+        current_time += dur
+
+
+
+        if current_time == limit:
+
+
+            new_measure=etree.Element(
+                "measure",
+                number=str(measure_no)
+            )
+
+
+            for n in current:
+
+                new_measure.append(n)
+
+
+            part.append(
+                new_measure
+            )
+
+
+            measure_no+=1
+
+            current=[]
+
+            current_time=0
+
+
+
+    # 最後小節
+
+    if current:
+
+
+        new_measure=etree.Element(
+            "measure",
+            number=str(measure_no)
+        )
+
+
+        for n in current:
+
+            new_measure.append(n)
+
+
+        part.append(
+            new_measure
+        )
+
+
+
+def check(root, divisions):
 
     print("FINAL CHECK")
 
@@ -224,25 +301,16 @@ def check_measures(root, divisions):
             total+=int(d.text)
 
 
-        beat=total/divisions
-
 
         print(
             "Measure",
             m.get("number"),
-            beat
+            total/divisions
         )
 
 
-        if abs(beat-4)>0.01:
 
-            print(
-                "WARNING measure mismatch"
-            )
-
-
-
-def clean(input_file, output_file):
+def clean(inp,out):
 
 
     parser=etree.XMLParser(
@@ -251,7 +319,7 @@ def clean(input_file, output_file):
 
 
     tree=etree.parse(
-        input_file,
+        inp,
         parser
     )
 
@@ -263,40 +331,39 @@ def clean(input_file, output_file):
 
 
     print(
-        "NOTES:",
+        "INPUT NOTES:",
         len(root.xpath(".//note"))
     )
 
 
     remove_tags(root)
 
-
     force_44(root)
 
-
-    duration_quantize(
+    quantize_duration(
         root,
         divisions
     )
 
 
-    split_cross_measure_notes(
+    rebuild_measures(
         root,
         divisions
     )
 
 
-    check_measures(
+    check(
         root,
         divisions
     )
+
 
 
     print("FINAL WRITE")
 
 
     tree.write(
-        output_file,
+        out,
         encoding="UTF-8",
         xml_declaration=True,
         pretty_print=True
@@ -304,7 +371,7 @@ def clean(input_file, output_file):
 
 
     print("DONE")
-    print(output_file)
+    print(out)
 
 
 
@@ -314,21 +381,19 @@ if __name__=="__main__":
     if len(sys.argv)<2:
 
         print(
-            "python clean_musicxml.py input.musicxml [output.musicxml]"
+            "python clean_musicxml.py input.musicxml output.musicxml"
         )
 
         exit()
+
 
 
     inp=sys.argv[1]
 
 
     if len(sys.argv)>=3:
-
         out=sys.argv[2]
-
     else:
-
         out="clean.musicxml"
 
 
