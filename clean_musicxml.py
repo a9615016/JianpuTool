@@ -2,77 +2,35 @@ from music21 import converter, stream, note, meter, clef
 import sys
 
 
-VERSION = "CLEAN MUSICXML V90 JIANPU LY PURE SANITIZER"
+VERSION="CLEAN MUSICXML V91 HARD RESET"
 
 
-# 以四分音符為最小單位
-GRID = 0.25
+DURS=[
+    4.0,
+    2.0,
+    1.0,
+    0.5,
+    0.25,
+    0.125
+]
 
 
+def quantize(d):
 
-def quantize_duration(x):
-
-    x = float(x)
-
-    q = round(x / GRID) * GRID
-
-    if q <= 0:
-        q = GRID
-
-    return q
-
-
-
-def clean_note(old, duration):
-
-    """
-    建立全新的 note/rest
-    不保留任何舊 MusicXML 資訊
-    """
-
-    if old.isRest:
-
-        obj = note.Rest()
-
-    else:
-
-        obj = note.Note(
-            old.pitch.pitchClassString
-        )
-
-        obj.pitch.octave = old.pitch.octave
-
-
-    obj.duration.quarterLength = duration
-
-
-    # 清除所有附加資訊
-
-    obj.tie = None
-
-    obj.lyric = None
-
-    obj.expressions = []
-
-    obj.articulations = []
-
-    obj.beams = []
-
-
-    return obj
+    return min(
+        DURS,
+        key=lambda x:abs(x-d)
+    )
 
 
 
+def rebuild(score):
 
-def rebuild_from_zero(score):
+    print(VERSION)
 
-    print("V90 PURE REBUILD")
+    out=stream.Score()
 
-
-    result = stream.Score()
-
-
-    part = stream.Part()
+    part=stream.Part()
 
 
     part.insert(
@@ -80,199 +38,155 @@ def rebuild_from_zero(score):
         meter.TimeSignature("4/4")
     )
 
-
     part.insert(
         0,
         clef.TrebleClef()
     )
 
 
-    measure_no = 1
-
-
-    measure = stream.Measure(
-        number=measure_no
+    measure=stream.Measure(
+        number=1
     )
 
 
-    beat = 0.0
+    beat=0
 
 
+    for n in score.recurse().notesAndRests:
 
-    for old in score.recurse().notesAndRests:
 
-
-        duration = quantize_duration(
-            old.duration.quarterLength
+        dur=quantize(
+            float(n.duration.quarterLength)
         )
 
 
-        remain = duration
+        if n.isRest:
+
+            new=note.Rest()
+
+        else:
+
+            new=note.Note(
+                n.pitch
+            )
 
 
+        # HARD RESET
 
-        while remain > 0:
-
-
-            space = 4.0 - beat
+        new.duration.quarterLength=dur
 
 
-            use = min(
+        remain=dur
+
+
+        while remain>0:
+
+
+            space=4-beat
+
+
+            use=min(
                 remain,
                 space
             )
 
 
-            obj = clean_note(
-                old,
-                use
-            )
+            if new.isRest:
+
+                x=note.Rest()
+
+            else:
+
+                x=note.Note(
+                    new.pitch
+                )
 
 
-            measure.append(obj)
+            x.duration.quarterLength=use
 
 
-            beat += use
+            measure.append(x)
 
 
-            remain -= use
+            beat+=use
+            remain-=use
 
 
 
-            # 完成一小節
-
-            if beat >= 4.0 - 0.0001:
+            if beat>=3.999:
 
 
                 part.append(measure)
 
 
-                measure_no += 1
-
-
-                measure = stream.Measure(
-                    number=measure_no
+                measure=stream.Measure(
+                    number=len(part.getElementsByClass("Measure"))+1
                 )
 
-
-                beat = 0.0
-
+                beat=0
 
 
-    # 最後補滿
 
-    if beat > 0:
+    if beat>0:
 
+        r=note.Rest()
 
-        rest = note.Rest()
+        r.duration.quarterLength=4-beat
 
-
-        rest.duration.quarterLength = round(
-            4.0 - beat,
-            2
-        )
-
-
-        measure.append(rest)
-
+        measure.append(r)
 
         part.append(measure)
 
 
 
-    result.append(part)
+    out.append(part)
 
 
-    return result
-
-
+    return out
 
 
 
-def jianpu_check(score):
+def check(score):
+
+    print("V91 FINAL CHECK")
 
 
-    print("V90 FINAL CHECK")
+    for m in score.parts[0].getElementsByClass("Measure"):
 
-
-    for m in score.parts[0].getElementsByClass(
-        "Measure"
-    ):
-
-
-        total = sum(
-            n.duration.quarterLength
-            for n in m.notesAndRests
+        total=sum(
+            x.duration.quarterLength
+            for x in m.notesAndRests
         )
-
 
         print(
             "Measure",
             m.number,
-            float(total)
+            total
         )
 
 
-        if abs(total - 4.0) > 0.001:
+        if abs(total-4)>0.001:
 
             raise Exception(
-                "BAD BAR "
-                + str(m.number)
+                "BAD BAR "+str(m.number)
             )
 
 
-    print("V90 SAFE")
+    print("SAFE")
 
 
 
 
-
-def clean(inp, out):
-
-
-    print("====================")
-    print(VERSION)
-    print("====================")
+def clean(inp,out):
 
 
-    old = converter.parse(inp)
+    old=converter.parse(inp)
 
 
-    print("REMOVE EVERYTHING")
+    new=rebuild(old)
 
 
-    new = rebuild_from_zero(old)
-
-
-
-    # 重新建立 measure
-
-    new.parts[0].makeMeasures(
-        inPlace=True
-    )
-
-
-
-    # 清除 offset / cache
-
-    for n in new.recurse().notesAndRests:
-
-        n.tie = None
-
-        n.beams = []
-
-
-
-    new.parts[0].flatten()
-
-
-
-    jianpu_check(new)
-
-
-
-    print("WRITE MUSICXML")
-
+    check(new)
 
 
     new.write(
@@ -281,25 +195,11 @@ def clean(inp, out):
     )
 
 
-    print("DONE")
-
-    print(out)
+    print("DONE",out)
 
 
 
-
-
-if __name__ == "__main__":
-
-
-    if len(sys.argv) < 3:
-
-        print(
-            "python clean_musicxml.py input.musicxml output.musicxml"
-        )
-
-        sys.exit()
-
+if __name__=="__main__":
 
 
     clean(
