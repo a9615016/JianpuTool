@@ -1,162 +1,155 @@
-print("========== USING V42 ==========")
 # clean_musicxml.py
-# V42
-# jianpu_ly strict compatible rebuild
+# V50
+# jianpu_ly strict 4/4 edition
+# fix real duration overflow
 
 from music21 import converter, stream, note, meter, tempo
-from fractions import Fraction
-import copy
 import sys
+import copy
+from fractions import Fraction
 
 
-VERSION = "CLEAN MUSICXML V42"
+VERSION = "CLEAN MUSICXML V50"
 
 
-TICK = 16          # divisions
-BAR = 64           # 4/4
-
-
-def clean_note(n):
-
-    n2 = copy.deepcopy(n)
-
-    n2.tie = None
-
-    if hasattr(n2, "beams"):
-        n2.beams.clear()
-
-    if hasattr(n2, "articulations"):
-        n2.articulations = []
-
-    if hasattr(n2, "expressions"):
-        n2.expressions = []
-
-    return n2
+STEP = Fraction(1,4)
 
 
 
-def quantize_duration(q):
+def remove_bad(score):
 
-    ticks = round(
-        float(q) * TICK
-    )
+    for n in score.recurse().notes:
 
-    if ticks <= 0:
-        ticks = 4
+        n.tie = None
 
-    return ticks
+        try:
+            n.beams = []
+        except:
+            pass
 
-
-
-def rebuild_part(part):
-
-    new_part = stream.Part()
-
-    new_part.append(
-        meter.TimeSignature("4/4")
-    )
-
-
-    measure = stream.Measure(number=1)
-
-    used = 0
-
-
-    # 注意：
-    # 不使用 notesAndRests
-    # 只重新建立音符
-    for n in part.recurse().notes:
-
-        remain_ticks = quantize_duration(
-            n.duration.quarterLength
-        )
-
-
-        while remain_ticks > 0:
-
-            free = BAR - used
-
-            take = min(
-                free,
-                remain_ticks
-            )
-
-
-            nn = clean_note(n)
-
-            nn.duration.quarterLength = Fraction(
-                take,
-                TICK
-            )
-
-
-            measure.append(nn)
-
-
-            used += take
-            remain_ticks -= take
-
-
-            if used == BAR:
-
-                new_part.append(measure)
-
-                measure = stream.Measure(
-                    number=len(
-                        new_part.getElementsByClass(
-                            stream.Measure
-                        )
-                    ) + 1
-                )
-
-                used = 0
-
-
-
-    # 補最後小節
-    if used > 0:
-
-        while used < BAR:
-
-            r = note.Rest()
-
-            r.duration.quarterLength = Fraction(
-                min(4, BAR-used),
-                TICK
-            )
-
-            measure.append(r)
-
-            used += min(
-                4,
-                BAR-used
-            )
-
-
-        new_part.append(measure)
-
-
-
-    return new_part
-
-
-
-def force_44(score):
-
-    for p in score.parts:
-
-        p.insert(
-            0,
-            meter.TimeSignature("4/4")
-        )
+        n.articulations = []
+        n.expressions = []
 
     return score
 
 
 
-def final_check(score):
+def quantize(score):
 
-    print("V42 FINAL CHECK")
+    for x in score.recurse().notesAndRests:
+
+        q = Fraction(x.duration.quarterLength)
+
+        q = round(q / STEP) * STEP
+
+        if q <= 0:
+            q = STEP
+
+        x.duration.quarterLength = q
+
+    return score
+
+
+
+def rebuild_strict(part):
+
+    result = stream.Part()
+
+    result.append(
+        meter.TimeSignature("4/4")
+    )
+
+
+    measure_no = 1
+    m = stream.Measure(number=measure_no)
+
+    pos = Fraction(0)
+
+
+    items = sorted(
+        list(part.recurse().notesAndRests),
+        key=lambda x:x.offset
+    )
+
+
+    for item in items:
+
+        dur = Fraction(
+            item.duration.quarterLength
+        )
+
+
+        while dur > 0:
+
+
+            remain = Fraction(4)-pos
+
+
+            take=min(
+                dur,
+                remain
+            )
+
+
+            new=copy.deepcopy(item)
+
+            new.tie=None
+
+            new.duration.quarterLength=take
+
+
+            m.append(new)
+
+
+            pos += take
+
+            dur -= take
+
+
+
+            if pos >= 4:
+
+
+                result.append(m)
+
+                measure_no += 1
+
+                m=stream.Measure(
+                    number=measure_no
+                )
+
+                pos=Fraction(0)
+
+
+
+    # 補最後小節
+
+    if len(m.notesAndRests):
+
+        while pos < 4:
+
+            r=note.Rest()
+
+            r.duration.quarterLength=min(
+                Fraction(1),
+                4-pos
+            )
+
+            m.append(r)
+
+            pos += r.duration.quarterLength
+
+
+        result.append(m)
+
+
+    return result
+
+
+
+def check(score):
+
+    print("V50 CHECK")
 
 
     for i,m in enumerate(
@@ -164,10 +157,11 @@ def final_check(score):
         1
     ):
 
-        total = sum(
-            x.duration.quarterLength
+        total=sum(
+            Fraction(x.duration.quarterLength)
             for x in m.notesAndRests
         )
+
 
         print(
             "Measure",
@@ -176,60 +170,75 @@ def final_check(score):
         )
 
 
+        if total != 4:
+
+            print(
+                "ERROR measure",
+                i,
+                total
+            )
+
+
 
 def clean(inp,out):
+
 
     print(VERSION)
 
 
-    src = converter.parse(inp)
+    score=converter.parse(inp)
 
 
-    # 移除 tempo
-    for t in src.recurse().getElementsByClass(
+    for t in score.recurse().getElementsByClass(
         tempo.MetronomeMark
     ):
         t.activeSite.remove(t)
 
 
 
-    dst = stream.Score()
+    remove_bad(score)
+
+    quantize(score)
 
 
-    for part in src.parts:
 
-        print("REBUILD STRICT PART")
+    new_score=stream.Score()
 
-        dst.append(
-            rebuild_part(part)
+
+
+    for part in score.parts:
+
+
+        new_score.append(
+            rebuild_strict(part)
         )
 
 
-    force_44(dst)
+
+    check(new_score)
 
 
-    final_check(dst)
+
+    print("WRITE")
 
 
-    print("FINAL WRITE")
-
-
-    dst.write(
+    new_score.write(
         "musicxml",
         fp=out
     )
 
 
     print("DONE")
-    print(out)
 
 
 
 if __name__=="__main__":
 
+
     inp=sys.argv[1]
 
     out="clean.musicxml"
+
 
     if len(sys.argv)>2:
         out=sys.argv[2]
