@@ -1,3 +1,4 @@
+print("=== MAIN VERSION DIRECT MIDI V1 ===")
 from fastapi import FastAPI, UploadFile, File
 from fastapi.responses import FileResponse
 import os
