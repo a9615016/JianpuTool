@@ -1,208 +1,254 @@
-from music21 import converter, stream, note, meter, clef
 import sys
+from lxml import etree
 
 
-VERSION="CLEAN MUSICXML V91 HARD RESET"
+print("CLEAN VERSION 20260729")
 
 
-DURS=[
-    4.0,
-    2.0,
-    1.0,
+# jianpu_ly 支援的節奏值
+VALID_DURATIONS = [
     0.5,
-    0.25,
-    0.125
+    0.75,
+    1,
+    1.5,
+    2,
+    3,
+    4,
+    6,
+    8,
+    12
 ]
 
 
-def quantize(d):
-
+def closest_duration(value):
     return min(
-        DURS,
-        key=lambda x:abs(x-d)
+        VALID_DURATIONS,
+        key=lambda x: abs(x - value)
     )
 
 
+def remove_chords(root):
 
-def rebuild(score):
+    print("remove chords")
 
-    print(VERSION)
+    for chord in root.xpath(".//chord"):
+        parent = chord.getparent()
 
-    out=stream.Score()
-
-    part=stream.Part()
-
-
-    part.insert(
-        0,
-        meter.TimeSignature("4/4")
-    )
-
-    part.insert(
-        0,
-        clef.TrebleClef()
-    )
+        if parent is not None:
+            parent.remove(chord)
 
 
-    measure=stream.Measure(
-        number=1
-    )
+
+def remove_beams(root):
+
+    print("remove beams")
+
+    for beam in root.xpath(".//beam"):
+        parent = beam.getparent()
+
+        if parent is not None:
+            parent.remove(beam)
 
 
-    beat=0
+
+def remove_ties(root):
+
+    print("remove ties")
+
+    for tie in root.xpath(".//tie"):
+        parent = tie.getparent()
+
+        if parent is not None:
+            parent.remove(tie)
 
 
-    for n in score.recurse().notesAndRests:
+
+def force_44(root):
+
+    print("force 4/4")
+
+    for time in root.xpath(".//time"):
+
+        beats = time.find("beats")
+        beat_type = time.find("beat-type")
+
+        if beats is not None:
+            beats.text = "4"
+
+        if beat_type is not None:
+            beat_type.text = "4"
 
 
-        dur=quantize(
-            float(n.duration.quarterLength)
-        )
+
+def get_divisions(root):
+
+    div = root.find(".//divisions")
+
+    if div is None:
+        return 16
+
+    return int(div.text)
 
 
-        if n.isRest:
 
-            new=note.Rest()
+def duration_quantize(root, divisions):
 
-        else:
+    print("duration quantize")
 
-            new=note.Note(
-                n.pitch
+    for note in root.xpath(".//note"):
+
+        duration = note.find("duration")
+
+        if duration is None:
+            continue
+
+
+        old_tick = int(duration.text)
+
+        old_value = old_tick / divisions
+
+
+        new_value = closest_duration(old_value)
+
+
+        if abs(old_value - new_value) > 0.001:
+
+            print(
+                "duration fix:",
+                old_value,
+                "->",
+                new_value
             )
 
 
-        # HARD RESET
-
-        new.duration.quarterLength=dur
-
-
-        remain=dur
-
-
-        while remain>0:
-
-
-            space=4-beat
-
-
-            use=min(
-                remain,
-                space
+            duration.text = str(
+                int(new_value * divisions)
             )
 
 
-            if new.isRest:
 
-                x=note.Rest()
+def check_measures(root, divisions):
 
-            else:
+    print("FINAL CHECK")
 
-                x=note.Note(
-                    new.pitch
-                )
+    measures = root.xpath(".//measure")
 
 
-            x.duration.quarterLength=use
+    for measure in measures:
+
+        total = 0
 
 
-            measure.append(x)
+        for duration in measure.xpath("./note/duration"):
+
+            total += int(duration.text)
 
 
-            beat+=use
-            remain-=use
+        beats = total / divisions
 
-
-
-            if beat>=3.999:
-
-
-                part.append(measure)
-
-
-                measure=stream.Measure(
-                    number=len(part.getElementsByClass("Measure"))+1
-                )
-
-                beat=0
-
-
-
-    if beat>0:
-
-        r=note.Rest()
-
-        r.duration.quarterLength=4-beat
-
-        measure.append(r)
-
-        part.append(measure)
-
-
-
-    out.append(part)
-
-
-    return out
-
-
-
-def check(score):
-
-    print("V91 FINAL CHECK")
-
-
-    for m in score.parts[0].getElementsByClass("Measure"):
-
-        total=sum(
-            x.duration.quarterLength
-            for x in m.notesAndRests
-        )
 
         print(
             "Measure",
-            m.number,
-            total
+            measure.get("number"),
+            beats
         )
 
 
-        if abs(total-4)>0.001:
+        if abs(beats - 4) > 0.1:
 
-            raise Exception(
-                "BAD BAR "+str(m.number)
+            print(
+                "WARNING measure mismatch"
             )
 
 
-    print("SAFE")
 
+def clean_musicxml(input_file, output_file):
 
-
-
-def clean(inp,out):
-
-
-    old=converter.parse(inp)
-
-
-    new=rebuild(old)
-
-
-    check(new)
-
-
-    new.write(
-        "musicxml",
-        fp=out
+    parser = etree.XMLParser(
+        remove_blank_text=True
     )
 
 
-    print("DONE",out)
+    tree = etree.parse(
+        input_file,
+        parser
+    )
+
+
+    root = tree.getroot()
+
+
+    divisions = get_divisions(root)
+
+
+    remove_chords(root)
+
+    remove_beams(root)
+
+    remove_ties(root)
+
+    force_44(root)
+
+    duration_quantize(
+        root,
+        divisions
+    )
+
+
+    check_measures(
+        root,
+        divisions
+    )
+
+
+    print("FINAL WRITE")
+
+
+    tree.write(
+        output_file,
+        encoding="UTF-8",
+        xml_declaration=True,
+        pretty_print=True
+    )
+
+
+    print("DONE")
+
+    print(output_file)
 
 
 
-if __name__=="__main__":
+if __name__ == "__main__":
 
 
-    clean(
-        sys.argv[1],
-        sys.argv[2]
+    if len(sys.argv) < 2:
+
+        print(
+            "Usage:"
+        )
+
+        print(
+            "python clean_musicxml.py input.musicxml [output.musicxml]"
+        )
+
+        sys.exit(1)
+
+
+
+    input_file = sys.argv[1]
+
+
+    if len(sys.argv) >= 3:
+
+        output_file = sys.argv[2]
+
+    else:
+
+        output_file = "clean.musicxml"
+
+
+
+    clean_musicxml(
+        input_file,
+        output_file
     )
