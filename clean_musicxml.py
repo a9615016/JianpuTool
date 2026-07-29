@@ -1,181 +1,225 @@
-# clean_musicxml.py
-# V27 MUSICXML QUANTIZER FOR JIANPU_LY
-
 import sys
-import xml.etree.ElementTree as ET
+from music21 import converter, stream, note, chord, meter, duration
 from fractions import Fraction
 
 
-DIVISIONS = 16
-BEATS_PER_MEASURE = 4
+print("==============================")
+print("CLEAN MUSICXML V27")
+print("JIANPU_LY COMPATIBLE")
+print("==============================")
 
 
-def snap(value):
-    """
-    四分音符網格量化
-    """
-    step = Fraction(1, 16)
+if len(sys.argv) < 3:
+    print(
+        "usage: python clean_musicxml.py input.musicxml output.musicxml"
+    )
+    sys.exit()
+
+
+input_file = sys.argv[1]
+output_file = sys.argv[2]
+
+
+print("READ")
+score = converter.parse(input_file)
+
+
+
+# ==========================
+# duration quantize
+# ==========================
+
+allowed = [
+    Fraction(1,16),
+    Fraction(1,8),
+    Fraction(3,16),
+    Fraction(1,4),
+    Fraction(3,8),
+    Fraction(1,2),
+    Fraction(3,4),
+    Fraction(1),
+    Fraction(2),
+    Fraction(3),
+    Fraction(4)
+]
+
+
+def snap_duration(value):
+
+    f = Fraction(value).limit_denominator(96)
 
     return float(
-        round(
-            Fraction(value) / step
-        ) * step
-    )
-
-
-def duration_snap(d):
-
-    allowed = [
-        0.25,   #16分
-        0.5,    #8分
-        1.0,    #4分
-        2.0,    #2分
-        4.0     #全音符
-    ]
-
-    return min(
-        allowed,
-        key=lambda x: abs(x-d)
+        min(
+            allowed,
+            key=lambda x: abs(x-f)
+        )
     )
 
 
 
-def clean(input_file, output_file):
+print("REMOVE VOICE")
 
-    print("================")
-    print("CLEAN MUSICXML V27 QUANTIZER")
-    print("================")
+for p in score.parts:
 
+    # force 4/4
 
-    tree = ET.parse(input_file)
-    root = tree.getroot()
-
-
-    ns = {
-        "m":
-        "http://www.musicxml.org"
-    }
+    p.insert(
+        0,
+        meter.TimeSignature("4/4")
+    )
 
 
-    # ----------------------
-    # 強制4/4
-    # ----------------------
-
-    for time in root.iter():
-
-        if time.tag.endswith("time"):
-
-            for child in list(time):
-
-                if child.tag.endswith("beats"):
-                    child.text="4"
-
-                if child.tag.endswith("beat-type"):
-                    child.text="4"
+    notes=[]
 
 
+    for el in p.recurse():
 
-    # ----------------------
-    # 修正 duration
-    # ----------------------
+        if isinstance(el, chord.Chord):
 
-    for dur in root.iter():
-
-        if dur.tag.endswith("duration"):
-
-            try:
-
-                old = int(dur.text)
-
-                beats = old / DIVISIONS
-
-                new = duration_snap(beats)
-
-
-                dur.text=str(
-                    int(new * DIVISIONS)
-                )
-
-
-            except:
-
-                pass
-
-
-
-    # ----------------------
-    # 移除危險元素
-    # ----------------------
-
-    remove_tags=[
-        "voice",
-        "chord",
-        "tie",
-        "beam"
-    ]
-
-
-    for parent in root.iter():
-
-        for child in list(parent):
-
-            name = child.tag.split("}")[-1]
-
-            if name in remove_tags:
-                parent.remove(child)
-
-
-
-    # ----------------------
-    # 檢查小節
-    # ----------------------
-
-    print()
-    print("FINAL CHECK")
-
-
-    measure_no=1
-
-    for measure in root.iter():
-
-        if measure.tag.endswith("measure"):
-
-            total=0
-
-            for d in measure.iter():
-
-                if d.tag.endswith("duration"):
-
-                    total += int(d.text)/DIVISIONS
-
-
-            print(
-                "Measure",
-                measure_no,
-                total
+            # keep highest note only
+            n = note.Note(
+                el.highest.pitch
             )
 
+            n.duration.quarterLength = (
+                el.duration.quarterLength
+            )
 
-            measure_no+=1
+            notes.append(n)
 
 
+        elif isinstance(el,note.Note):
 
-    tree.write(
-        output_file,
-        encoding="utf-8",
-        xml_declaration=True
+            notes.append(el)
+
+
+    p.removeByClass(
+        'Voice'
     )
 
 
-    print()
-    print("DONE")
-    print(output_file)
+
+    print("QUANTIZE")
+
+    for n in notes:
+
+        n.duration.quarterLength = (
+            snap_duration(
+                n.duration.quarterLength
+            )
+        )
+
+
+        # remove tie
+
+        n.tie = None
 
 
 
-if __name__=="__main__":
+# ==========================
+# rebuild measures
+# ==========================
 
-    clean(
-        sys.argv[1],
-        sys.argv[2]
+
+print("REBUILD MEASURES")
+
+
+new_score = stream.Score()
+
+
+for p in score.parts:
+
+
+    new_part = stream.Part()
+
+
+    new_part.insert(
+        0,
+        meter.TimeSignature("4/4")
     )
+
+
+    current = 0
+
+
+    for n in p.flat.notes:
+
+        q = n.duration.quarterLength
+
+
+        # prevent crossing bar
+
+        remain = 4 - (current % 4)
+
+
+        if q > remain:
+
+            n.duration.quarterLength = remain
+
+
+        new_part.append(n)
+
+
+        current += n.duration.quarterLength
+
+
+
+    # fill last measure
+
+    remain = 4 - (current % 4)
+
+    if remain != 4:
+
+        r = note.Rest()
+
+        r.duration.quarterLength = remain
+
+        new_part.append(r)
+
+
+
+    new_score.append(new_part)
+
+
+
+# ==========================
+# check
+# ==========================
+
+
+print("FINAL CHECK")
+
+
+for i,m in enumerate(
+    new_score.parts[0].getElementsByClass("Measure"),
+    1
+):
+
+    total = sum(
+        x.duration.quarterLength
+        for x in m.notesAndRests
+    )
+
+    print(
+        "Measure",
+        i,
+        total
+    )
+
+
+
+# ==========================
+# write
+# ==========================
+
+
+print("WRITE")
+
+new_score.write(
+    "musicxml",
+    fp=output_file
+)
+
+
+print("DONE")
+print(output_file)
