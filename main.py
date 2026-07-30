@@ -1,4 +1,4 @@
-MAIN_VERSION = "V31-barfix"
+MAIN_VERSION = "V32-MVP"
 
 print("================")
 print(f"JianpuTool main.py {MAIN_VERSION}")
@@ -7,7 +7,6 @@ print("================")
 
 from fastapi import FastAPI, UploadFile, File
 from fastapi.responses import FileResponse
-
 import os
 import uuid
 import subprocess
@@ -35,7 +34,7 @@ def home():
         "status": "JianpuTool running",
         "version": MAIN_VERSION,
         "pipeline":
-        "MP3/WAV → MIDI → MusicXML → clean_musicxml V31 → bar_check_fix → Jianpu PDF"
+        "MIDI → MusicXML → jianpu_ly → LilyPond → Jianpu PDF"
     }
 
 
@@ -75,7 +74,7 @@ async def upload(
 
 
     # ==========================
-    # AUDIO → MIDI → MusicXML
+    # MP3 / WAV
     # ==========================
 
     if ext in ["mp3", "wav"]:
@@ -118,7 +117,7 @@ async def upload(
 
 
     # ==========================
-    # MIDI → MusicXML
+    # MIDI
     # ==========================
 
     elif ext in ["mid", "midi"]:
@@ -164,59 +163,17 @@ async def upload(
 
 
     # ==========================
-    # CLEAN MUSICXML V31
+    # MVP MODE
+    # 不使用 clean_musicxml
     # ==========================
 
-    clean_xml = os.path.join(
-        job_dir,
-        "clean.musicxml"
-    )
+    clean_xml = xml_file
 
 
-    print(
-        "RUN clean_musicxml.py V31"
-    )
-
-
-    subprocess.run(
-        [
-            "python",
-            "clean_musicxml.py",
-            xml_file,
-            clean_xml
-        ],
-        check=True
-    )
-
-
-
-    # ==========================
-    # BAR CHECK FIX
-    # ==========================
-
-    fixed_xml = os.path.join(
-        job_dir,
-        "fixed.musicxml"
-    )
-
-
-    print(
-        "RUN bar_check_fix.py"
-    )
-
-
-    subprocess.run(
-        [
-            "python",
-            "bar_check_fix.py",
-            clean_xml,
-            fixed_xml
-        ],
-        check=True
-    )
-
-
-    clean_xml = fixed_xml
+    print("================")
+    print("MVP MODE")
+    print("skip clean_musicxml")
+    print("================")
 
 
 
@@ -230,38 +187,42 @@ async def upload(
     )
 
 
-    print(
-        "RUN jianpu_ly"
-    )
+    try:
+
+        with open(
+            ly_file,
+            "w"
+        ) as f:
 
 
-    with open(
-        ly_file,
-        "w"
-    ) as f:
+            subprocess.run(
+                [
+                    "python",
+                    "-m",
+                    "jianpu_ly",
+                    clean_xml
+                ],
+                stdout=f,
+                stderr=subprocess.STDOUT,
+                check=True
+            )
 
-        subprocess.run(
-            [
-                "python",
-                "-m",
-                "jianpu_ly",
-                clean_xml
-            ],
-            stdout=f,
-            stderr=subprocess.STDOUT,
-            check=True
-        )
+
+    except subprocess.CalledProcessError:
+
+
+        return {
+            "error":
+            "jianpu_ly失敗",
+            "hint":
+            "MVP只支援簡單單旋律4/4 MIDI"
+        }
 
 
 
     # ==========================
     # LilyPond PDF
     # ==========================
-
-    print(
-        "RUN LilyPond"
-    )
-
 
     subprocess.run(
         [
