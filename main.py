@@ -1,3 +1,9 @@
+MAIN_VERSION = "V25"
+
+print("================")
+print(f"JianpuTool main.py {MAIN_VERSION}")
+print("================")
+
 from fastapi import FastAPI, UploadFile, File
 from fastapi.responses import FileResponse
 import os
@@ -12,8 +18,6 @@ app = FastAPI(
 )
 
 
-BASE_DIR = "/app"
-
 OUTPUT_DIR = "/app/outputs"
 
 os.makedirs(
@@ -22,14 +26,13 @@ os.makedirs(
 )
 
 
-
 @app.get("/")
 def home():
 
     return {
         "status": "JianpuTool running",
         "pipeline":
-        "MP3/MIDI → MusicXML → clean_musicxml → Jianpu PDF"
+        "MP3/WAV → MIDI → MusicXML → clean_musicxml → Jianpu PDF"
     }
 
 
@@ -59,21 +62,65 @@ async def upload(
 
 
     with open(input_file, "wb") as f:
-
         shutil.copyfileobj(
             file.file,
             f
         )
 
 
+    ext = file.filename.lower().split(".")[-1]
+
+
+    # ==========================
+    # MP3 / WAV → BasicPitch → MIDI
+    # ==========================
+
+    if ext in ["mp3", "wav"]:
+
+        print("AUDIO → BasicPitch")
+
+        midi_file = os.path.join(
+            job_dir,
+            "melody.mid"
+        )
+
+
+        subprocess.run(
+            [
+                "python",
+                "basicpitch_convert.py",
+                input_file,
+                midi_file
+            ],
+            check=True
+        )
+
+
+        xml_file = os.path.join(
+            job_dir,
+            "input.musicxml"
+        )
+
+
+        subprocess.run(
+            [
+                "python",
+                "midi_to_musicxml.py",
+                midi_file,
+                xml_file
+            ],
+            check=True
+        )
+
 
     # ==========================
     # MIDI → MusicXML
     # ==========================
 
-    if file.filename.endswith(
-        ".mid"
-    ):
+    elif ext in ["mid", "midi"]:
+
+        print("MIDI → MusicXML")
+
 
         xml_file = os.path.join(
             job_dir,
@@ -92,9 +139,24 @@ async def upload(
         )
 
 
-    else:
+    # ==========================
+    # MusicXML
+    # ==========================
+
+    elif ext in ["musicxml", "xml"]:
+
+        print("MusicXML input")
+
 
         xml_file = input_file
+
+
+    else:
+
+        return {
+            "error":
+            "Unsupported file format"
+        }
 
 
 
@@ -140,7 +202,6 @@ async def upload(
         "w"
     ) as f:
 
-
         subprocess.run(
             [
                 "python",
@@ -171,7 +232,6 @@ async def upload(
         ],
         check=True
     )
-
 
 
     pdf_file = os.path.join(

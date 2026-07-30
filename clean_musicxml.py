@@ -1,4 +1,3 @@
-print("========== USING V25 ==========")
 print("================")
 print("CLEAN MUSICXML V25 FINAL JIANPU COMPATIBLE")
 print("================")
