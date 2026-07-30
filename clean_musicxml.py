@@ -1,333 +1,207 @@
-VERSION = "V30"
+VERSION = "V31"
 
-print("================")
 print("CLEAN MUSICXML", VERSION)
-print("================")
 
+from music21 import converter, stream, note, chord, meter
 import sys
-from lxml import etree
 
 
-if len(sys.argv) < 3:
-    print("Usage: python clean_musicxml.py input.musicxml output.musicxml")
-    sys.exit(1)
+def remove_chords(part):
+    for el in list(part.recurse()):
+        if isinstance(el, chord.Chord):
+            n = note.Note(el.pitch)
+            n.duration = el.duration
+            el.activeSite.replace(el, n)
 
 
-input_file = sys.argv[1]
-output_file = sys.argv[2]
+def remove_ties(part):
+    for n in part.recurse().notes:
+        if n.tie:
+            n.tie = None
 
 
-NS = {
-    "m": "http://www.musicxml.org/ns/musicxml"
-}
+def remove_beams(part):
+    for n in part.recurse().notes:
+        n.beams = None
 
 
-tree = etree.parse(input_file)
-root = tree.getroot()
+def force_44(score):
+    for p in score.parts:
+        p.insert(0, meter.TimeSignature("4/4"))
 
 
-# ==========================
-# divisions
-# ==========================
+def quantize_duration(part):
+    allowed = [
+        4, 3, 2, 1,
+        0.5, 0.25,
+        1.5, 0.75
+    ]
 
-divisions = 16
+    for n in part.recurse().notes:
+        q = float(n.duration.quarterLength)
 
-div = root.find(".//m:divisions", NS)
+        best = min(
+            allowed,
+            key=lambda x: abs(x-q)
+        )
 
-if div is not None:
-    divisions = int(div.text)
-
-
-BAR_LENGTH = divisions * 4
-
-print("DIVISIONS =", divisions)
-print("BAR_LENGTH =", BAR_LENGTH)
-
-
-
-# ==========================
-# remove unwanted notation
-# ==========================
-
-print("remove voices")
-
-for x in root.xpath(".//m:voice", namespaces=NS):
-    x.getparent().remove(x)
+        n.duration.quarterLength = best
 
 
-print("remove chords")
+def split_cross_measure(part):
 
-for x in root.xpath(".//m:chord", namespaces=NS):
-    x.getparent().remove(x)
+    print("split cross measure notes")
 
+    measures = list(part.getElementsByClass("Measure"))
 
-print("remove beams")
+    for m in measures:
+        total = m.duration.quarterLength
 
-for x in root.xpath(".//m:beam", namespaces=NS):
-    x.getparent().remove(x)
+        if total > 4:
 
-
-print("remove ties")
-
-for x in root.xpath(".//m:tie", namespaces=NS):
-    x.getparent().remove(x)
-
-
-
-# ==========================
-# force 4/4
-# ==========================
-
-print("force 4/4")
-
-for time in root.xpath(".//m:time", namespaces=NS):
-
-    beats = time.find("m:beats", NS)
-    beat = time.find("m:beat-type", NS)
-
-    if beats is not None:
-        beats.text = "4"
-
-    if beat is not None:
-        beat.text = "4"
-
-
-
-# ==========================
-# split cross measure notes
-# ==========================
-
-print("split cross measure notes")
-
-
-for part in root.xpath(".//m:part", namespaces=NS):
-
-    carry = None
-
-
-    measures = part.xpath("./m:measure", namespaces=NS)
-
-
-    for measure in measures:
-
-
-        notes = measure.xpath("./m:note", namespaces=NS)
-
-
-        new_notes = []
-
-        current = 0
-
-
-        for note in notes:
-
-
-            dur = note.find(
-                "m:duration",
-                NS
+            print(
+                "overflow measure",
+                m.number,
+                total
             )
 
+            excess = total - 4
 
-            if dur is None:
-                continue
+            notes = list(
+                m.notes
+            )
 
+            for n in reversed(notes):
 
-            length = int(dur.text)
+                if excess <= 0:
+                    break
 
+                length = n.duration.quarterLength
 
+                if length > excess:
+                    n.duration.quarterLength = length - excess
+                    excess = 0
 
-            # 超過小節切開
-
-            while current + length > BAR_LENGTH:
-
-
-                remain = BAR_LENGTH - current
-
-
-                if remain > 0:
-
-                    n = etree.fromstring(
-                        etree.tostring(note)
-                    )
-
-                    n.find(
-                        "m:duration",
-                        NS
-                    ).text = str(remain)
-
-
-                    new_notes.append(n)
+                else:
+                    m.remove(n)
+                    excess -= length
 
 
 
-                length -= remain
+def rebuild_measures(score):
+
+    print("rebuild measures")
+
+    for p in score.parts:
+
+        measures = p.makeMeasures()
+
+        p.remove(
+            p.getElementsByClass("Measure")
+        )
+
+        for m in measures:
+            p.append(m)
 
 
+
+def final_check(score):
+
+    print("================")
+    print("FINAL CHECK V31")
+    print("================")
+
+    for p in score.parts:
+
+        for m in p.getElementsByClass("Measure"):
+
+            q = float(
+                m.duration.quarterLength
+            )
+
+            print(
+                "Measure",
+                m.number,
+                q
+            )
+
+            if q > 4.01:
                 print(
-                    "SPLIT NOTE",
-                    measure.get("number"),
-                    "remain",
-                    length
+                    "WARNING overflow",
+                    m.number,
+                    q
                 )
 
 
-                current = BAR_LENGTH
 
+def main():
 
-
-            if length > 0:
-
-                n = etree.fromstring(
-                    etree.tostring(note)
-                )
-
-                n.find(
-                    "m:duration",
-                    NS
-                ).text = str(length)
-
-
-                new_notes.append(n)
-
-
-                current += length
-
-
-
-            # 到小節尾
-
-            if current == BAR_LENGTH:
-
-                current = 0
-
-
-
-        # 清空舊 note
-
-        for n in notes:
-            measure.remove(n)
-
-
-        # 寫回
-
-        for n in new_notes:
-            measure.append(n)
-
-
-
-# ==========================
-# fill empty measure
-# ==========================
-
-print("fill rests")
-
-
-for measure in root.xpath(".//m:measure", namespaces=NS):
-
-    total = 0
-
-    for dur in measure.xpath(
-        "./m:note/m:duration",
-        namespaces=NS
-    ):
-        total += int(dur.text)
-
-
-    if total < BAR_LENGTH:
-
-        missing = BAR_LENGTH - total
-
+    if len(sys.argv) < 2:
         print(
-            "ADD REST",
-            measure.get("number"),
-            missing
+            "usage: python clean_musicxml.py input.musicxml output.musicxml"
         )
+        return
 
 
-        rest = etree.Element(
-            "{%s}note" % NS["m"]
-        )
-
-        etree.SubElement(
-            rest,
-            "{%s}rest" % NS["m"]
-        )
+    infile = sys.argv[1]
+    outfile = sys.argv[2]
 
 
-        d = etree.SubElement(
-            rest,
-            "{%s}duration" % NS["m"]
-        )
-
-        d.text = str(missing)
+    print("INPUT", infile)
 
 
-        measure.append(rest)
+    score = converter.parse(infile)
 
 
+    print("remove chords")
 
-# ==========================
-# clear notation
-# ==========================
-
-print("clear notation cache")
+    for p in score.parts:
+        remove_chords(p)
 
 
-for note in root.xpath(".//m:note", namespaces=NS):
+    print("remove ties")
 
-    for tag in [
-        "notations",
-        "articulations",
-        "ornaments"
-    ]:
-
-        obj = note.find(
-            "m:"+tag,
-            NS
-        )
-
-        if obj is not None:
-            note.remove(obj)
+    for p in score.parts:
+        remove_ties(p)
 
 
+    print("remove beams")
 
-# ==========================
-# FINAL CHECK
-# ==========================
-
-print("FINAL CHECK")
+    for p in score.parts:
+        remove_beams(p)
 
 
-for measure in root.xpath(".//m:measure", namespaces=NS):
+    print("force 4/4")
 
-    total = 0
-
-    for dur in measure.xpath(
-        "./m:note/m:duration",
-        namespaces=NS
-    ):
-
-        total += int(dur.text)
+    force_44(score)
 
 
-    print(
-        "Measure",
-        measure.get("number"),
-        total
+    print("duration quantize")
+
+    for p in score.parts:
+        quantize_duration(p)
+
+
+    split_cross_measure(score.parts[0])
+
+
+    rebuild_measures(score)
+
+
+    final_check(score)
+
+
+    score.write(
+        "musicxml",
+        fp=outfile
     )
 
 
-
-print("FINAL WRITE")
-
-
-tree.write(
-    output_file,
-    encoding="UTF-8",
-    xml_declaration=True,
-    pretty_print=True
-)
+    print(
+        "DONE",
+        outfile
+    )
 
 
-print("DONE")
-print(output_file)
+if __name__ == "__main__":
+    main()
