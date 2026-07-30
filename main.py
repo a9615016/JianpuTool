@@ -171,7 +171,7 @@ async def upload(
 
 
     print(
-        "RUN clean_musicxml.py V30"
+        "CALL clean_musicxml.py"
     )
 
 
