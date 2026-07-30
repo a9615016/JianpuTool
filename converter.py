@@ -1,123 +1,108 @@
-# converter.py
-# CLEAN MUSICXML FOR JIANPU_LY
-
-from music21 import converter, stream, meter, note, chord
 import os
+import subprocess
+import tempfile
+import shutil
 
 
-def rebuild_for_jianpu(input_file, output_file):
+def convert_musicxml(xml_file):
 
-    print("READ SOURCE")
-    src = converter.parse(input_file)
+    print("START MusicXML convert")
 
-    print("EXTRACT NOTES")
+    # Linux(Render) / Windows 通用暫存資料夾
+    temp_dir = tempfile.gettempdir()
 
-    notes = []
+    work_dir = os.path.join(
+        temp_dir,
+        "jianputool"
+    )
 
-    for n in src.recurse().notes:
-
-        if isinstance(n, chord.Chord):
-            # 只取最高音旋律
-            n = n.sortAscending().notes[-1]
-
-        if isinstance(n, note.Note):
-            notes.append(n)
-
-
-    print("TOTAL NOTES:", len(notes))
-
-
-    print("BUILD NEW SCORE")
-
-    score = stream.Score()
-    part = stream.Part()
-
-    part.append(meter.TimeSignature("4/4"))
-
-
-    measure = stream.Measure(number=1)
-
-    current = 0.0
-
-
-    for n in notes:
-
-        dur = n.duration.quarterLength
-
-
-        # 超過小節直接切
-        if current + dur > 4:
-
-            # 補休止
-            rest_time = 4-current
-
-            if rest_time > 0:
-                r = note.Rest()
-                r.duration.quarterLength = rest_time
-                measure.append(r)
-
-
-            part.append(measure)
-
-            measure = stream.Measure(
-                number=len(part.getElementsByClass(
-                    stream.Measure
-                ))+1
-            )
-
-            current = 0
-
-
-        new_note = note.Note(
-            n.pitch
-        )
-
-        new_note.duration.quarterLength = dur
-
-        measure.append(new_note)
-
-        current += dur
-
-
-
-    # 最後小節補滿
-
-    if current < 4:
-
-        r = note.Rest()
-        r.duration.quarterLength = 4-current
-        measure.append(r)
-
-
-    part.append(measure)
-
-    score.append(part)
-
-
-    print("WRITE MUSICXML")
-
-    score.write(
-        "musicxml",
-        fp=output_file
+    os.makedirs(
+        work_dir,
+        exist_ok=True
     )
 
 
-    print("DONE:", output_file)
-
-
-
-if __name__ == "__main__":
-
-    import sys
-
-    if len(sys.argv)<3:
-        print(
-          "python converter.py input.musicxml output.musicxml"
-        )
-        exit()
-
-
-    rebuild_for_jianpu(
-        sys.argv[1],
-        sys.argv[2]
+    ly_file = os.path.join(
+        work_dir,
+        "output.ly"
     )
+
+
+    pdf_output = os.path.join(
+        work_dir,
+        "jianpu"
+    )
+
+
+    # ==========================
+    # MusicXML → LilyPond
+    # ==========================
+
+    with open(
+        ly_file,
+        "w",
+        encoding="utf-8"
+    ) as f:
+
+        subprocess.run(
+            [
+                "python",
+                "-m",
+                "jianpu_ly",
+                xml_file
+            ],
+            stdout=f,
+            stderr=subprocess.STDOUT,
+            check=True
+        )
+
+
+    print("LilyPond input:")
+    print(ly_file)
+
+
+    # ==========================
+    # LilyPond → PDF
+    # ==========================
+
+    subprocess.run(
+        [
+            "lilypond",
+            "-o",
+            pdf_output,
+            ly_file
+        ],
+        check=True
+    )
+
+
+    pdf_file = pdf_output + ".pdf"
+
+
+    if not os.path.exists(pdf_file):
+
+        raise Exception(
+            "PDF not generated"
+        )
+
+
+    # 複製回專案輸出
+    final_pdf = os.path.join(
+        os.path.dirname(xml_file),
+        "jianpu.pdf"
+    )
+
+
+    shutil.copy(
+        pdf_file,
+        final_pdf
+    )
+
+
+    print(
+        "DONE:",
+        final_pdf
+    )
+
+
+    return final_pdf
