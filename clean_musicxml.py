@@ -1,129 +1,196 @@
-# CLEAN MUSICXML V31
-VERSION = "V31"
+# CLEAN MUSICXML V32
+# JianpuTool
+
+VERSION = "V32"
 
 print("CLEAN MUSICXML", VERSION)
 
-from music21 import converter, stream, note, chord, meter
 import sys
+from lxml import etree
 
 
-def fix_measure_overflow(score):
-
-    print("split overflow notes")
-
-    for part in score.parts:
-
-        new_measures = []
-
-        for m in part.getElementsByClass('Measure'):
-
-            new_m = stream.Measure(number=m.number)
-            current = 0.0
-            limit = 4.0
-
-            for n in m.notesAndRests:
-
-                dur = n.duration.quarterLength
-
-                # 超過小節
-                if current + dur > limit:
-
-                    remain = limit - current
-
-                    if remain > 0:
-
-                        nn = n.deepcopy()
-                        nn.duration.quarterLength = remain
-                        new_m.append(nn)
-
-                    new_measures.append(new_m)
-
-                    new_m = stream.Measure(number=m.number+0.1)
-
-                    left = dur - remain
-
-                    if left > 0:
-                        nn = n.deepcopy()
-                        nn.duration.quarterLength = left
-                        new_m.append(nn)
-
-                    current = left
-
-                else:
-                    new_m.append(n)
-                    current += dur
+INPUT = sys.argv[1]
+OUTPUT = sys.argv[2]
 
 
-            if len(new_m.notesAndRests):
-                new_measures.append(new_m)
+tree = etree.parse(INPUT)
+root = tree.getroot()
 
 
-        part.removeByClass('Measure')
+# ==========================
+# remove unwanted notation
+# ==========================
 
-        for nm in new_measures:
-            part.append(nm)
-
-
-    return score
-
-
-
-def clean(input_file, output_file):
-
-    score = converter.parse(input_file)
-
-    print("remove chords")
-
-    for p in score.parts:
-        for c in p.recurse().getElementsByClass(chord.Chord):
-            c.notes[0].duration = c.duration
-            c.activeSite.replace(c.notes[0])
-            c.activeSite.remove(c)
+print("remove chords")
+for chord in root.xpath(".//chord"):
+    parent = chord.getparent()
+    if parent is not None:
+        parent.remove(chord)
 
 
-    print("remove beams")
-
-    for n in score.recurse().notes:
-        n.beams = []
-
-
-    print("remove ties")
-
-    for n in score.recurse().notes:
-        n.tie = None
+print("remove beams")
+for beam in root.xpath(".//beam"):
+    parent = beam.getparent()
+    if parent is not None:
+        parent.remove(beam)
 
 
-    print("force 4/4")
-
-    for p in score.parts:
-        p.insert(0,meter.TimeSignature("4/4"))
-
-
-    print("split overflow")
-
-    score = fix_measure_overflow(score)
+print("remove ties")
+for tie in root.xpath(".//tie"):
+    parent = tie.getparent()
+    if parent is not None:
+        parent.remove(tie)
 
 
-    print("FINAL CHECK")
+# ==========================
+# force 4/4
+# ==========================
 
-    for m in score.parts[0].getElementsByClass('Measure'):
-        length = m.duration.quarterLength
+print("force 4/4")
+
+for measure in root.xpath(".//measure"):
+
+    attrs = measure.find("attributes")
+
+    if attrs is None:
+        continue
+
+    time = attrs.find("time")
+
+    if time is not None:
+
+        beats = time.find("beats")
+        beat_type = time.find("beat-type")
+
+        if beats is not None:
+            beats.text = "4"
+
+        if beat_type is not None:
+            beat_type.text = "4"
+
+
+
+# ==========================
+# duration quantize
+# ==========================
+
+print("duration quantize")
+
+
+for duration in root.xpath(".//duration"):
+
+    try:
+        value = int(duration.text)
+
+        # quantize to 16 division grid
+        value = round(value / 4) * 4
+
+        if value <= 0:
+            value = 4
+
+        duration.text = str(value)
+
+    except:
+        pass
+
+
+
+# ==========================
+# rebuild measures check
+# ==========================
+
+print("FINAL BAR CHECK V32")
+
+
+DIVISION = 16
+BAR_LENGTH = DIVISION * 4
+
+
+for measure in root.xpath(".//measure"):
+
+    total = 0
+
+    notes = measure.xpath("./note")
+
+
+    for note in notes:
+
+        dur = note.find("duration")
+
+        if dur is not None:
+
+            try:
+                total += int(dur.text)
+            except:
+                pass
+
+
+
+    if total > BAR_LENGTH:
+
         print(
-            "Measure",
-            m.number,
-            length
+            "FIX OVER BAR",
+            measure.get("number"),
+            total
         )
 
 
-    score.write(
-        "musicxml",
-        fp=output_file
-    )
+        overflow = total - BAR_LENGTH
 
 
-if __name__ == "__main__":
+        # 從最後音符開始縮短
+        for note in reversed(notes):
 
-    clean(
-        sys.argv[1],
-        sys.argv[2]
-    )
+            dur = note.find("duration")
+
+            if dur is None:
+                continue
+
+
+            try:
+                d = int(dur.text)
+
+            except:
+                continue
+
+
+            if d > overflow:
+
+                dur.text = str(d - overflow)
+
+                break
+
+
+
+# ==========================
+# remove empty voices
+# ==========================
+
+print("clear voices")
+
+
+for voice in root.xpath(".//voice"):
+
+    parent = voice.getparent()
+
+    if parent is not None:
+
+        parent.remove(voice)
+
+
+
+# ==========================
+# write
+# ==========================
+
+tree.write(
+    OUTPUT,
+    encoding="utf-8",
+    xml_declaration=True
+)
+
+
+print(
+    "DONE CLEAN MUSICXML",
+    VERSION
+)
