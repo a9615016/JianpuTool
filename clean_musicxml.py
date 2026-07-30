@@ -1,3 +1,4 @@
+# CLEAN MUSICXML V31
 VERSION = "V31"
 
 print("CLEAN MUSICXML", VERSION)
@@ -6,202 +7,123 @@ from music21 import converter, stream, note, chord, meter
 import sys
 
 
-def remove_chords(part):
-    for el in list(part.recurse()):
-        if isinstance(el, chord.Chord):
-            n = note.Note(el.pitch)
-            n.duration = el.duration
-            el.activeSite.replace(el, n)
+def fix_measure_overflow(score):
 
+    print("split overflow notes")
 
-def remove_ties(part):
-    for n in part.recurse().notes:
-        if n.tie:
-            n.tie = None
+    for part in score.parts:
 
+        new_measures = []
 
-def remove_beams(part):
-    for n in part.recurse().notes:
-        n.beams = None
+        for m in part.getElementsByClass('Measure'):
 
+            new_m = stream.Measure(number=m.number)
+            current = 0.0
+            limit = 4.0
 
-def force_44(score):
-    for p in score.parts:
-        p.insert(0, meter.TimeSignature("4/4"))
+            for n in m.notesAndRests:
 
+                dur = n.duration.quarterLength
 
-def quantize_duration(part):
-    allowed = [
-        4, 3, 2, 1,
-        0.5, 0.25,
-        1.5, 0.75
-    ]
+                # 超過小節
+                if current + dur > limit:
 
-    for n in part.recurse().notes:
-        q = float(n.duration.quarterLength)
+                    remain = limit - current
 
-        best = min(
-            allowed,
-            key=lambda x: abs(x-q)
-        )
+                    if remain > 0:
 
-        n.duration.quarterLength = best
+                        nn = n.deepcopy()
+                        nn.duration.quarterLength = remain
+                        new_m.append(nn)
 
+                    new_measures.append(new_m)
 
-def split_cross_measure(part):
+                    new_m = stream.Measure(number=m.number+0.1)
 
-    print("split cross measure notes")
+                    left = dur - remain
 
-    measures = list(part.getElementsByClass("Measure"))
+                    if left > 0:
+                        nn = n.deepcopy()
+                        nn.duration.quarterLength = left
+                        new_m.append(nn)
 
-    for m in measures:
-        total = m.duration.quarterLength
-
-        if total > 4:
-
-            print(
-                "overflow measure",
-                m.number,
-                total
-            )
-
-            excess = total - 4
-
-            notes = list(
-                m.notes
-            )
-
-            for n in reversed(notes):
-
-                if excess <= 0:
-                    break
-
-                length = n.duration.quarterLength
-
-                if length > excess:
-                    n.duration.quarterLength = length - excess
-                    excess = 0
+                    current = left
 
                 else:
-                    m.remove(n)
-                    excess -= length
+                    new_m.append(n)
+                    current += dur
+
+
+            if len(new_m.notesAndRests):
+                new_measures.append(new_m)
+
+
+        part.removeByClass('Measure')
+
+        for nm in new_measures:
+            part.append(nm)
+
+
+    return score
 
 
 
-def rebuild_measures(score):
+def clean(input_file, output_file):
 
-    print("rebuild measures")
-
-    for p in score.parts:
-
-        measures = p.makeMeasures()
-
-        p.remove(
-            p.getElementsByClass("Measure")
-        )
-
-        for m in measures:
-            p.append(m)
-
-
-
-def final_check(score):
-
-    print("================")
-    print("FINAL CHECK V31")
-    print("================")
-
-    for p in score.parts:
-
-        for m in p.getElementsByClass("Measure"):
-
-            q = float(
-                m.duration.quarterLength
-            )
-
-            print(
-                "Measure",
-                m.number,
-                q
-            )
-
-            if q > 4.01:
-                print(
-                    "WARNING overflow",
-                    m.number,
-                    q
-                )
-
-
-
-def main():
-
-    if len(sys.argv) < 2:
-        print(
-            "usage: python clean_musicxml.py input.musicxml output.musicxml"
-        )
-        return
-
-
-    infile = sys.argv[1]
-    outfile = sys.argv[2]
-
-
-    print("INPUT", infile)
-
-
-    score = converter.parse(infile)
-
+    score = converter.parse(input_file)
 
     print("remove chords")
 
     for p in score.parts:
-        remove_chords(p)
-
-
-    print("remove ties")
-
-    for p in score.parts:
-        remove_ties(p)
+        for c in p.recurse().getElementsByClass(chord.Chord):
+            c.notes[0].duration = c.duration
+            c.activeSite.replace(c.notes[0])
+            c.activeSite.remove(c)
 
 
     print("remove beams")
 
-    for p in score.parts:
-        remove_beams(p)
+    for n in score.recurse().notes:
+        n.beams = []
+
+
+    print("remove ties")
+
+    for n in score.recurse().notes:
+        n.tie = None
 
 
     print("force 4/4")
 
-    force_44(score)
-
-
-    print("duration quantize")
-
     for p in score.parts:
-        quantize_duration(p)
+        p.insert(0,meter.TimeSignature("4/4"))
 
 
-    split_cross_measure(score.parts[0])
+    print("split overflow")
+
+    score = fix_measure_overflow(score)
 
 
-    rebuild_measures(score)
+    print("FINAL CHECK")
 
-
-    final_check(score)
+    for m in score.parts[0].getElementsByClass('Measure'):
+        length = m.duration.quarterLength
+        print(
+            "Measure",
+            m.number,
+            length
+        )
 
 
     score.write(
         "musicxml",
-        fp=outfile
-    )
-
-
-    print(
-        "DONE",
-        outfile
+        fp=output_file
     )
 
 
 if __name__ == "__main__":
-    main()
+
+    clean(
+        sys.argv[1],
+        sys.argv[2]
+    )
