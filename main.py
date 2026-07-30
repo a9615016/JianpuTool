@@ -1,11 +1,13 @@
-MAIN_VERSION = "V30"
+MAIN_VERSION = "V31-barfix"
 
 print("================")
 print(f"JianpuTool main.py {MAIN_VERSION}")
 print("================")
 
+
 from fastapi import FastAPI, UploadFile, File
 from fastapi.responses import FileResponse
+
 import os
 import uuid
 import subprocess
@@ -31,8 +33,9 @@ def home():
 
     return {
         "status": "JianpuTool running",
+        "version": MAIN_VERSION,
         "pipeline":
-        "MP3/WAV → MIDI → MusicXML → clean_musicxml → Jianpu PDF"
+        "MP3/WAV → MIDI → MusicXML → clean_musicxml V31 → bar_check_fix → Jianpu PDF"
     }
 
 
@@ -72,12 +75,13 @@ async def upload(
 
 
     # ==========================
-    # MP3 / WAV → BasicPitch → MIDI
+    # AUDIO → MIDI → MusicXML
     # ==========================
 
     if ext in ["mp3", "wav"]:
 
         print("AUDIO → BasicPitch")
+
 
         midi_file = os.path.join(
             job_dir,
@@ -147,7 +151,6 @@ async def upload(
 
         print("MusicXML input")
 
-
         xml_file = input_file
 
 
@@ -161,7 +164,7 @@ async def upload(
 
 
     # ==========================
-    # CLEAN MUSICXML
+    # CLEAN MUSICXML V31
     # ==========================
 
     clean_xml = os.path.join(
@@ -171,7 +174,7 @@ async def upload(
 
 
     print(
-        "CALL clean_musicxml.py"
+        "RUN clean_musicxml.py V31"
     )
 
 
@@ -188,12 +191,47 @@ async def upload(
 
 
     # ==========================
+    # BAR CHECK FIX
+    # ==========================
+
+    fixed_xml = os.path.join(
+        job_dir,
+        "fixed.musicxml"
+    )
+
+
+    print(
+        "RUN bar_check_fix.py"
+    )
+
+
+    subprocess.run(
+        [
+            "python",
+            "bar_check_fix.py",
+            clean_xml,
+            fixed_xml
+        ],
+        check=True
+    )
+
+
+    clean_xml = fixed_xml
+
+
+
+    # ==========================
     # MusicXML → Jianpu LY
     # ==========================
 
     ly_file = os.path.join(
         job_dir,
         "output.ly"
+    )
+
+
+    print(
+        "RUN jianpu_ly"
     )
 
 
@@ -220,6 +258,11 @@ async def upload(
     # LilyPond PDF
     # ==========================
 
+    print(
+        "RUN LilyPond"
+    )
+
+
     subprocess.run(
         [
             "lilypond",
@@ -232,6 +275,7 @@ async def upload(
         ],
         check=True
     )
+
 
 
     pdf_file = os.path.join(
