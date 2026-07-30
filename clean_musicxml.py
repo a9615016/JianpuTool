@@ -1,44 +1,50 @@
-print("========== USING V25 ==========")
-print("================")
-print("CLEAN MUSICXML V25 FINAL JIANPU COMPATIBLE")
-print("================")
-
-from music21 import converter, meter, note, chord, stream
 import sys
+from lxml import etree
 
 
-INPUT = sys.argv[1]
-
-if len(sys.argv) >= 3:
-    OUTPUT = sys.argv[2]
-else:
-    OUTPUT = "clean.musicxml"
+VERSION = "V27"
 
 
-print("read")
+print("================")
+print("CLEAN MUSICXML", VERSION)
+print("================")
 
-score = converter.parse(INPUT)
+
+if len(sys.argv) < 3:
+    print("Usage: python clean_musicxml_v27.py input.musicxml output.musicxml")
+    sys.exit(1)
 
 
-print(
-    "ORIGINAL NOTES",
-    len(score.recurse().notes)
-)
+input_file = sys.argv[1]
+output_file = sys.argv[2]
+
+
+NS = {
+    "m": "http://www.musicxml.org/ns/musicxml"
+}
+
+
+tree = etree.parse(input_file)
+root = tree.getroot()
 
 
 # ==========================
-# remove chords
+# divisions
 # ==========================
 
-print("remove chords")
+divisions = 16
 
-for c in list(score.recurse().getElementsByClass(chord.Chord)):
+div = root.find(".//m:divisions", NS)
 
-    n = note.Note(c.pitches[0])
+if div is not None:
+    divisions = int(div.text)
 
-    n.duration = c.duration
 
-    c.activeSite.replace(c, n)
+BAR_LENGTH = divisions * 4
+
+
+print("DIVISIONS", divisions)
+print("BAR LENGTH", BAR_LENGTH)
 
 
 
@@ -48,12 +54,23 @@ for c in list(score.recurse().getElementsByClass(chord.Chord)):
 
 print("remove voices")
 
-for v in score.recurse().voices:
+for x in root.xpath(".//m:voice", namespaces=NS):
+    p = x.getparent()
+    if p is not None:
+        p.remove(x)
 
-    try:
-        v.id = None
-    except:
-        pass
+
+
+# ==========================
+# remove chords
+# ==========================
+
+print("remove chords")
+
+for x in root.xpath(".//m:chord", namespaces=NS):
+    p = x.getparent()
+    if p is not None:
+        p.remove(x)
 
 
 
@@ -63,12 +80,10 @@ for v in score.recurse().voices:
 
 print("remove beams")
 
-for n in score.recurse().notes:
-
-    try:
-        n.beams = []
-    except:
-        pass
+for x in root.xpath(".//m:beam", namespaces=NS):
+    p = x.getparent()
+    if p is not None:
+        p.remove(x)
 
 
 
@@ -78,9 +93,10 @@ for n in score.recurse().notes:
 
 print("remove ties")
 
-for n in score.recurse().notes:
-
-    n.tie = None
+for x in root.xpath(".//m:tie", namespaces=NS):
+    p = x.getparent()
+    if p is not None:
+        p.remove(x)
 
 
 
@@ -90,49 +106,43 @@ for n in score.recurse().notes:
 
 print("force 4/4")
 
+for time in root.xpath(".//m:time", namespaces=NS):
 
-for part in score.parts:
+    beats = time.find("m:beats", NS)
+    beat_type = time.find("m:beat-type", NS)
 
-    for m in part.getElementsByClass("Measure"):
+    if beats is not None:
+        beats.text = "4"
 
-        m.insert(
-            0,
-            meter.TimeSignature("4/4")
-        )
+    if beat_type is not None:
+        beat_type.text = "4"
 
 
 
 # ==========================
-# quantize
+# duration quantize
 # ==========================
 
 print("duration quantize")
 
 
-allowed = [
-    0.25,
-    0.5,
-    0.75,
-    1.0,
-    1.5,
-    2.0,
-    3.0,
-    4.0
-]
+for duration in root.xpath(".//m:duration", namespaces=NS):
+
+    try:
+        value = int(duration.text)
+
+    except:
+        continue
 
 
-for n in score.recurse().notesAndRests:
+    # 四分音符16分割
+    # 限制到合理值
 
-    q = float(n.duration.quarterLength)
+    if value < 1:
+        value = 1
 
-    nearest = min(
-        allowed,
-        key=lambda x:abs(x-q)
-    )
 
-    n.duration.clear()
-
-    n.duration.quarterLength = nearest
+    duration.text = str(value)
 
 
 
@@ -143,140 +153,78 @@ for n in score.recurse().notesAndRests:
 print("rebuild measures")
 
 
-for part in score.parts:
+for part in root.xpath(".//m:part", namespaces=NS):
 
-    part.makeMeasures(inPlace=True)
+    measures = part.xpath("./m:measure", namespaces=NS)
 
-
-
-# ==========================
-# repair measure overflow
-# ==========================
-
-print("repair measures")
+    current = 0
+    measure_no = 1
 
 
-for part in score.parts:
+    for measure in measures:
 
-    for m in list(part.getElementsByClass("Measure")):
-
-
-        total = sum(
-            float(x.duration.quarterLength)
-            for x in m.notesAndRests
+        measure.set(
+            "number",
+            str(measure_no)
         )
 
+        measure_no += 1
 
-        while total > 4:
-
-
-            diff = total - 4
+        current = 0
 
 
-            for n in reversed(
-                list(m.notesAndRests)
-            ):
+        for note in measure.xpath("./m:note", namespaces=NS):
 
-                d = float(
-                    n.duration.quarterLength
-                )
-
-
-                if d > diff:
-
-                    n.duration.quarterLength = d-diff
-
-                    break
-
-
-            total = sum(
-                float(x.duration.quarterLength)
-                for x in m.notesAndRests
+            dur = note.find(
+                "m:duration",
+                NS
             )
 
 
-
-# ==========================
-# fill rest
-# ==========================
-
-print("fill measure rest")
+            if dur is None:
+                continue
 
 
-for part in score.parts:
+            try:
+                value = int(dur.text)
 
-    for m in part.getElementsByClass("Measure"):
+            except:
+                continue
 
 
-        total = sum(
-            float(x.duration.quarterLength)
-            for x in m.notesAndRests
+            current += value
+
+
+        print(
+            "Measure",
+            measure.get("number"),
+            current
         )
 
 
-        if total < 4:
-
-            r = note.Rest()
-
-            r.duration.quarterLength = 4-total
-
-            m.append(r)
-
-
 
 # ==========================
-# clear cache
+# clear notation
 # ==========================
 
 print("clear notation cache")
 
-score.stripTies()
 
+for note in root.xpath(".//m:note", namespaces=NS):
 
+    for tag in [
+        "notations",
+        "articulations",
+        "ornaments"
+    ]:
 
-# ==========================
-# final check
-# ==========================
-
-print("FINAL CHECK")
-
-
-ok=True
-
-
-for part in score.parts:
-
-    for m in part.getElementsByClass("Measure"):
-
-        total=sum(
-            float(x.duration.quarterLength)
-            for x in m.notesAndRests
+        obj = note.find(
+            "m:"+tag,
+            NS
         )
 
-        print(
-            "Measure",
-            m.number,
-            total
-        )
-
-
-        if abs(total-4)>0.01:
-
-            ok=False
-
-
-
-if not ok:
-
-    print(
-        "WARNING measure mismatch"
-    )
-
-else:
-
-    print(
-        "ALL MEASURES OK"
-    )
+        if obj is not None:
+            note.remove(obj)
 
 
 
@@ -287,12 +235,13 @@ else:
 print("FINAL WRITE")
 
 
-score.write(
-    "musicxml",
-    fp=OUTPUT
+tree.write(
+    output_file,
+    encoding="UTF-8",
+    xml_declaration=True,
+    pretty_print=True
 )
 
 
 print("DONE")
-
-print(OUTPUT)
+print(output_file)

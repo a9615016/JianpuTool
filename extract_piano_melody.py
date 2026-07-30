@@ -1,96 +1,254 @@
-import xml.etree.ElementTree as ET
 import sys
+import music21
 
 
-def clean_musicxml(src, dst):
+def clean_musicxml(input_file, output_file):
 
-    tree = ET.parse(src)
-    root = tree.getroot()
+    print("CLEAN VERSION 20260726 MVP")
 
-
-    # namespace
-    notes = root.findall(".//note")
+    print("input:", input_file)
 
 
-    last_pitch = None
-    last_duration = None
-    remove = []
+    score = music21.converter.parse(input_file)
 
 
-    for note in notes:
+    # =========================
+    # remove voices
+    # =========================
 
-        pitch = note.find("pitch")
-        duration = note.find("duration")
-
-
-        if pitch is None:
-            continue
+    print("remove voices")
 
 
-        step = pitch.findtext("step")
-        octave = pitch.findtext("octave")
+    for part in score.parts:
+
+        for measure in part.getElementsByClass(
+            music21.stream.Measure
+        ):
+
+            voices = list(
+                measure.getElementsByClass(
+                    music21.stream.Voice
+                )
+            )
 
 
-        current = (
-            step,
-            octave,
-            duration.text if duration is not None else ""
+            if voices:
+
+                notes=[]
+
+                for v in voices:
+                    notes.extend(
+                        list(v.notesAndRests)
+                    )
+
+
+                measure.removeByClass(
+                    music21.stream.Voice
+                )
+
+
+                offset=0
+
+
+                for n in notes:
+
+                    n.offset=offset
+
+                    measure.insert(
+                        offset,
+                        n
+                    )
+
+                    offset += n.quarterLength
+
+
+
+    # =========================
+    # remove chords
+    # =========================
+
+    print("remove chords")
+
+
+    for c in list(
+        score.recurse()
+        .getElementsByClass(
+            music21.chord.Chord
+        )
+    ):
+
+        n=c.notes[0]
+
+        n.duration=c.duration
+
+        c.activeSite.replace(
+            c,
+            n
         )
 
 
-        # 移除連續完全相同音符
-        if current == last_pitch:
 
-            remove.append(note)
+    # =========================
+    # remove grace
+    # =========================
 
-        else:
-            last_pitch=current
-
+    print("remove grace")
 
 
-    for n in remove:
+    for n in list(
+        score.recurse()
+        .notes
+    ):
 
-        for parent in root.iter():
+        if n.duration.isGrace:
 
-            if n in list(parent):
-
-                parent.remove(n)
-                break
+            n.activeSite.remove(n)
 
 
 
-    # 修正 divisions
-    for d in root.findall(".//divisions"):
+    # =========================
+    # force duration
+    # =========================
 
-        d.text="16"
-
-
-
-    # 修正時間
-    for beats in root.findall(".//beats"):
-
-        beats.text="4"
+    print("fix duration")
 
 
-    for bt in root.findall(".//beat-type"):
-
-        bt.text="4"
+    for n in score.recurse().notesAndRests:
 
 
+        q=float(
+            n.duration.quarterLength
+        )
 
-    tree.write(
-        dst,
-        encoding="utf-8",
-        xml_declaration=True
+
+        if q <=0:
+
+            q=0.25
+
+
+        # 四分音符量化
+        q=round(q*4)/4
+
+
+        if q<=0:
+
+            q=0.25
+
+
+        n.duration.quarterLength=q
+
+
+
+    # =========================
+    # rebuild measures
+    # =========================
+
+    print("rebuild measures")
+
+
+    for part in score.parts:
+
+        part.makeMeasures(
+            inPlace=True
+        )
+
+
+
+    # =========================
+    # force 4/4 bars
+    # =========================
+
+    print("fix bars")
+
+
+    for part in score.parts:
+
+
+        for measure in part.getElementsByClass(
+            music21.stream.Measure
+        ):
+
+
+            total=sum(
+                e.duration.quarterLength
+                for e in measure.notesAndRests
+            )
+
+
+            # 4/4 = 4拍
+
+            if total > 4:
+
+
+                print(
+                    "trim measure",
+                    measure.number,
+                    total
+                )
+
+
+                remain=4
+
+
+                for e in list(
+                    measure.notesAndRests
+                ):
+
+                    if remain<=0:
+
+                        measure.remove(e)
+
+                        continue
+
+
+                    if e.duration.quarterLength > remain:
+
+                        e.duration.quarterLength=remain
+
+
+                    remain -= e.duration.quarterLength
+
+
+
+    # =========================
+    # final
+    # =========================
+
+    print("write")
+
+
+    score.write(
+        "musicxml",
+        fp=output_file
     )
 
 
-    print("clean完成")
+    print(
+        "done:",
+        output_file
+    )
+
 
 
 if __name__=="__main__":
 
+
+    input_file=sys.argv[1]
+
+
+    if len(sys.argv)>=3:
+
+        output_file=sys.argv[2]
+
+    else:
+
+        output_file=input_file.replace(
+            ".musicxml",
+            "_clean.musicxml"
+        )
+
+
     clean_musicxml(
-        sys.argv[1],
-        sys.argv[2]
+        input_file,
+        output_file
     )
