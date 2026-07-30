@@ -1,12 +1,13 @@
-# CLEAN MUSICXML V32
+# CLEAN MUSICXML V33
 # JianpuTool
 
-VERSION = "V32"
+VERSION = "V33"
 
 print("CLEAN MUSICXML", VERSION)
 
 import sys
 from lxml import etree
+from copy import deepcopy
 
 
 INPUT = sys.argv[1]
@@ -17,11 +18,16 @@ tree = etree.parse(INPUT)
 root = tree.getroot()
 
 
+DIVISION = 16
+BAR_LENGTH = 64
+
+
 # ==========================
-# remove unwanted notation
+# remove notation
 # ==========================
 
 print("remove chords")
+
 for chord in root.xpath(".//chord"):
     parent = chord.getparent()
     if parent is not None:
@@ -29,6 +35,7 @@ for chord in root.xpath(".//chord"):
 
 
 print("remove beams")
+
 for beam in root.xpath(".//beam"):
     parent = beam.getparent()
     if parent is not None:
@@ -36,10 +43,12 @@ for beam in root.xpath(".//beam"):
 
 
 print("remove ties")
+
 for tie in root.xpath(".//tie"):
     parent = tie.getparent()
     if parent is not None:
         parent.remove(tie)
+
 
 
 # ==========================
@@ -48,47 +57,31 @@ for tie in root.xpath(".//tie"):
 
 print("force 4/4")
 
-for measure in root.xpath(".//measure"):
+for time in root.xpath(".//time"):
 
-    attrs = measure.find("attributes")
+    beats = time.find("beats")
+    beat_type = time.find("beat-type")
 
-    if attrs is None:
-        continue
+    if beats is not None:
+        beats.text = "4"
 
-    time = attrs.find("time")
-
-    if time is not None:
-
-        beats = time.find("beats")
-        beat_type = time.find("beat-type")
-
-        if beats is not None:
-            beats.text = "4"
-
-        if beat_type is not None:
-            beat_type.text = "4"
+    if beat_type is not None:
+        beat_type.text = "4"
 
 
 
 # ==========================
-# duration quantize
+# quantize
 # ==========================
 
 print("duration quantize")
 
-
-for duration in root.xpath(".//duration"):
+for d in root.xpath(".//duration"):
 
     try:
-        value = int(duration.text)
-
-        # quantize to 16 division grid
-        value = round(value / 4) * 4
-
-        if value <= 0:
-            value = 4
-
-        duration.text = str(value)
+        value = int(d.text)
+        value = max(4, round(value / 4) * 4)
+        d.text = str(value)
 
     except:
         pass
@@ -96,91 +89,107 @@ for duration in root.xpath(".//duration"):
 
 
 # ==========================
-# rebuild measures check
+# SPLIT CROSS MEASURE NOTES
 # ==========================
 
-print("FINAL BAR CHECK V32")
-
-
-DIVISION = 16
-BAR_LENGTH = DIVISION * 4
+print("SPLIT CROSS MEASURE NOTES V33")
 
 
 for measure in root.xpath(".//measure"):
 
-    total = 0
+    current = 0
 
     notes = measure.xpath("./note")
 
 
-    for note in notes:
+    for note in notes[:]:
 
-        dur = note.find("duration")
+        duration = note.find("duration")
 
-        if dur is not None:
-
-            try:
-                total += int(dur.text)
-            except:
-                pass
+        if duration is None:
+            continue
 
 
+        try:
+            length = int(duration.text)
 
-    if total > BAR_LENGTH:
-
-        print(
-            "FIX OVER BAR",
-            measure.get("number"),
-            total
-        )
+        except:
+            continue
 
 
-        overflow = total - BAR_LENGTH
+
+        # 超過小節線
+        if current + length > BAR_LENGTH:
+
+            overflow = current + length - BAR_LENGTH
+
+            first = length - overflow
 
 
-        # 從最後音符開始縮短
-        for note in reversed(notes):
-
-            dur = note.find("duration")
-
-            if dur is None:
-                continue
-
-
-            try:
-                d = int(dur.text)
-
-            except:
-                continue
+            print(
+                "SPLIT NOTE",
+                measure.get("number"),
+                length,
+                "->",
+                first,
+                "+",
+                overflow
+            )
 
 
-            if d > overflow:
+            # 原 note 留前半
+            duration.text = str(first)
 
-                dur.text = str(d - overflow)
 
-                break
+
+            # 建立下一段
+            second = deepcopy(note)
+
+            second_duration = second.find("duration")
+
+            if second_duration is not None:
+                second_duration.text = str(overflow)
+
+
+
+            # 加入下一個小節
+            next_measure = measure.getnext()
+
+
+            if next_measure is not None:
+
+                next_measure.insert(
+                    0,
+                    second
+                )
+
+
+            current = BAR_LENGTH
+
+
+        else:
+
+            current += length
 
 
 
 # ==========================
-# remove empty voices
+# remove voices
 # ==========================
 
-print("clear voices")
-
+print("remove voices")
 
 for voice in root.xpath(".//voice"):
 
     parent = voice.getparent()
 
     if parent is not None:
-
         parent.remove(voice)
 
 
 
 # ==========================
-# write
+# save
 # ==========================
 
 tree.write(
