@@ -1,12 +1,14 @@
-import sys
-from lxml import etree
-
 
 VERSION = "V27"
 
 print("================")
 print("CLEAN MUSICXML", VERSION)
 print("================")
+
+import sys
+from lxml import etree
+
+
 
 
 if len(sys.argv) < 3:
