@@ -1,4 +1,4 @@
-MAIN_VERSION = "V27"
+MAIN_VERSION = "V30"
 
 print("================")
 print(f"JianpuTool main.py {MAIN_VERSION}")
