@@ -4,14 +4,13 @@ from lxml import etree
 
 VERSION = "V27"
 
-
 print("================")
 print("CLEAN MUSICXML", VERSION)
 print("================")
 
 
 if len(sys.argv) < 3:
-    print("Usage: python clean_musicxml_v27.py input.musicxml output.musicxml")
+    print("Usage: python clean_musicxml.py input.musicxml output.musicxml")
     sys.exit(1)
 
 
@@ -42,9 +41,8 @@ if div is not None:
 
 BAR_LENGTH = divisions * 4
 
-
-print("DIVISIONS", divisions)
-print("BAR LENGTH", BAR_LENGTH)
+print("DIVISIONS =", divisions)
+print("BAR_LENGTH =", BAR_LENGTH)
 
 
 
@@ -120,34 +118,7 @@ for time in root.xpath(".//m:time", namespaces=NS):
 
 
 # ==========================
-# duration quantize
-# ==========================
-
-print("duration quantize")
-
-
-for duration in root.xpath(".//m:duration", namespaces=NS):
-
-    try:
-        value = int(duration.text)
-
-    except:
-        continue
-
-
-    # 四分音符16分割
-    # 限制到合理值
-
-    if value < 1:
-        value = 1
-
-
-    duration.text = str(value)
-
-
-
-# ==========================
-# rebuild measures
+# rebuild measure duration
 # ==========================
 
 print("rebuild measures")
@@ -155,23 +126,92 @@ print("rebuild measures")
 
 for part in root.xpath(".//m:part", namespaces=NS):
 
-    measures = part.xpath("./m:measure", namespaces=NS)
+    for measure in part.xpath("./m:measure", namespaces=NS):
 
-    current = 0
-    measure_no = 1
+        total = 0
+
+        notes = measure.xpath("./m:note", namespaces=NS)
+
+        for note in notes:
+
+            dur = note.find(
+                "m:duration",
+                NS
+            )
+
+            if dur is None:
+                continue
+
+            try:
+                value = int(dur.text)
+            except:
+                value = 1
+
+            # 最小單位
+            if value < 1:
+                value = 1
+
+            dur.text = str(value)
+
+            total += value
 
 
-    for measure in measures:
-
-        measure.set(
-            "number",
-            str(measure_no)
+        print(
+            "Measure",
+            measure.get("number"),
+            total
         )
 
-        measure_no += 1
 
-        current = 0
+        # 超過小節
+        if total > BAR_LENGTH:
 
+            print(
+                "FIX OVER MEASURE",
+                measure.get("number"),
+                total
+            )
+
+
+            remain = total - BAR_LENGTH
+
+            for note in reversed(notes):
+
+                if remain <= 0:
+                    break
+
+
+                dur = note.find(
+                    "m:duration",
+                    NS
+                )
+
+                if dur is None:
+                    continue
+
+
+                value = int(dur.text)
+
+
+                if value > remain:
+
+                    dur.text = str(
+                        value - remain
+                    )
+
+                    remain = 0
+
+                else:
+
+                    remain -= value
+
+                    dur.text = "1"
+
+
+
+        # 不足補休止符
+
+        total2 = 0
 
         for note in measure.xpath("./m:note", namespaces=NS):
 
@@ -180,26 +220,44 @@ for part in root.xpath(".//m:part", namespaces=NS):
                 NS
             )
 
+            if dur is not None:
 
-            if dur is None:
-                continue
-
-
-            try:
-                value = int(dur.text)
-
-            except:
-                continue
+                total2 += int(dur.text)
 
 
-            current += value
+
+        if total2 < BAR_LENGTH:
+
+            missing = BAR_LENGTH - total2
+
+            print(
+                "ADD REST",
+                measure.get("number"),
+                missing
+            )
 
 
-        print(
-            "Measure",
-            measure.get("number"),
-            current
-        )
+            rest = etree.Element(
+                "{%s}note" %
+                NS["m"]
+            )
+
+            etree.SubElement(
+                rest,
+                "{%s}rest" %
+                NS["m"]
+            )
+
+            d = etree.SubElement(
+                rest,
+                "{%s}duration" %
+                NS["m"]
+            )
+
+            d.text = str(missing)
+
+
+            measure.append(rest)
 
 
 
@@ -219,7 +277,7 @@ for note in root.xpath(".//m:note", namespaces=NS):
     ]:
 
         obj = note.find(
-            "m:"+tag,
+            "m:" + tag,
             NS
         )
 
@@ -229,8 +287,31 @@ for note in root.xpath(".//m:note", namespaces=NS):
 
 
 # ==========================
-# write
+# FINAL CHECK
 # ==========================
+
+print("FINAL CHECK")
+
+
+for measure in root.xpath(".//m:measure", namespaces=NS):
+
+    total = 0
+
+    for dur in measure.xpath(
+        "./m:note/m:duration",
+        namespaces=NS
+    ):
+
+        total += int(dur.text)
+
+
+    print(
+        "Measure",
+        measure.get("number"),
+        total
+    )
+
+
 
 print("FINAL WRITE")
 
