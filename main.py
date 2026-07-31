@@ -1,4 +1,4 @@
-MAIN_VERSION = "V32-MVP-FIX"
+MAIN_VERSION = "V33-BARFIX-TEST"
 
 print("================")
 print(f"JianpuTool main.py {MAIN_VERSION}")
