@@ -217,6 +217,22 @@ async def upload(
 
 
     print("clean musicxml 完成")
+    fix_xml = os.path.join(
+    job_dir,
+    "fix.musicxml"
+    )
+
+    subprocess.run(
+    [
+        "python",
+        "jianpu_fix_bar.py",
+        clean_xml,
+        fix_xml
+    ],
+    check=True
+    )
+
+    print("jianpu bar fix 完成")
 
 
 
