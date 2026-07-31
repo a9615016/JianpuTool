@@ -371,16 +371,3 @@ instrument="Electric Piano"
     \grobdescriptions #all-grob-descriptions
   }
 } }
-\score {
-\unfoldRepeats
-<< 
-
-
-
->>
-\header{
-title="Music21 Fragment"
-composer="Music21"
-instrument="Electric Piano"
-}
-\midi { \context { \Score tempoWholesPerMinute = #(ly:make-moment 84 4)}} }
