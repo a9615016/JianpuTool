@@ -358,6 +358,6 @@ WithStaff NextPart
  \note-mod "4" f8.-\tweak #'X-offset #0.6 _\two-dots [
 ]   \note-mod "0" r4  r4  r4  r4 r4  r4  r4  r4 \bar "|." } 
 % === END JIANPU STAFF ===
-
+}
 >>
 }
