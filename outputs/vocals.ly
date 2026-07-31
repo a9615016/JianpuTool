@@ -360,9 +360,4 @@ WithStaff NextPart
 % === END JIANPU STAFF ===
 
 >>
-\header{
-title="Music21 Fragment"
-composer="Music21"
-instrument="Electric Piano"
-}
- 
+
