@@ -1,200 +1,43 @@
 from music21 import converter, stream, meter, note, chord
 import sys
 
-
 print("==============================")
-print("MIDI TO MUSICXML V2")
-print("JIANPU COMPATIBLE")
+print("MIDI TO MUSICXML V2 (FIXED)")
 print("==============================")
-
 
 if len(sys.argv) < 3:
-    print(
-        "python midi_to_musicxml.py input.mid output.musicxml"
-    )
-    sys.exit()
-
-
+    print("python midi_to_musicxml.py input.mid output.musicxml")
+    sys.exit(1)
 
 input_file = sys.argv[1]
 output_file = sys.argv[2]
 
-
-print("輸入:")
-print(input_file)
-
-
-
-# =========================
-# READ MIDI
-# =========================
-
-print("讀取 MIDI...")
-
-
-score = converter.parse(
-    input_file
-)
-
-
-
-# =========================
-# REMOVE CHORD
-# =========================
+print("輸入:", input_file)
+score = converter.parse(input_file)
 
 print("remove chords")
-
-
 for part in score.parts:
-
-
-    for c in list(
-        part.recurse().getElementsByClass(chord.Chord)
-    ):
-
-
-        if len(c.pitches):
-
-            n = note.Note(
-                c.pitches[0]
-            )
-
+    for c in list(part.recurse().getElementsByClass(chord.Chord)):
+        if c.pitches:
+            n = note.Note(c.pitches[0])
             n.duration = c.duration
-
-
-            c.activeSite.replace(
-                c,
-                n
-            )
-
-
-
-# =========================
-# FORCE 4/4
-# =========================
+            c.activeSite.replace(c, n)
 
 print("force 4/4")
-
-
 for part in score.parts:
+    part.insert(0, meter.TimeSignature("4/4"))
 
-    part.insert(
-        0,
-        meter.TimeSignature("4/4")
-    )
-
-
-
-# =========================
-# QUANTIZE
-# =========================
-
-print("quantize MIDI duration")
-
-
+print("quantize")
 for n in score.recurse().notesAndRests:
-
-
-    q = float(
-        n.duration.quarterLength
-    )
-
-
-    # 16分音符格
-    q = round(
-        q * 4
-    ) / 4
-
-
-
-    if q <= 0:
-
-        q = 0.25
-
-
-
+    q = max(0.25, round(float(n.duration.quarterLength)*4)/4)
     n.duration.quarterLength = q
-
-
-
-# =========================
-# CLEAN NOTATION
-# =========================
-
-print("remove notation")
-
-
-for n in score.recurse().notesAndRests:
-
-
-    if hasattr(n, "beams"):
-
-        n.beams = []
-
-
     n.tie = None
-
-
-
-# =========================
-# REBUILD MEASURES
-# =========================
+    # 不要把 n.beams 設成 []，否則 music21 寫 MusicXML 會失敗
 
 print("rebuild measures")
-
-
 for part in score.parts:
-
-
-    part.makeMeasures(
-        inPlace=True
-    )
-
-
-
-# =========================
-# FINAL CHECK
-# =========================
-
-print("FINAL CHECK")
-
-
-for part in score.parts:
-
-
-    for m in part.getElementsByClass(
-        stream.Measure
-    ):
-
-
-        size = sum(
-            float(x.duration.quarterLength)
-            for x in m.notesAndRests
-        )
-
-
-        print(
-            "Measure",
-            m.number,
-            size
-        )
-
-
-
-# =========================
-# WRITE
-# =========================
+    part.makeMeasures(inPlace=True)
 
 print("寫入 MusicXML")
-
-
-score.write(
-    "musicxml",
-    fp=output_file
-)
-
-
-print("================")
-print("完成:")
-print(output_file)
-print("================")
+score.write("musicxml", fp=output_file)
+print("完成:", output_file)
