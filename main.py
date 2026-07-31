@@ -185,7 +185,24 @@ async def upload(
     print("pure vocal 完成")
 
 
-    clean_xml = pure_xml
+    clean_xml = os.path.join(
+    job_dir,
+    "clean.musicxml"
+    )
+
+
+    subprocess.run(
+    [
+        "python",
+        "clean_musicxml.py",
+        pure_xml,
+        clean_xml
+    ],
+    check=True
+    )
+
+
+    print("clean musicxml 完成")
 
 
     print("================")
