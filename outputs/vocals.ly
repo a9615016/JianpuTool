@@ -43,7 +43,7 @@
     `(three-dots
        . (
            (stencil . ,ly:text-interface::print)
-           (text . ,#{ \markup \override #'(font-encoding . latin1) \center-align \bold "?? #})
+           (text . ,#{ \markup \override #'(font-encoding . latin1) \center-align \bold "... #"})
            (padding . 0.30)
            (avoid-slur . inside)
            (side-axis . ,Y)
@@ -247,8 +247,9 @@ jianpuGraceCurveEnd =
 OctavesAfter
 title=Music21 Fragment
 composer=Music21
-instrument=
+instrument=Electric Piano
 4/4
+4=120
 0  - -  
 0q   
 7,,s   
@@ -312,7 +313,7 @@ WithStaff NextPart
 
     \override Staff.TimeSignature #'style = #'numbered
     \override Staff.Stem #'transparent = ##t
-     \time 4/4  \note-mod "0" r4  \note-mod "?? r4  \note-mod "?? r4 \set stemLeftBeamCount = #0
+     \time 4/4 \tempo 4=120  \note-mod "0" r4  r4  r4 \set stemLeftBeamCount = #0
 \set stemRightBeamCount = #1
  \note-mod "0" c8[
 \set stemLeftBeamCount = #1
@@ -355,14 +356,14 @@ WithStaff NextPart
 \set stemLeftBeamCount = #0
 \set stemRightBeamCount = #1
  \note-mod "4" f8.-\tweak #'X-offset #0.6 _\two-dots [
-]   \note-mod "0" r4  \note-mod "?? r4  \note-mod "?? r4  \note-mod "?? r4 }  \note-mod "0" r4  \note-mod "?? r4  \note-mod "?? r4  \note-mod "?? r4 \bar "|." } }
+]   \note-mod "0" r4  r4  r4  r4 "0" r4  r4  r4  r4 \bar "|." } }
 % === END JIANPU STAFF ===
 
 >>
 \header{
 title="Music21 Fragment"
 composer="Music21"
-instrument=""
+instrument="Electric Piano"
 }
 \layout{
   \context {
@@ -370,4 +371,16 @@ instrument=""
     \grobdescriptions #all-grob-descriptions
   }
 } }
+\score {
+\unfoldRepeats
+<< 
 
+
+
+>>
+\header{
+title="Music21 Fragment"
+composer="Music21"
+instrument="Electric Piano"
+}
+\midi { \context { \Score tempoWholesPerMinute = #(ly:make-moment 84 4)}} }
