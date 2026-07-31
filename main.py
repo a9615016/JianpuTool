@@ -1,4 +1,4 @@
-MAIN_VERSION = "V32-MVP"
+MAIN_VERSION = "V32-MVP-FIX"
 
 print("================")
 print(f"JianpuTool main.py {MAIN_VERSION}")
@@ -34,7 +34,7 @@ def home():
         "status": "JianpuTool running",
         "version": MAIN_VERSION,
         "pipeline":
-        "MIDI → MusicXML → jianpu_ly → LilyPond → Jianpu PDF"
+        "MP3/WAV → MIDI → MusicXML → clean → jianpu → PDF"
     }
 
 
@@ -72,6 +72,11 @@ async def upload(
 
     ext = file.filename.lower().split(".")[-1]
 
+    print("================")
+    print("FILE:", file.filename)
+    print("EXT:", ext)
+    print("================")
+
 
     # ==========================
     # MP3 / WAV
@@ -80,9 +85,7 @@ async def upload(
     if ext in ["mp3", "wav"]:
 
         print("AUDIO → BasicPitch")
-        elif ext in ["mid", "midi"]:
 
-        print("MIDI → MusicXML")
 
         midi_file = os.path.join(
             job_dir,
@@ -118,6 +121,7 @@ async def upload(
         )
 
 
+
     # ==========================
     # MIDI
     # ==========================
@@ -144,6 +148,7 @@ async def upload(
         )
 
 
+
     # ==========================
     # MusicXML
     # ==========================
@@ -155,6 +160,7 @@ async def upload(
         xml_file = input_file
 
 
+
     else:
 
         return {
@@ -163,54 +169,54 @@ async def upload(
         }
 
 
+
     # ==========================
-    # PURE VOCAL FIX
+    # PURE VOCAL
     # ==========================
 
     pure_xml = os.path.join(
-    job_dir,
-    "pure.musicxml"
+        job_dir,
+        "pure.musicxml"
     )
 
 
     subprocess.run(
-    [
-        "python",
-        "pure_vocal.py",
-        xml_file,
-        pure_xml
-    ],
-    check=True
+        [
+            "python",
+            "pure_vocal.py",
+            xml_file,
+            pure_xml
+        ],
+        check=True
     )
 
 
     print("pure vocal 完成")
 
 
+
+    # ==========================
+    # CLEAN MUSICXML V25
+    # ==========================
+
     clean_xml = os.path.join(
-    job_dir,
-    "clean.musicxml"
+        job_dir,
+        "clean.musicxml"
     )
 
 
     subprocess.run(
-    [
-        "python",
-        "clean_musicxml_v25.py",
-        pure_xml,
-        clean_xml
-    ],
-    check=True
+        [
+            "python",
+            "clean_musicxml_v25.py",
+            pure_xml,
+            clean_xml
+        ],
+        check=True
     )
 
 
     print("clean musicxml 完成")
-
-
-    print("================")
-    print("MVP MODE")
-    print("skip clean_musicxml")
-    print("================")
 
 
 
@@ -231,7 +237,6 @@ async def upload(
             "w"
         ) as f:
 
-
             subprocess.run(
                 [
                     "python",
@@ -251,14 +256,14 @@ async def upload(
         return {
             "error":
             "jianpu_ly失敗",
-            "hint":
-            "MVP只支援簡單單旋律4/4 MIDI"
+            "file":
+            clean_xml
         }
 
 
 
     # ==========================
-    # LilyPond PDF
+    # LilyPond
     # ==========================
 
     subprocess.run(
