@@ -1,4 +1,4 @@
-﻿\version ""
+﻿\version "2.20.0"
 #(set-global-staff-size 20)
 
 % un-comment the next line to remove Lilypond tagline:
@@ -13,7 +13,7 @@
   print-all-headers = ##t %% allow per-score headers
 
   % un-comment the next line for A5:
-  % #(set-default-paper-size "" )
+  % #(set-default-paper-size "a5" )
 
   % un-comment the next line for no page numbers:
   % print-page-number = ##f
@@ -33,7 +33,7 @@
     `(two-dots
        . (
            (stencil . ,ly:text-interface::print)
-           (text . ,#{ \markup \override #'(font-encoding . latin1) \center-align \bold "" #})
+           (text . ,#{ \markup \override #'(font-encoding . latin1) \center-align \bold ":" #})
            (padding . 0.20)
            (avoid-slur . inside)
            (side-axis . ,Y)
@@ -43,15 +43,15 @@
     `(three-dots
        . (
            (stencil . ,ly:text-interface::print)
-           (text . ,#{ \markup \override #'(font-encoding . latin1) \center-align \bold ""})
+           (text . ,#{ \markup \override #'(font-encoding . latin1) \center-align \bold "" #})
            (padding . 0.30)
            (avoid-slur . inside)
            (side-axis . ,Y)
            (direction . ,UP)))))
-"" =
+"two-dots" =
 #(make-articulation 'two-dots)
 
-"" =
+"three-dots" =
 #(make-articulation 'three-dots)
 
 \layout {
@@ -125,7 +125,7 @@ note-mod =
 #(define jianpu-grace-curve-types
    '(
       (JianpuGraceCurveEvent
-       . ((description . "")
+       . ((description . "Used to signal where curve encompassing music start and stop.")
           (types . (general-music jianpu-grace-curve-event span-event event))
           ))
       ))
@@ -200,7 +200,7 @@ jianpuGraceCurveEngraver =
          ,(lambda (trans)
             (if (ly:stream-event? event-stop)
                 (if (null? span)
-                    (ly:warning "")
+                    (ly:warning "No start to this curve.")
                     (begin
                      (set! finished span)
                      (ly:engraver-announce-end-grob trans finished event-start)
@@ -247,9 +247,8 @@ jianpuGraceCurveEnd =
 OctavesAfter
 title=Music21 Fragment
 composer=Music21
-instrument=Electric Piano
+instrument=
 4/4
-4=120
 0  - -  
 0q   
 7,,s   
@@ -280,7 +279,7 @@ WithStaff NextPart
 
 %% === BEGIN JIANPU STAFF ===
     \new RhythmicStaff \with {
-    \consists "" 
+    \consists "Accidental_engraver" 
     \consists \jianpuGraceCurveEngraver
    %% Limit space between Jianpu and corresponding-Western staff
    \override VerticalAxisGroup.staff-staff-spacing = #'((minimum-distance . 7) (basic-distance . 7) (stretchability . 0))
@@ -297,67 +296,77 @@ WithStaff NextPart
     $(add-grace-property 'Voice 'Beam 'Y-offset 2.5)
     $(add-grace-property 'Voice 'NoteHead 'Y-offset 2.5)
     }
-    { \new Voice="" {
+    { \new Voice="W" {
     \override Beam #'transparent = ##f
-    \override Stem.direction = #DOWN
-    \override Tie.staff-position = #2.5
+    \override Stem #'direction = #DOWN
+    \override Tie #'staff-position = #2.5
     \tupletUp
     \tieUp
-    \override Stem.length-fraction = #0.5
-    \override Beam.beam-thickness = #0.1
-    \override Beam.length-fraction = #0.5
+    \override Stem #'length-fraction = #0.5
+    \override Beam #'beam-thickness = #0.1
+    \override Beam #'length-fraction = #0.5
     \override Beam.after-line-breaking = #flip-beams
-    \override Voice.Rest.style = #'neomensural % this size tends to line up better (we'll override the appearance anyway)
-    \override Accidental.font-size = #-4
-    \override TupletBracket.bracket-visibility = ##t
+    \override Voice.Rest #'style = #'neomensural % this size tends to line up better (we'll override the appearance anyway)
+    \override Accidental #'font-size = #-4
+    \override TupletBracket #'bracket-visibility = ##t
 
-    \override Staff.TimeSignature.style = #'numbered
-    \override Staff.Stem.transparent = ##t
-     \time 4/4 \tempo 4=120  \note-mod "" r4  r4  r4 \set stemLeftBeamCount = #0
+    \override Staff.TimeSignature #'style = #'numbered
+    \override Staff.Stem #'transparent = ##t
+     \time 4/4  \note-mod "0" r4  r4  r4 \set stemLeftBeamCount = #0
 \set stemRightBeamCount = #1
- \note-mod "" c8[
+ \note-mod "0" c8[
 \set stemLeftBeamCount = #1
 \set stemRightBeamCount = #2
- \note-mod "" b16-\tweak #'X-offset #0.6 _\two-dots 
+ \note-mod "7" b16-\tweak #'X-offset #0.6 _\two-dots 
 \set stemLeftBeamCount = #2
 \set stemRightBeamCount = #2
- \note-mod "" a16-\tweak #'X-offset #0.6 _. ]
+ \note-mod "6" a16-\tweak #'X-offset #0.6 _. ]
 | %{ bar 2: %} \set stemLeftBeamCount = #0
 \set stemRightBeamCount = #1
- \note-mod "" e8-\tweak #'X-offset #0.6 _. [
+ \note-mod "3" e8-\tweak #'X-offset #0.6 _. [
 \set stemLeftBeamCount = #1
 \set stemRightBeamCount = #1
- \note-mod "" b8.-\tweak #'X-offset #0.6 _. 
+ \note-mod "7" b8.-\tweak #'X-offset #0.6 _. 
 \set stemLeftBeamCount = #1
 \set stemRightBeamCount = #1
- \note-mod "" r8
+ \note-mod "0" r8
 \set stemLeftBeamCount = #1
 \set stemRightBeamCount = #2
- \note-mod "" d16-\tweak #'X-offset #0.6 _. ]
+ \note-mod "2" d16-\tweak #'X-offset #0.6 _. ]
 \set stemLeftBeamCount = #0
 \set stemRightBeamCount = #1
- \note-mod "" c8.-\tweak #'X-offset #0.6 _. [
+ \note-mod "1" c8.-\tweak #'X-offset #0.6 _. [
 \set stemLeftBeamCount = #1
 \set stemRightBeamCount = #2
- \note-mod "" b16-\tweak #'X-offset #0.6 _\two-dots ]
+ \note-mod "7" b16-\tweak #'X-offset #0.6 _\two-dots ]
 \set stemLeftBeamCount = #0
 \set stemRightBeamCount = #2
- \note-mod "" g16-\tweak #'X-offset #0.6 _. [
+ \note-mod "5" g16-\tweak #'X-offset #0.6 _. [
 \set stemLeftBeamCount = #1
 \set stemRightBeamCount = #1
- \note-mod "" g8-\tweak #'X-offset #0.6 _. 
+ \note-mod "5" g8-\tweak #'X-offset #0.6 _. 
 \set stemLeftBeamCount = #1
 \set stemRightBeamCount = #2
- \note-mod "" g16-\tweak #'X-offset #0.6 _. ]
+ \note-mod "5" g16-\tweak #'X-offset #0.6 _. ]
 | %{ bar 3: %} \set stemLeftBeamCount = #0
 \set stemRightBeamCount = #1
- \note-mod "" b8-\tweak #'X-offset #0.6 _\two-dots [
-]   \note-mod "" c4-\tweak #'Y-offset #-1.2 -\tweak #'X-offset #0.6 _. 
+ \note-mod "7" b8-\tweak #'X-offset #0.6 _\two-dots [
+]   \note-mod "1" c4-\tweak #'Y-offset #-1.2 -\tweak #'X-offset #0.6 _. 
 \set stemLeftBeamCount = #0
 \set stemRightBeamCount = #1
- \note-mod "" f8.-\tweak #'X-offset #0.6 _\two-dots [
-]   \note-mod "" r4  r4  r4  r4 r4  r4  r4  r4 \bar "" } 
+ \note-mod "4" f8.-\tweak #'X-offset #0.6 _\two-dots [
+]   \note-mod "0" r4  r4  r4  r4  \note-mod "0" r4  r4  r4  r4 \bar "|." } }
 % === END JIANPU STAFF ===
-}
+
 >>
+\header{
+title="Music21 Fragment"
+composer="Music21"
+instrument=""
 }
+\layout{
+  \context {
+    \Global
+    \grobdescriptions #all-grob-descriptions
+  }
+} 
