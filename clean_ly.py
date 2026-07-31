@@ -1,43 +1,50 @@
 from pathlib import Path
+import re
 
-src = Path("outputs/vocals.ly")
+p = Path("outputs/vocals.ly")
 
-text = src.read_text(encoding="utf-8")
+s = p.read_text(encoding="utf-8")
 
-# 1. 移除錯誤 note-mod 亂碼
-text = text.replace(r'\note-mod "?? ', '')
-
-# 2. 修正 three-dots 亂碼
-text = text.replace(
-    r'\center-align \bold "?? #',
-    r'\center-align \bold "... " #'
+# 移除 MIDI score
+s = re.sub(
+    r'\\score\s*\{\s*\\unfoldRepeats.*?\\midi\s*\{.*?\}\s*\}',
+    '',
+    s,
+    flags=re.S
 )
 
-# 3. 移除 MIDI block
-start = text.find("% === BEGIN MIDI STAFF ===")
-
-if start != -1:
-    end = text.find("% === END MIDI STAFF ===")
-
-    if end != -1:
-        end = end + len("% === END MIDI STAFF ===")
-        text = text[:start] + text[end:]
-
-
-# 4. 修正被破壞的 grobdescriptions
-text = text.replace(
-    r'\grobdescriptions\"',
-    r'\grobdescriptions'
+# 移除空 MIDI staff
+s = re.sub(
+    r'% === BEGIN MIDI STAFF ===.*?% === END MIDI STAFF ===',
+    '',
+    s,
+    flags=re.S
 )
 
-# 5. 修正可能破壞的 quote
-text = text.replace(
-    r'\consists " Accidental_engraver"',
-    r'\consists "Accidental_engraver"'
-)
+# 移除 Global
+s = s.replace("\\Global", "")
+
+# 修正 jianpu-ly 舊語法
+repls = {
+"Stem #'direction": "Stem.direction",
+"Tie #'staff-position": "Tie.staff-position",
+"Stem #'length-fraction": "Stem.length-fraction",
+"Beam #'beam-thickness": "Beam.beam-thickness",
+"Beam #'length-fraction": "Beam.length-fraction",
+"Voice.Rest #'style": "Voice.Rest.style",
+"Accidental #'font-size": "Accidental.font-size",
+"TupletBracket #'bracket-visibility": "TupletBracket.bracket-visibility",
+"Staff.TimeSignature #'style": "Staff.TimeSignature.style",
+"Staff.Stem #'transparent": "Staff.Stem.transparent",
+}
+
+for a,b in repls.items():
+    s=s.replace(a,b)
 
 
-out = Path("outputs/vocals_clean.ly")
-out.write_text(text, encoding="utf-8")
+# 移除所有 ?? 
+s=re.sub(r'"\\?\\?.*?"','""',s)
 
-print("saved:", out)
+p.write_text(s,encoding="utf-8")
+
+print("clean ok")
