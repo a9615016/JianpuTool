@@ -80,7 +80,9 @@ async def upload(
     if ext in ["mp3", "wav"]:
 
         print("AUDIO → BasicPitch")
+        elif ext in ["mid", "midi"]:
 
+        print("MIDI → MusicXML")
 
         midi_file = os.path.join(
             job_dir,
