@@ -365,9 +365,4 @@ title="Music21 Fragment"
 composer="Music21"
 instrument="Electric Piano"
 }
-\layout{
-  \context {
-    \Global
-    \grobdescriptions #all-grob-descriptions
-  }
-} 
+ 
