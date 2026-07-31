@@ -34,7 +34,7 @@ def home():
         "status": "JianpuTool running",
         "version": MAIN_VERSION,
         "pipeline":
-        "MP3/WAV → MIDI → MusicXML → clean → jianpu → PDF"
+        "MP3/WAV → MIDI → MusicXML → clean → barfix → jianpu → PDF"
     }
 
 
@@ -72,6 +72,7 @@ async def upload(
 
     ext = file.filename.lower().split(".")[-1]
 
+
     print("================")
     print("FILE:", file.filename)
     print("EXT:", ext)
@@ -79,7 +80,7 @@ async def upload(
 
 
     # ==========================
-    # MP3 / WAV
+    # AUDIO
     # ==========================
 
     if ext in ["mp3", "wav"]:
@@ -121,7 +122,6 @@ async def upload(
         )
 
 
-
     # ==========================
     # MIDI
     # ==========================
@@ -148,24 +148,19 @@ async def upload(
         )
 
 
-
     # ==========================
     # MusicXML
     # ==========================
 
     elif ext in ["musicxml", "xml"]:
 
-        print("MusicXML input")
-
         xml_file = input_file
-
 
 
     else:
 
         return {
-            "error":
-            "Unsupported file format"
+            "error":"Unsupported file format"
         }
 
 
@@ -196,7 +191,7 @@ async def upload(
 
 
     # ==========================
-    # CLEAN MUSICXML V25
+    # CLEAN V25
     # ==========================
 
     clean_xml = os.path.join(
@@ -217,22 +212,32 @@ async def upload(
 
 
     print("clean musicxml 完成")
+
+
+
+    # ==========================
+    # BAR FIX
+    # ==========================
+
     fix_xml = os.path.join(
-    job_dir,
-    "fix.musicxml"
+        job_dir,
+        "fix.musicxml"
     )
+
 
     subprocess.run(
-    [
-        "python",
-        "jianpu_fix_bar.py",
-        clean_xml,
-        fix_xml
-    ],
-    check=True
+        [
+            "python",
+            "jianpu_fix_bar.py",
+            clean_xml,
+            fix_xml
+        ],
+        check=True
     )
 
+
     print("jianpu bar fix 完成")
+    print("USING FIX XML:", fix_xml)
 
 
 
@@ -253,12 +258,13 @@ async def upload(
             "w"
         ) as f:
 
+
             subprocess.run(
                 [
                     "python",
                     "-m",
                     "jianpu_ly",
-                    clean_xml
+                    fix_xml
                 ],
                 stdout=f,
                 stderr=subprocess.STDOUT,
@@ -268,12 +274,9 @@ async def upload(
 
     except subprocess.CalledProcessError:
 
-
         return {
-            "error":
-            "jianpu_ly失敗",
-            "file":
-            clean_xml
+            "error":"jianpu_ly失敗",
+            "file":fix_xml
         }
 
 
