@@ -161,13 +161,31 @@ async def upload(
         }
 
 
-
     # ==========================
-    # MVP MODE
-    # 不使用 clean_musicxml
+    # PURE VOCAL FIX
     # ==========================
 
-    clean_xml = xml_file
+    pure_xml = os.path.join(
+    job_dir,
+    "pure.musicxml"
+    )
+
+
+    subprocess.run(
+    [
+        "python",
+        "pure_vocal.py",
+        xml_file,
+        pure_xml
+    ],
+    check=True
+    )
+
+
+    print("pure vocal 完成")
+
+
+    clean_xml = pure_xml
 
 
     print("================")
