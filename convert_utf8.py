@@ -1,6 +1,9 @@
-src = Path("outputs/vocals.ly")
-data = src.read_text(encoding="utf-16")
+from pathlib import Path
 
-src.write_text(data, encoding="utf-8")
+p = Path("outputs/vocals.ly")
 
-print("Converted to UTF-8")
+data = p.read_text(encoding="utf-16")
+
+p.write_text(data, encoding="utf-8")
+
+print("OK UTF-8")
