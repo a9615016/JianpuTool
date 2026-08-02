@@ -1,4 +1,3 @@
-```python
 # CLEAN MUSICXML V34 FIX
 # JianpuTool MVP
 
@@ -195,4 +194,3 @@ print("================")
 print("DONE")
 print(out)
 print("================")
-```
