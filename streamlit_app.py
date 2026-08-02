@@ -1,9 +1,8 @@
 import streamlit as st
 import os
-import tempfile
-import shutil
 
 from basic_pitch.inference import predict_and_save
+from basic_pitch import ICASSP_2022_MODEL_PATH
 
 
 st.set_page_config(
@@ -21,6 +20,7 @@ os.makedirs(
 
 
 st.title("🎵 JianpuTool")
+
 st.write(
     "MP3/WAV → BasicPitch MIDI"
 )
@@ -34,7 +34,6 @@ uploaded_file = st.file_uploader(
 
 if uploaded_file:
 
-
     filename = uploaded_file.name
 
     base = os.path.splitext(filename)[0]
@@ -46,7 +45,11 @@ if uploaded_file:
     )
 
 
-    with open(input_path, "wb") as f:
+    with open(
+        input_path,
+        "wb"
+    ) as f:
+
         f.write(
             uploaded_file.getbuffer()
         )
@@ -57,8 +60,9 @@ if uploaded_file:
     )
 
 
-    if st.button("開始 BasicPitch 分析"):
-
+    if st.button(
+        "開始 BasicPitch 分析"
+    ):
 
         try:
 
@@ -68,64 +72,70 @@ if uploaded_file:
 
 
             predict_and_save(
+
                 input_path,
+
                 OUTPUT_DIR,
-                base,
-                True,     # save MIDI
-                True      # sonify
+
+                True,    # save_midi
+
+                True,    # sonify_midi
+
+                False,   # save_model_outputs
+
+                True,    # save_notes
+
+                ICASSP_2022_MODEL_PATH
+
             )
 
 
             st.success(
-                "✅ BasicPitch完成"
+                "✅ MIDI 產生成功"
             )
 
 
-            # 搜尋 MIDI
-
-            midi_file = None
+            midi_files = []
 
             for f in os.listdir(OUTPUT_DIR):
 
                 if f.endswith(".mid"):
 
-                    midi_file = os.path.join(
-                        OUTPUT_DIR,
-                        f
-                    )
-
-                    break
+                    midi_files.append(f)
 
 
-            if midi_file:
+            if midi_files:
 
-
-                st.success(
-                    "✅ MIDI 產生成功"
+                midi_path = os.path.join(
+                    OUTPUT_DIR,
+                    midi_files[0]
                 )
 
 
-                st.audio(
-                    midi_file
+                st.write(
+                    "輸出:",
+                    midi_path
                 )
 
 
                 with open(
-                    midi_file,
+                    midi_path,
                     "rb"
-                ) as f:
+                ) as midi_file:
+
 
                     st.download_button(
-                        "下載 MIDI",
-                        f,
-                        file_name=os.path.basename(midi_file)
+                        label="下載 MIDI",
+                        data=midi_file,
+                        file_name=os.path.basename(midi_path),
+                        mime="audio/midi"
                     )
 
 
             else:
 
-                st.error(
-                    "沒有找到 MIDI"
+                st.warning(
+                    "沒有找到 MIDI 檔"
                 )
 
 
