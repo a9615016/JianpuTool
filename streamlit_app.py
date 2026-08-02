@@ -1,4 +1,8 @@
 import streamlit as st
+import sys
+
+st.write("Python version:")
+st.write(sys.version)
 import os
 import tempfile
 
