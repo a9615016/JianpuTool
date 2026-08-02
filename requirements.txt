@@ -3,7 +3,7 @@ basic-pitch==0.4.0
 music21==9.1.0
 numpy==1.26.4
 lxml==5.3.0
-resampy==0.4.2
+resampy<0.4.3
 pretty-midi==0.2.11
 mir-eval==0.8.2
 librosa==0.10.2
