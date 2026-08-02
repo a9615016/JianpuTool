@@ -1,1 +1,6 @@
 streamlit
+basic-pitch
+music21
+lxml
+numpy==1.26.4
+reportlab
