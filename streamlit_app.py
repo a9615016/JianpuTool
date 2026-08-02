@@ -1,13 +1,13 @@
 import streamlit as st
 
-st.title("JianpuTool")
+st.title("🎵 JianpuTool")
 
-st.write("MP3 → MIDI → MusicXML → 簡譜 PDF")
+st.write("MP3 → 簡譜")
 
 uploaded = st.file_uploader(
-    "上傳 MP3",
+    "選擇MP3",
     type=["mp3","wav"]
 )
 
 if uploaded:
-    st.success("收到音檔：" + uploaded.name)
+    st.success("收到")
