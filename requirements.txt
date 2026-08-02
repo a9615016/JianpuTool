@@ -3,7 +3,7 @@ basic-pitch==0.4.0
 music21==9.1.0
 numpy==1.26.4
 resampy==0.4.2
-setuptools
+setuptools==70.3.0
 lxml
 reportlab
 jianpu-ly==1.872
