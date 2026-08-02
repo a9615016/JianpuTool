@@ -1,7 +1,9 @@
-streamlit
-basic-pitch
-music21
+streamlit==1.38.0
+basic-pitch==0.4.0
+music21==9.1.0
 numpy==1.26.4
-librosa
-soundfile
-setuptools<81
+resampy==0.4.2
+setuptools
+lxml
+reportlab
+jianpu-ly==1.872
