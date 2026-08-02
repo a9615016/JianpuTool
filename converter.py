@@ -2,19 +2,31 @@ import os
 import subprocess
 import tempfile
 import shutil
+import uuid
 
 
 def convert_musicxml(xml_file):
 
     print("START MusicXML convert")
 
-    # Linux(Render) / Windows 通用暫存資料夾
+    # =====================================
+    # 每首歌曲獨立暫存資料夾
+    # =====================================
+
+    song_name = os.path.splitext(
+        os.path.basename(xml_file)
+    )[0]
+
+
     temp_dir = tempfile.gettempdir()
+
 
     work_dir = os.path.join(
         temp_dir,
-        "jianputool"
+        "jianputool",
+        song_name + "_" + str(uuid.uuid4())[:8]
     )
+
 
     os.makedirs(
         work_dir,
@@ -22,27 +34,29 @@ def convert_musicxml(xml_file):
     )
 
 
+    print(
+        "WORK DIR:",
+        work_dir
+    )
+
+
+
+    # =====================================
+    # MusicXML -> LilyPond
+    # =====================================
+
     ly_file = os.path.join(
         work_dir,
         "output.ly"
     )
 
 
-    pdf_output = os.path.join(
-        work_dir,
-        "jianpu"
-    )
-
-
-    # ==========================
-    # MusicXML → LilyPond
-    # ==========================
-
     with open(
         ly_file,
         "w",
         encoding="utf-8"
     ) as f:
+
 
         subprocess.run(
             [
@@ -57,13 +71,23 @@ def convert_musicxml(xml_file):
         )
 
 
-    print("LilyPond input:")
-    print(ly_file)
+
+    print(
+        "LY:",
+        ly_file
+    )
 
 
-    # ==========================
-    # LilyPond → PDF
-    # ==========================
+
+    # =====================================
+    # LilyPond -> PDF
+    # =====================================
+
+    pdf_output = os.path.join(
+        work_dir,
+        "jianpu"
+    )
+
 
     subprocess.run(
         [
@@ -76,25 +100,37 @@ def convert_musicxml(xml_file):
     )
 
 
-    pdf_file = pdf_output + ".pdf"
+
+    temp_pdf = pdf_output + ".pdf"
 
 
-    if not os.path.exists(pdf_file):
+
+    if not os.path.exists(temp_pdf):
 
         raise Exception(
             "PDF not generated"
         )
 
 
-    # 複製回專案輸出
-    final_pdf = os.path.join(
-        os.path.dirname(xml_file),
-        "jianpu.pdf"
+
+    # =====================================
+    # 輸出到原歌曲資料夾
+    # =====================================
+
+    output_dir = os.path.dirname(
+        xml_file
     )
 
 
+    final_pdf = os.path.join(
+        output_dir,
+        song_name + "_jianpu.pdf"
+    )
+
+
+
     shutil.copy(
-        pdf_file,
+        temp_pdf,
         final_pdf
     )
 
