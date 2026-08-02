@@ -1,5 +1,5 @@
 streamlit
-basic-pitch
+basic-pitch==0.4.0
 music21
 lxml
 numpy==1.26.4
