@@ -1,21 +1,33 @@
+from pathlib import Path
 import sys
 
-src=sys.argv[1]
-dst=sys.argv[2]
+def fix_ly(filename):
+    p = Path(filename)
 
-with open(src,"r",encoding="utf-8") as f:
-    data=f.read()
+    text = p.read_text(
+        encoding="utf-8",
+        errors="ignore"
+    )
 
-balance=data.count("{")-data.count("}")
+    # 修改 LilyPond 版本
+    text = text.replace(
+        '\\version "2.20.0"',
+        '\\version "2.26.0"'
+    )
 
-print("brace balance:",balance)
+    # 移除第二個 MIDI score
+    pos = text.find("\\score {\n\\unfoldRepeats")
 
-if balance < 0:
-    for _ in range(abs(balance)):
-        pos=data.rfind("}")
-        data=data[:pos]+data[pos+1:]
+    if pos != -1:
+        text = text[:pos]
 
-with open(dst,"w",encoding="utf-8") as f:
-    f.write(data)
+    p.write_text(
+        text,
+        encoding="utf-8",
+        newline="\n"
+    )
 
-print("LY FIX DONE")
+    print("FIX DONE", filename)
+
+if __name__ == "__main__":
+    fix_ly(sys.argv[1])
