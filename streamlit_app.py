@@ -45,11 +45,7 @@ if uploaded_file:
     )
 
 
-    with open(
-        input_path,
-        "wb"
-    ) as f:
-
+    with open(input_path, "wb") as f:
         f.write(
             uploaded_file.getbuffer()
         )
@@ -73,47 +69,53 @@ if uploaded_file:
 
             predict_and_save(
 
-                input_path,
+                audio_path_list=[
+                    input_path
+                ],
 
-                OUTPUT_DIR,
+                output_directory=OUTPUT_DIR,
 
-                True,    # save_midi
+                save_midi=True,
 
-                True,    # sonify_midi
+                sonify_midi=False,
 
-                False,   # save_model_outputs
+                save_model_outputs=False,
 
-                True,    # save_notes
+                save_notes=True,
 
-                ICASSP_2022_MODEL_PATH
+                model_or_model_path=ICASSP_2022_MODEL_PATH
 
             )
 
 
             st.success(
-                "✅ MIDI 產生成功"
+                "✅ BasicPitch 完成"
             )
 
 
             midi_files = []
 
-            for f in os.listdir(OUTPUT_DIR):
+            for file in os.listdir(OUTPUT_DIR):
 
-                if f.endswith(".mid"):
+                if file.endswith(".mid"):
 
-                    midi_files.append(f)
+                    midi_files.append(file)
 
 
-            if midi_files:
+            if len(midi_files) > 0:
 
                 midi_path = os.path.join(
                     OUTPUT_DIR,
-                    midi_files[0]
+                    midi_files[-1]
+                )
+
+
+                st.success(
+                    "✅ MIDI 產生成功"
                 )
 
 
                 st.write(
-                    "輸出:",
                     midi_path
                 )
 
@@ -121,12 +123,12 @@ if uploaded_file:
                 with open(
                     midi_path,
                     "rb"
-                ) as midi_file:
+                ) as f:
 
 
                     st.download_button(
                         label="下載 MIDI",
-                        data=midi_file,
+                        data=f,
                         file_name=os.path.basename(midi_path),
                         mime="audio/midi"
                     )
@@ -135,7 +137,7 @@ if uploaded_file:
             else:
 
                 st.warning(
-                    "沒有找到 MIDI 檔"
+                    "找不到 MIDI 檔案"
                 )
 
 
