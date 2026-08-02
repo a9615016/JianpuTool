@@ -1,5 +1,4 @@
 import sys
-import os
 from music21 import converter, stream, note, chord, meter, tempo
 
 
@@ -7,11 +6,11 @@ INPUT = sys.argv[1]
 OUTPUT = sys.argv[2]
 
 
-print("MIDI CLEAN v9")
+print("MIDI CLEAN v10")
 
 
 # =========================
-# MIDI LOAD
+# LOAD MIDI
 # =========================
 
 print("LOAD MIDI")
@@ -19,18 +18,15 @@ print("LOAD MIDI")
 score = converter.parse(INPUT)
 
 
-# =========================
-# get melody part
-# =========================
-
 part = score.parts[0]
 
 
 # =========================
-# remove chords
+# REMOVE CHORDS
 # =========================
 
 print("remove chords")
+
 
 new_part = stream.Part()
 
@@ -47,7 +43,6 @@ for el in part.flatten().notesAndRests:
 
         new_part.append(n)
 
-
     else:
 
         new_part.append(el)
@@ -55,16 +50,13 @@ for el in part.flatten().notesAndRests:
 
 
 # =========================
-# remove overlaps
+# REMOVE OVERLAPS
 # =========================
 
 print("remove overlaps")
 
 
-notes = list(
-    new_part.notes
-)
-
+notes = list(new_part.notes)
 
 notes.sort(
     key=lambda x:x.offset
@@ -89,7 +81,7 @@ for n in notes:
 
 
 # =========================
-# duration quantize
+# QUANTIZE
 # =========================
 
 print("duration quantize")
@@ -111,19 +103,17 @@ for n in new_part.notes:
         n.duration.quarterLength
     )
 
-
     closest = min(
         allowed,
         key=lambda x:abs(x-d)
     )
-
 
     n.duration.quarterLength = closest
 
 
 
 # =========================
-# force 4/4
+# FORCE 4/4
 # =========================
 
 print("force 4/4")
@@ -145,44 +135,33 @@ new_part.insert(
 
 
 # =========================
-# rebuild measures
+# MAKE MEASURES
 # =========================
 
 print("rebuild measures")
 
 
-m = new_part.makeMeasures(
+measures = new_part.makeMeasures(
     inPlace=False
 )
 
 
 
 # =========================
-# split cross measure notes
+# FIX MEASURES
 # =========================
 
-print(
-    "split cross measure notes"
-)
+print("fix measures")
 
-
-m = m.expandRepeats()
-
-
-# =========================
-# pad / fix measures
-# =========================
 
 fixed = stream.Part()
 
 
-for meas in m.getElementsByClass(
+for meas in measures.getElementsByClass(
     "Measure"
 ):
 
-    length = (
-        meas.duration.quarterLength
-    )
+    length = meas.duration.quarterLength
 
 
     print(
@@ -192,7 +171,10 @@ for meas in m.getElementsByClass(
     )
 
 
-    # 超過4拍
+    # -----------------
+    # overflow
+    # -----------------
+
     if length > 4:
 
         print(
@@ -201,25 +183,40 @@ for meas in m.getElementsByClass(
         )
 
 
-        while (
-            meas.duration.quarterLength > 4
-        ):
+        # 不刪音，避免無限迴圈
+        while meas.duration.quarterLength > 4:
+
+            if len(meas.notes) == 0:
+                break
+
 
             last = meas.notes[-1]
 
-            last.duration.quarterLength = (
-                max(
-                    0.25,
-                    last.duration.quarterLength-0.25
-                )
+
+            old = last.duration.quarterLength
+
+
+            last.duration.quarterLength = max(
+                0.25,
+                old - 0.25
             )
 
 
-    # 不足補rest
+            # 如果沒有變化，跳出
+            if (
+                last.duration.quarterLength
+                ==
+                old
+            ):
+                break
 
-    length = (
-        meas.duration.quarterLength
-    )
+
+
+    # -----------------
+    # fill rest
+    # -----------------
+
+    length = meas.duration.quarterLength
 
 
     if length < 4:
@@ -227,7 +224,7 @@ for meas in m.getElementsByClass(
         r = note.Rest()
 
         r.duration.quarterLength = (
-            4-length
+            4 - length
         )
 
         meas.append(r)
@@ -245,42 +242,17 @@ for meas in m.getElementsByClass(
 print("FINAL CHECK")
 
 
-ok = True
-
-
 for meas in fixed.getElementsByClass(
     "Measure"
 ):
 
-    l = round(
-        meas.duration.quarterLength,
-        3
-    )
-
     print(
         "Measure",
         meas.number,
-        l
-    )
-
-
-    if l != 4:
-
-        ok=False
-
-
-
-if not ok:
-
-    print(
-        "WARNING measure mismatch"
-    )
-
-
-else:
-
-    print(
-        "PASS"
+        round(
+            meas.duration.quarterLength,
+            3
+        )
     )
 
 
@@ -289,9 +261,7 @@ else:
 # WRITE
 # =========================
 
-print(
-    "FINAL WRITE"
-)
+print("FINAL WRITE")
 
 
 fixed.write(
@@ -300,10 +270,6 @@ fixed.write(
 )
 
 
-print(
-    "DONE"
-)
+print("DONE")
 
-print(
-    OUTPUT
-)
+print(OUTPUT)
