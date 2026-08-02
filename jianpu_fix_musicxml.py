@@ -1,184 +1,202 @@
-# jianpu_fix_musicxml.py
-# V15 REBUILD ENGINE
-# 完全重建 Measure，避免 jianpu_ly barcheck fail
-
 import sys
-from music21 import converter, stream, meter, note, tie
+
+from music21 import (
+    converter,
+    stream,
+    note,
+    meter,
+    tempo,
+    duration
+)
 
 
-def rebuild_musicxml(input_file, output_file):
+INPUT = sys.argv[1]
+OUTPUT = sys.argv[2]
 
-    print("===== V15 REBUILD ENGINE =====")
 
-    score = converter.parse(input_file)
+print("===== V17 SAFE REBUILD ENGINE =====")
 
-    # 只取第一旋律聲部
-    part = score.parts[0]
 
-    print("extract melody")
+# =========================
+# LOAD
+# =========================
 
-    events = []
+print("load musicxml")
 
-    for n in part.recurse().notes:
+score = converter.parse(INPUT)
 
-        dur = float(n.duration.quarterLength)
 
-        if dur <= 0:
+# =========================
+# EXTRACT MELODY
+# =========================
+
+print("extract melody")
+
+src = score.parts[0]
+
+melody = stream.Part()
+
+count = 0
+
+
+for n in src.recurse().notes:
+
+    if isinstance(n, note.Note):
+
+        new_n = note.Note(n.pitch)
+
+
+        ql = float(n.duration.quarterLength)
+
+
+        # 移除非法 duration
+        if ql <= 0:
             continue
 
-        events.append(
-            (
-                float(n.offset),
-                dur,
-                n.pitch
-            )
+
+        # 限制最大長音
+        if ql > 4:
+            ql = 4
+
+
+        # =========================
+        # QUANTIZE DURATION
+        # =========================
+
+        allowed = [
+            4,
+            2,
+            1,
+            0.5,
+            0.25,
+            0.125
+        ]
+
+
+        closest = min(
+            allowed,
+            key=lambda x: abs(x - ql)
         )
 
 
-    events.sort(key=lambda x:x[0])
+        new_n.duration = duration.Duration(
+            closest
+        )
 
 
-    print("notes:", len(events))
+        melody.append(new_n)
+
+        count += 1
 
 
-    new_part = stream.Part()
 
-    new_part.insert(
-        0,
-        meter.TimeSignature("4/4")
+print(
+    "notes:",
+    count
+)
+
+
+
+# =========================
+# FIX OCTAVE
+# =========================
+
+print("limit octave")
+
+
+for n in melody.recurse().notes:
+
+    if n.pitch.octave < 2:
+
+        n.pitch.octave = 2
+
+
+    if n.pitch.octave > 6:
+
+        n.pitch.octave = 6
+
+
+
+# =========================
+# FORCE 4/4
+# =========================
+
+print("force 4/4")
+
+
+melody.insert(
+    0,
+    meter.TimeSignature("4/4")
+)
+
+
+melody.insert(
+    0,
+    tempo.MetronomeMark(
+        number=80
     )
-
-
-    measure = stream.Measure()
-    measure.number = 1
-
-    current = 0.0
-
-
-    print("rebuild measures")
-
-
-    for offset, dur, pitch in events:
-
-        remain = dur
-
-
-        while remain > 0:
-
-
-            space = 4.0 - current
-
-
-            # 跨小節切割
-            if remain > space:
-
-                n = note.Note(pitch)
-
-                n.duration.quarterLength = space
-
-                n.tie = tie.Tie("start")
-
-                measure.append(n)
-
-
-                new_part.append(measure)
-
-
-                measure = stream.Measure()
-
-                measure.number += 1
-
-                current = 0
-
-                remain -= space
-
-
-            else:
-
-                n = note.Note(pitch)
-
-                n.duration.quarterLength = remain
-
-                measure.append(n)
-
-                current += remain
-
-                remain = 0
+)
 
 
 
-        # 小節滿
-        if abs(current-4.0) < 0.001:
+# =========================
+# REBUILD MEASURES
+# =========================
 
-            new_part.append(measure)
-
-            measure = stream.Measure()
-
-            measure.number += 1
-
-            current = 0
+print(
+    "rebuild measures SAFE"
+)
 
 
-
-    # 補最後小節休止
-
-    if current > 0:
-
-        r = note.Rest()
-
-        r.duration.quarterLength = 4-current
-
-        measure.append(r)
-
-        new_part.append(measure)
+score2 = melody.makeMeasures(
+    inPlace=False
+)
 
 
 
-    print("FINAL CHECK")
+# =========================
+# CLEAN INVALID DURATIONS
+# =========================
+
+print(
+    "final duration check"
+)
 
 
-    for i,m in enumerate(
-        new_part.getElementsByClass("Measure")
-    ):
+for n in score2.recurse().notes:
+
+    if n.duration.type == "inexpressible":
 
         print(
-            "Measure",
-            i+1,
-            float(m.duration.quarterLength)
+            "fix inexpressible:",
+            n.pitch
+        )
+
+        n.duration = duration.Duration(
+            0.25
         )
 
 
-    new_score = stream.Score()
 
-    new_score.append(new_part)
+# =========================
+# WRITE
+# =========================
 
-
-    print("WRITE")
-
-    new_score.write(
-        "musicxml",
-        fp=output_file
-    )
+print(
+    "WRITE"
+)
 
 
-    print("DONE")
-    print(output_file)
+score2.write(
+    "musicxml",
+    fp=OUTPUT
+)
 
 
+print(
+    "DONE"
+)
 
-if __name__ == "__main__":
-
-
-    if len(sys.argv)<3:
-
-        print(
-            "python jianpu_fix_musicxml.py input.musicxml output.musicxml"
-        )
-
-        sys.exit()
-
-
-    rebuild_musicxml(
-        sys.argv[1],
-        sys.argv[2]
-    )
+print(
+    OUTPUT
+)
