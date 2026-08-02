@@ -1,261 +1,136 @@
 import streamlit as st
 import os
 import tempfile
-import subprocess
 import shutil
 
-from basic_pitch.inference import predict
-from basic_pitch import ICASSP_2022_MODEL_PATH
+from basic_pitch.inference import predict_and_save
 
 
-# ==========================
-# 設定
-# ==========================
+st.set_page_config(
+    page_title="JianpuTool",
+    page_icon="🎵"
+)
+
 
 OUTPUT_DIR = "outputs"
-os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+os.makedirs(
+    OUTPUT_DIR,
+    exist_ok=True
+)
 
 
-st.title("🎵 JianpuTool V1")
-st.write("MP3/WAV → MIDI → MusicXML → 簡譜 PDF")
+st.title("🎵 JianpuTool")
+st.write(
+    "MP3/WAV → BasicPitch MIDI"
+)
 
 
-# ==========================
-# 上傳
-# ==========================
-
-uploaded = st.file_uploader(
+uploaded_file = st.file_uploader(
     "上傳 MP3/WAV",
     type=["mp3", "wav"]
 )
 
 
-if uploaded:
+if uploaded_file:
 
-    filename = uploaded.name
+
+    filename = uploaded_file.name
+
     base = os.path.splitext(filename)[0]
 
-    audio_path = os.path.join(
+
+    input_path = os.path.join(
         OUTPUT_DIR,
         filename
     )
 
-    with open(audio_path, "wb") as f:
-        f.write(uploaded.getbuffer())
 
-
-    st.success("音檔上傳完成")
-
-
-    # ==========================
-    # BasicPitch
-    # ==========================
-
-    if st.button("開始分析"):
-
-        st.info("開始 BasicPitch 分析...")
-
-
-        midi_path = os.path.join(
-            OUTPUT_DIR,
-            base + ".mid"
+    with open(input_path, "wb") as f:
+        f.write(
+            uploaded_file.getbuffer()
         )
+
+
+    st.success(
+        "音檔上傳完成"
+    )
+
+
+    if st.button("開始 BasicPitch 分析"):
 
 
         try:
 
-            model_output = predict(
-                audio_path,
-                ICASSP_2022_MODEL_PATH
+            st.info(
+                "開始 BasicPitch 分析..."
             )
 
 
-            # BasicPitch 新版輸出
-            model_output[0].write(
-                midi_path
+            predict_and_save(
+                input_path,
+                OUTPUT_DIR,
+                base,
+                True,     # save MIDI
+                True      # sonify
             )
 
 
             st.success(
-                "✅ MIDI 產生成功"
+                "✅ BasicPitch完成"
             )
+
+
+            # 搜尋 MIDI
+
+            midi_file = None
+
+            for f in os.listdir(OUTPUT_DIR):
+
+                if f.endswith(".mid"):
+
+                    midi_file = os.path.join(
+                        OUTPUT_DIR,
+                        f
+                    )
+
+                    break
+
+
+            if midi_file:
+
+
+                st.success(
+                    "✅ MIDI 產生成功"
+                )
+
+
+                st.audio(
+                    midi_file
+                )
+
+
+                with open(
+                    midi_file,
+                    "rb"
+                ) as f:
+
+                    st.download_button(
+                        "下載 MIDI",
+                        f,
+                        file_name=os.path.basename(midi_file)
+                    )
+
+
+            else:
+
+                st.error(
+                    "沒有找到 MIDI"
+                )
 
 
         except Exception as e:
 
             st.error(
-                f"BasicPitch錯誤:{e}"
-            )
-            st.stop()
-
-
-
-        # ==========================
-        # MIDI → MusicXML
-        # ==========================
-
-        st.info(
-            "MIDI → MusicXML"
-        )
-
-
-        musicxml = os.path.join(
-            OUTPUT_DIR,
-            base + ".musicxml"
-        )
-
-
-        result = subprocess.run(
-            [
-                "python",
-                "midi_to_musicxml_clean.py",
-                midi_path,
-                musicxml
-            ],
-            capture_output=True,
-            text=True
-        )
-
-
-        if not os.path.exists(musicxml):
-
-            st.error(
-                result.stderr
-            )
-            st.stop()
-
-
-        st.success(
-            "✅ MusicXML完成"
-        )
-
-
-
-        # ==========================
-        # 修正 MusicXML
-        # ==========================
-
-
-        st.info(
-            "修正節拍"
-        )
-
-
-        final_xml = os.path.join(
-            OUTPUT_DIR,
-            base + "_final.musicxml"
-        )
-
-
-        subprocess.run(
-            [
-                "python",
-                "final_quantize.py",
-                musicxml,
-                final_xml
-            ]
-        )
-
-
-        if not os.path.exists(final_xml):
-
-            st.error(
-                "final_quantize失敗"
-            )
-            st.stop()
-
-
-        st.success(
-            "✅ MusicXML修正完成"
-        )
-
-
-
-        # ==========================
-        # Jianpu-ly
-        # ==========================
-
-
-        st.info(
-            "產生簡譜"
-        )
-
-
-        ly_file = os.path.join(
-            OUTPUT_DIR,
-            base + ".ly"
-        )
-
-
-        with open(
-            ly_file,
-            "w",
-            encoding="utf-8"
-        ) as f:
-
-            subprocess.run(
-                [
-                    "python",
-                    "-m",
-                    "jianpu_ly",
-                    final_xml
-                ],
-                stdout=f,
-                stderr=subprocess.STDOUT
-            )
-
-
-        st.success(
-            "✅ LilyPond檔完成"
-        )
-
-
-
-        # ==========================
-        # LilyPond PDF
-        # ==========================
-
-
-        st.info(
-            "輸出PDF"
-        )
-
-
-        subprocess.run(
-            [
-                "lilypond",
-                ly_file
-            ]
-        )
-
-
-        pdf_file = ly_file.replace(
-            ".ly",
-            ".pdf"
-        )
-
-
-        if os.path.exists(pdf_file):
-
-            st.success(
-                "🎉 簡譜PDF完成"
-            )
-
-
-            with open(
-                pdf_file,
-                "rb"
-            ) as f:
-
-                st.download_button(
-                    "下載簡譜PDF",
-                    f,
-                    file_name=os.path.basename(pdf_file)
-                )
-
-
-        else:
-
-            st.error(
-                "PDF生成失敗"
+                f"BasicPitch錯誤: {e}"
             )
