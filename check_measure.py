@@ -1,28 +1,13 @@
 from music21 import converter
-import sys
 
+f = r"C:\Users\user\Desktop\JianpuTool\outputs\c7bf9621\rebuild44_v2.musicxml"
 
-file = sys.argv[1]
+score = converter.parse(f)
 
-score = converter.parse(file)
-
-
-for part in score.parts:
-
-    print("PART")
-
-    for i, m in enumerate(
-        part.getElementsByClass("Measure")
-    ):
-
-        total = 0
-
-        for n in m.notesAndRests:
-            total += n.duration.quarterLength
-
-
-        print(
-            "Measure",
-            i+1,
-            total
-        )
+for m in score.parts[0].getElementsByClass('Measure')[:10]:
+    print(
+        "Measure",
+        m.number,
+        "duration=",
+        m.duration.quarterLength
+    )
