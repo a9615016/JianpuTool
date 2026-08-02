@@ -1,6 +1,6 @@
-streamlit
+streamlit==1.60.0
 basic-pitch==0.4.0
-music21==10.5.0
+music21==9.7.1
 numpy==1.26.4
-lxml
-resampy
+resampy==0.4.3
+lxml==5.3.0
