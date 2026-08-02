@@ -1,93 +1,139 @@
 import streamlit as st
 import os
+import sys
 import subprocess
+from pathlib import Path
+
 from basic_pitch.inference import predict_and_save
 from basic_pitch import ICASSP_2022_MODEL_PATH
 
 
+# ==========================
+# JianpuTool V1
+# MP3/WAV → MIDI → MusicXML
+# ==========================
+
+
 st.set_page_config(
-    page_title="JianpuTool V1",
+    page_title="JianpuTool",
     page_icon="🎵"
 )
+
 
 st.title("🎵 JianpuTool V1")
 st.write("MP3/WAV → MIDI → MusicXML → 簡譜 PDF")
 
 
-OUTPUT = "outputs"
+# output資料夾
 
-os.makedirs(OUTPUT, exist_ok=True)
+OUTPUT_DIR = Path("outputs")
+OUTPUT_DIR.mkdir(exist_ok=True)
 
 
-uploaded = st.file_uploader(
+# ==========================
+# 上傳音檔
+# ==========================
+
+audio_file = st.file_uploader(
     "上傳 MP3/WAV",
-    type=["mp3","wav"],
+    type=["mp3", "wav"],
     key="audio_upload"
 )
 
 
-if uploaded:
+if audio_file:
 
-    filename = uploaded.name
 
-    input_path = os.path.join(
-        OUTPUT,
-        filename
-    )
+    input_path = OUTPUT_DIR / audio_file.name
 
-    with open(input_path,"wb") as f:
-        f.write(uploaded.getbuffer())
+
+    with open(input_path, "wb") as f:
+        f.write(audio_file.getbuffer())
 
 
     st.success("音檔上傳完成")
 
 
     if st.button(
-        "開始轉換",
+        "開始分析",
         key="start_button"
     ):
 
+
+        # ==========================
+        # BasicPitch
+        # ==========================
+
+        st.write("開始 BasicPitch分析...")
+
+
         try:
 
-            st.write("開始 BasicPitch分析...")
-
-
-            midi_path = os.path.join(
-                OUTPUT,
-                filename.rsplit(".",1)[0]
-                +"_basic_pitch.mid"
-            )
-
-
             predict_and_save(
-                input_path,
-                OUTPUT,
+                [str(input_path)],
+                str(OUTPUT_DIR),
                 True,
                 True,
-                True,
-                True,
+                False,
                 ICASSP_2022_MODEL_PATH
             )
 
 
-            st.success(
-                "✅ MIDI產生成功"
+            midi_files = list(
+                OUTPUT_DIR.glob("*.mid")
             )
 
 
-            st.write(midi_path)
+            if midi_files:
+
+                midi_path = midi_files[-1]
 
 
-            st.write(
-                "開始轉 MusicXML..."
+                st.success(
+                    "✅ MIDI產生成功"
+                )
+
+                st.write(
+                    str(midi_path)
+                )
+
+
+            else:
+
+                st.error(
+                    "找不到MIDI"
+                )
+                st.stop()
+
+
+
+        except Exception as e:
+
+            st.error(
+                f"BasicPitch錯誤: {e}"
             )
 
+            st.stop()
+
+
+
+        # ==========================
+        # MIDI → MusicXML
+        # ==========================
+
+
+        st.write(
+            "開始轉 MusicXML..."
+        )
+
+
+        try:
 
             result = subprocess.run(
                 [
-                    "python",
+                    sys.executable,
                     "midi_to_musicxml_clean.py",
-                    midi_path
+                    str(midi_path)
                 ],
                 capture_output=True,
                 text=True
@@ -96,19 +142,45 @@ if uploaded:
 
             if result.returncode != 0:
 
-                st.error(result.stderr)
+                st.error(
+                    result.stderr
+                )
 
-            else:
+                st.stop()
+
+
+            musicxml_path = (
+                str(midi_path)
+                .replace(
+                    ".mid",
+                    ".musicxml"
+                )
+            )
+
+
+            if os.path.exists(
+                musicxml_path
+            ):
 
                 st.success(
                     "✅ MusicXML完成"
                 )
 
-                st.text(result.stdout)
+                st.write(
+                    musicxml_path
+                )
+
+
+            else:
+
+                st.error(
+                    "MusicXML沒有產生"
+                )
+
 
 
         except Exception as e:
 
             st.error(
-                f"錯誤:{e}"
+                f"MusicXML錯誤: {e}"
             )
