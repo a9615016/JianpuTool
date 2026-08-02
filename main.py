@@ -1,313 +1,222 @@
-MAIN_VERSION = "V33-BARFIX-TEST"
-
-print("================")
-print(f"JianpuTool main.py {MAIN_VERSION}")
-print("================")
-
-
 from fastapi import FastAPI, UploadFile, File
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 import os
-import uuid
 import subprocess
-import shutil
+import uuid
 
 
-app = FastAPI(
-    title="JianpuTool",
-    version="1.0"
-)
+app = FastAPI(title="JianpuTool")
 
 
-OUTPUT_DIR = "/app/outputs"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-os.makedirs(
-    OUTPUT_DIR,
-    exist_ok=True
-)
+OUTPUT_DIR = os.path.join(BASE_DIR, "outputs")
+
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+
+LILYPOND = r"C:\lilypond-2.26.0\bin\lilypond.exe"
+
 
 
 @app.get("/")
 def home():
 
-    return {
-        "status": "JianpuTool running",
-        "version": MAIN_VERSION,
-        "pipeline":
-        "MP3/WAV → MIDI → MusicXML → clean → barfix → jianpu → PDF"
-    }
+    return HTMLResponse("""
+    <html>
+    <body>
+
+    <h2>JianpuTool</h2>
+
+    <form action="/upload" method="post" enctype="multipart/form-data">
+
+    <input type="file" name="file">
+
+    <button type="submit">
+    Convert
+    </button>
+
+    </form>
+
+    </body>
+    </html>
+    """)
 
 
 
 @app.post("/upload")
-async def upload(
-    file: UploadFile = File(...)
-):
+async def upload(file: UploadFile = File(...)):
 
-    job_id = str(uuid.uuid4())
 
-    job_dir = os.path.join(
+    job = str(uuid.uuid4())
+
+
+    workdir = os.path.join(
         OUTPUT_DIR,
-        job_id
+        job
     )
 
     os.makedirs(
-        job_dir,
+        workdir,
         exist_ok=True
     )
 
 
-    input_file = os.path.join(
-        job_dir,
+    # =====================
+    # 儲存音檔
+    # =====================
+
+    input_audio = os.path.join(
+        workdir,
         file.filename
     )
 
 
-    with open(input_file, "wb") as f:
-        shutil.copyfileobj(
-            file.file,
-            f
+    with open(
+        input_audio,
+        "wb"
+    ) as f:
+
+        f.write(
+            await file.read()
         )
 
 
-    ext = file.filename.lower().split(".")[-1]
-
-
-    print("================")
-    print("FILE:", file.filename)
-    print("EXT:", ext)
-    print("================")
-
-
-    # ==========================
-    # AUDIO
-    # ==========================
-
-    if ext in ["mp3", "wav"]:
-
-        print("AUDIO → BasicPitch")
-
-
-        midi_file = os.path.join(
-            job_dir,
-            "melody.mid"
-        )
-
-
-        subprocess.run(
-            [
-                "python",
-                "basicpitch_convert.py",
-                input_file,
-                midi_file
-            ],
-            check=True
-        )
-
-
-        xml_file = os.path.join(
-            job_dir,
-            "input.musicxml"
-        )
-
-
-        subprocess.run(
-            [
-                "python",
-                "midi_to_musicxml.py",
-                midi_file,
-                xml_file
-            ],
-            check=True
-        )
-
-
-    # ==========================
-    # MIDI
-    # ==========================
-
-    elif ext in ["mid", "midi"]:
-
-        print("MIDI → MusicXML")
-
-
-        xml_file = os.path.join(
-            job_dir,
-            "input.musicxml"
-        )
-
-
-        subprocess.run(
-            [
-                "python",
-                "midi_to_musicxml.py",
-                input_file,
-                xml_file
-            ],
-            check=True
-        )
-
-
-    # ==========================
-    # MusicXML
-    # ==========================
-
-    elif ext in ["musicxml", "xml"]:
-
-        xml_file = input_file
-
-
-    else:
-
-        return {
-            "error":"Unsupported file format"
-        }
+    print("INPUT:")
+    print(input_audio)
 
 
 
-    # ==========================
-    # PURE VOCAL
-    # ==========================
+    # =====================
+    # MP3/WAV -> MIDI
+    # =====================
 
-    pure_xml = os.path.join(
-        job_dir,
-        "pure.musicxml"
+    midi_output = os.path.join(
+        workdir,
+        "input.mid"
     )
 
 
     subprocess.run(
         [
             "python",
-            "pure_vocal.py",
-            xml_file,
-            pure_xml
+            "basicpitch_convert.py",
+            input_audio,
+            midi_output
         ],
         check=True
     )
 
 
-    print("pure vocal 完成")
+
+    print("MIDI:")
+    print(midi_output)
 
 
 
-    # ==========================
-    # CLEAN V25
-    # ==========================
+    # =====================
+    # MIDI -> MusicXML
+    # =====================
 
-    clean_xml = os.path.join(
-        job_dir,
-        "clean.musicxml"
+    musicxml = os.path.join(
+        workdir,
+        "input.musicxml"
     )
 
 
     subprocess.run(
         [
             "python",
-            "clean_musicxml_v25.py",
-            pure_xml,
-            clean_xml
+            "midi_to_musicxml_clean.py",
+            midi_output,
+            musicxml
         ],
         check=True
     )
 
 
-    print("clean musicxml 完成")
 
+    # =====================
+    # FINAL QUANTIZE
+    # =====================
 
-
-    # ==========================
-    # BAR FIX
-    # ==========================
-
-    fix_xml = os.path.join(
-        job_dir,
-        "fix.musicxml"
+    final_xml = os.path.join(
+        workdir,
+        "final.musicxml"
     )
 
 
     subprocess.run(
         [
             "python",
-            "jianpu_fix_bar.py",
-            clean_xml,
-            fix_xml
+            "final_quantize.py",
+            musicxml,
+            final_xml
         ],
         check=True
     )
 
 
-    print("jianpu bar fix 完成")
-    print("USING FIX XML:", fix_xml)
 
-
-
-    # ==========================
-    # MusicXML → Jianpu LY
-    # ==========================
+    # =====================
+    # MUSICXML -> JIANPU
+    # =====================
 
     ly_file = os.path.join(
-        job_dir,
-        "output.ly"
+        workdir,
+        "jianpu.ly"
     )
 
 
-    try:
+    with open(
+        ly_file,
+        "w",
+        encoding="utf-8"
+    ) as f:
 
-        with open(
-            ly_file,
-            "w"
-        ) as f:
-
-
-            subprocess.run(
-                [
-                    "python",
-                    "-m",
-                    "jianpu_ly",
-                    fix_xml
-                ],
-                stdout=f,
-                stderr=subprocess.STDOUT,
-                check=True
-            )
-
-
-    except subprocess.CalledProcessError:
-
-        return {
-            "error":"jianpu_ly失敗",
-            "file":fix_xml
-        }
+        subprocess.run(
+            [
+                "python",
+                "-m",
+                "jianpu_ly",
+                final_xml
+            ],
+            stdout=f,
+            check=True
+        )
 
 
 
-    # ==========================
-    # LilyPond
-    # ==========================
+    # =====================
+    # LY -> PDF
+    # =====================
 
     subprocess.run(
         [
-            "lilypond",
-            "-o",
-            os.path.join(
-                job_dir,
-                "jianpu"
-            ),
+            LILYPOND,
             ly_file
         ],
+        cwd=workdir,
         check=True
     )
 
 
 
-    pdf_file = os.path.join(
-        job_dir,
+    pdf = os.path.join(
+        workdir,
         "jianpu.pdf"
     )
 
 
+    if not os.path.exists(pdf):
+
+        raise Exception(
+            "PDF產生失敗"
+        )
+
+
     return FileResponse(
-        pdf_file,
+        pdf,
         media_type="application/pdf",
         filename="jianpu.pdf"
     )
