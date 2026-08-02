@@ -4,3 +4,4 @@ music21
 numpy==1.26.4
 librosa
 soundfile
+setuptools<81
