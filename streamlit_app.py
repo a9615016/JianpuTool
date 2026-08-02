@@ -4,8 +4,9 @@ import sys
 import subprocess
 from pathlib import Path
 
-from basic_pitch.inference import predict_and_save
+from basic_pitch.inference import predict
 from basic_pitch import ICASSP_2022_MODEL_PATH
+from basic_pitch import note_creation
 
 
 # ==========================
@@ -24,14 +25,12 @@ st.title("🎵 JianpuTool V1")
 st.write("MP3/WAV → MIDI → MusicXML → 簡譜 PDF")
 
 
-# output資料夾
-
 OUTPUT_DIR = Path("outputs")
 OUTPUT_DIR.mkdir(exist_ok=True)
 
 
 # ==========================
-# 上傳音檔
+# Upload
 # ==========================
 
 audio_file = st.file_uploader(
@@ -43,9 +42,7 @@ audio_file = st.file_uploader(
 
 if audio_file:
 
-
     input_path = OUTPUT_DIR / audio_file.name
-
 
     with open(input_path, "wb") as f:
         f.write(audio_file.getbuffer())
@@ -56,71 +53,61 @@ if audio_file:
 
     if st.button(
         "開始分析",
-        key="start_button"
+        key="start"
     ):
 
 
-        # ==========================
+        # ======================
         # BasicPitch
-        # ==========================
+        # ======================
 
-        st.write("開始 BasicPitch分析...")
+        st.write(
+            "開始 BasicPitch分析..."
+        )
 
 
         try:
 
-            predict_and_save(
-                [str(input_path)],
-                str(OUTPUT_DIR),
-                True,
-                True,
-                False,
+            model_output = predict(
+                str(input_path),
                 ICASSP_2022_MODEL_PATH
             )
 
 
-            midi_files = list(
-                OUTPUT_DIR.glob("*.mid")
+            midi_path = OUTPUT_DIR / (
+                input_path.stem +
+                "_basic_pitch.mid"
             )
 
 
-            if midi_files:
-
-                midi_path = midi_files[-1]
-
-
-                st.success(
-                    "✅ MIDI產生成功"
-                )
-
-                st.write(
-                    str(midi_path)
-                )
+            note_creation.model_output_to_midi(
+                model_output,
+                str(midi_path)
+            )
 
 
-            else:
+            st.success(
+                "✅ MIDI產生成功"
+            )
 
-                st.error(
-                    "找不到MIDI"
-                )
-                st.stop()
-
+            st.write(
+                str(midi_path)
+            )
 
 
         except Exception as e:
 
             st.error(
-                f"BasicPitch錯誤: {e}"
+                f"BasicPitch錯誤:{e}"
             )
 
             st.stop()
 
 
 
-        # ==========================
+        # ======================
         # MIDI → MusicXML
-        # ==========================
-
+        # ======================
 
         st.write(
             "開始轉 MusicXML..."
@@ -178,9 +165,8 @@ if audio_file:
                 )
 
 
-
         except Exception as e:
 
             st.error(
-                f"MusicXML錯誤: {e}"
+                f"MusicXML錯誤:{e}"
             )
