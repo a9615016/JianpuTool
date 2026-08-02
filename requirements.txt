@@ -1,7 +1,6 @@
 streamlit
 basic-pitch==0.4.0
+music21==10.5.0
 numpy==1.26.4
-music21
-mido
 lxml
-jianpu-ly==1.872
+resampy
