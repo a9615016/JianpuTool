@@ -28,6 +28,33 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
 
+# ======================
+# 套件檢查
+# ======================
+
+try:
+
+    from basic_pitch.inference import predict
+    import music21
+
+    st.success(
+        "BasicPitch + music21 載入成功"
+    )
+
+except Exception:
+
+    st.error(
+        "套件載入失敗"
+    )
+
+    st.code(
+        traceback.format_exc()
+    )
+
+    st.stop()
+
+
+
 uploaded_file = st.file_uploader(
     "上傳 MP3",
     type=["mp3"]
@@ -37,7 +64,11 @@ uploaded_file = st.file_uploader(
 
 if uploaded_file:
 
-    st.success("MP3 上傳完成")
+
+    st.success(
+        "MP3 上傳完成"
+    )
+
 
     st.write(
         "檔案名稱：",
@@ -53,30 +84,42 @@ if uploaded_file:
         job_id + ".mp3"
     )
 
+
     midi_file = os.path.join(
         OUTPUT_DIR,
         job_id + ".mid"
     )
+
 
     musicxml_file = os.path.join(
         OUTPUT_DIR,
         job_id + ".musicxml"
     )
 
+
     quantize_file = os.path.join(
         OUTPUT_DIR,
-        job_id + "_final.musicxml"
+        job_id + "_quantize.musicxml"
     )
+
+
+    fixed_file = os.path.join(
+        OUTPUT_DIR,
+        job_id + "_fixed.musicxml"
+    )
+
 
     ly_file = os.path.join(
         OUTPUT_DIR,
         job_id + ".ly"
     )
 
+
     pdf_file = os.path.join(
         OUTPUT_DIR,
         job_id + ".pdf"
     )
+
 
 
     with open(
@@ -93,18 +136,15 @@ if uploaded_file:
     if st.button("開始轉換"):
 
 
-        # ==========================
-        # BasicPitch
-        # ==========================
+        # ======================
+        # MP3 → MIDI
+        # ======================
 
         try:
 
             st.info(
                 "BasicPitch 分析音樂..."
             )
-
-
-            from basic_pitch.inference import predict
 
 
             model_output, midi_data, note_events = predict(
@@ -125,7 +165,7 @@ if uploaded_file:
         except Exception:
 
             st.error(
-                "BasicPitch 失敗"
+                "BasicPitch失敗"
             )
 
             st.code(
@@ -136,9 +176,9 @@ if uploaded_file:
 
 
 
-        # ==========================
-        # MIDI -> MusicXML
-        # ==========================
+        # ======================
+        # MIDI → MusicXML
+        # ======================
 
         try:
 
@@ -191,9 +231,9 @@ if uploaded_file:
 
 
 
-        # ==========================
+        # ======================
         # Final Quantize
-        # ==========================
+        # ======================
 
         try:
 
@@ -202,7 +242,7 @@ if uploaded_file:
             )
 
 
-            result = subprocess.run(
+            result=subprocess.run(
                 [
                     sys.executable,
                     "final_quantize.py",
@@ -227,6 +267,7 @@ if uploaded_file:
                 st.stop()
 
 
+
             st.success(
                 "節拍量化完成"
             )
@@ -234,8 +275,9 @@ if uploaded_file:
 
         except Exception:
 
+
             st.error(
-                "Final Quantize錯誤"
+                "Quantize錯誤"
             )
 
             st.code(
@@ -246,27 +288,94 @@ if uploaded_file:
 
 
 
-        # ==========================
-        # MusicXML -> Jianpu
-        # ==========================
+        # ======================
+        # 小節修正
+        # ======================
 
         try:
+
+            st.info(
+                "修正小節線..."
+            )
+
+
+            result=subprocess.run(
+                [
+                    sys.executable,
+                    "bar_split_fix.py",
+                    quantize_file,
+                    fixed_file
+                ],
+                capture_output=True,
+                text=True
+            )
+
+
+            if result.returncode != 0:
+
+                st.error(
+                    "小節修正失敗"
+                )
+
+                st.code(
+                    result.stderr
+                )
+
+                st.stop()
+
+
+
+            st.success(
+                "小節修正完成"
+            )
+
+
+        except Exception:
+
+
+            st.error(
+                "小節修正錯誤"
+            )
+
+            st.code(
+                traceback.format_exc()
+            )
+
+            st.stop()
+
+
+
+        # ======================
+        # MusicXML → Jianpu
+        # ======================
+
+        try:
+
 
             st.info(
                 "MusicXML 轉簡譜..."
             )
 
 
-            result = subprocess.run(
-                [
-                    sys.executable,
-                    "-m",
-                    "jianpu_ly",
-                    quantize_file
-                ],
-                capture_output=True,
-                text=True
-            )
+            with open(
+                ly_file,
+                "w",
+                encoding="utf-8"
+            ) as f:
+
+
+                result=subprocess.run(
+                    [
+                        sys.executable,
+                        "-m",
+                        "jianpu_ly",
+                        fixed_file
+                    ],
+                    stdout=f,
+                    stderr=subprocess.PIPE,
+                    text=True
+                )
+
 
 
             if result.returncode != 0:
@@ -283,23 +392,13 @@ if uploaded_file:
 
 
 
-            with open(
-                ly_file,
-                "w",
-                encoding="utf-8"
-            ) as f:
-
-                f.write(
-                    result.stdout
-                )
-
-
             st.success(
-                "簡譜檔完成"
+                "簡譜產生成功"
             )
 
 
         except Exception:
+
 
             st.error(
                 "jianpu_ly錯誤"
@@ -313,14 +412,15 @@ if uploaded_file:
 
 
 
-        # ==========================
+        # ======================
         # LilyPond PDF
-        # ==========================
+        # ======================
 
         try:
 
+
             st.info(
-                "LilyPond 產生 PDF..."
+                "LilyPond產生PDF..."
             )
 
 
@@ -332,14 +432,14 @@ if uploaded_file:
             if lilypond is None:
 
                 st.error(
-                    "找不到 LilyPond"
+                    "找不到LilyPond"
                 )
 
                 st.stop()
 
 
 
-            result = subprocess.run(
+            result=subprocess.run(
                 [
                     lilypond,
                     "-o",
@@ -354,7 +454,7 @@ if uploaded_file:
             )
 
 
-            if result.returncode != 0:
+            if result.returncode !=0:
 
                 st.error(
                     "PDF產生失敗"
@@ -375,8 +475,9 @@ if uploaded_file:
 
         except Exception:
 
+
             st.error(
-                "PDF流程錯誤"
+                "PDF錯誤"
             )
 
             st.code(
@@ -387,51 +488,29 @@ if uploaded_file:
 
 
 
-        # ==========================
-        # Download
-        # ==========================
+        # ======================
+        # 下載
+        # ======================
 
 
-        if os.path.exists(pdf_file):
+        for file,label,mime in [
 
-            with open(
-                pdf_file,
-                "rb"
-            ) as f:
+            (midi_file,"下載 MIDI","audio/midi"),
 
-                st.download_button(
-                    "下載簡譜 PDF",
-                    f,
-                    file_name="jianpu.pdf",
-                    mime="application/pdf"
-                )
+            (musicxml_file,"下載 MusicXML","application/xml"),
+
+            (pdf_file,"下載簡譜 PDF","application/pdf")
+
+        ]:
 
 
-        if os.path.exists(musicxml_file):
+            if os.path.exists(file):
 
-            with open(
-                musicxml_file,
-                "rb"
-            ) as f:
+                with open(file,"rb") as f:
 
-                st.download_button(
-                    "下載 MusicXML",
-                    f,
-                    file_name="output.musicxml",
-                    mime="application/xml"
-                )
-
-
-        if os.path.exists(midi_file):
-
-            with open(
-                midi_file,
-                "rb"
-            ) as f:
-
-                st.download_button(
-                    "下載 MIDI",
-                    f,
-                    file_name="output.mid",
-                    mime="audio/midi"
-                )
+                    st.download_button(
+                        label,
+                        f,
+                        file_name=os.path.basename(file),
+                        mime=mime
+                    )
