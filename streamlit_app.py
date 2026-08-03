@@ -29,7 +29,7 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
 # ======================
-# 套件檢查
+# 套件測試
 # ======================
 
 try:
@@ -69,7 +69,6 @@ if uploaded_file:
         "MP3 上傳完成"
     )
 
-
     st.write(
         "檔案名稱：",
         uploaded_file.name
@@ -103,9 +102,15 @@ if uploaded_file:
     )
 
 
-    fixed_file = os.path.join(
+    bar_file = os.path.join(
         OUTPUT_DIR,
-        job_id + "_fixed.musicxml"
+        job_id + "_bar.musicxml"
+    )
+
+
+    split_file = os.path.join(
+        OUTPUT_DIR,
+        job_id + "_final.musicxml"
     )
 
 
@@ -242,7 +247,7 @@ if uploaded_file:
             )
 
 
-            result=subprocess.run(
+            result = subprocess.run(
                 [
                     sys.executable,
                     "final_quantize.py",
@@ -267,14 +272,12 @@ if uploaded_file:
                 st.stop()
 
 
-
             st.success(
                 "節拍量化完成"
             )
 
 
         except Exception:
-
 
             st.error(
                 "Quantize錯誤"
@@ -289,7 +292,7 @@ if uploaded_file:
 
 
         # ======================
-        # 小節修正
+        # bar split fix
         # ======================
 
         try:
@@ -299,12 +302,12 @@ if uploaded_file:
             )
 
 
-            result=subprocess.run(
+            result = subprocess.run(
                 [
                     sys.executable,
                     "bar_split_fix.py",
                     quantize_file,
-                    fixed_file
+                    bar_file
                 ],
                 capture_output=True,
                 text=True
@@ -324,7 +327,6 @@ if uploaded_file:
                 st.stop()
 
 
-
             st.success(
                 "小節修正完成"
             )
@@ -332,9 +334,8 @@ if uploaded_file:
 
         except Exception:
 
-
             st.error(
-                "小節修正錯誤"
+                "bar修正錯誤"
             )
 
             st.code(
@@ -346,11 +347,65 @@ if uploaded_file:
 
 
         # ======================
-        # MusicXML → Jianpu
+        # split cross bar
         # ======================
 
         try:
 
+            st.info(
+                "切割跨小節音符..."
+            )
+
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "split_cross_bar_notes.py",
+                    bar_file,
+                    split_file
+                ],
+                capture_output=True,
+                text=True
+            )
+
+
+            if result.returncode != 0:
+
+                st.error(
+                    "跨小節修正失敗"
+                )
+
+                st.code(
+                    result.stderr
+                )
+
+                st.stop()
+
+
+            st.success(
+                "跨小節修正完成"
+            )
+
+
+        except Exception:
+
+            st.error(
+                "split錯誤"
+            )
+
+            st.code(
+                traceback.format_exc()
+            )
+
+            st.stop()
+
+
+
+        # ======================
+        # MusicXML → jianpu ly
+        # ======================
+
+        try:
 
             st.info(
                 "MusicXML 轉簡譜..."
@@ -364,18 +419,17 @@ if uploaded_file:
             ) as f:
 
 
-                result=subprocess.run(
+                result = subprocess.run(
                     [
                         sys.executable,
                         "-m",
                         "jianpu_ly",
-                        fixed_file
+                        split_file
                     ],
                     stdout=f,
                     stderr=subprocess.PIPE,
                     text=True
                 )
-
 
 
             if result.returncode != 0:
@@ -391,7 +445,6 @@ if uploaded_file:
                 st.stop()
 
 
-
             st.success(
                 "簡譜產生成功"
             )
@@ -399,9 +452,8 @@ if uploaded_file:
 
         except Exception:
 
-
             st.error(
-                "jianpu_ly錯誤"
+                "jianpu錯誤"
             )
 
             st.code(
@@ -418,9 +470,8 @@ if uploaded_file:
 
         try:
 
-
             st.info(
-                "LilyPond產生PDF..."
+                "LilyPond 產生 PDF..."
             )
 
 
@@ -432,21 +483,18 @@ if uploaded_file:
             if lilypond is None:
 
                 st.error(
-                    "找不到LilyPond"
+                    "找不到 LilyPond"
                 )
 
                 st.stop()
 
 
 
-            result=subprocess.run(
+            result = subprocess.run(
                 [
                     lilypond,
                     "-o",
-                    pdf_file.replace(
-                        ".pdf",
-                        ""
-                    ),
+                    pdf_file.replace(".pdf",""),
                     ly_file
                 ],
                 capture_output=True,
@@ -454,10 +502,10 @@ if uploaded_file:
             )
 
 
-            if result.returncode !=0:
+            if result.returncode != 0:
 
                 st.error(
-                    "PDF產生失敗"
+                    "PDF失敗"
                 )
 
                 st.code(
@@ -467,14 +515,12 @@ if uploaded_file:
                 st.stop()
 
 
-
             st.success(
                 "🎉 簡譜 PDF 完成"
             )
 
 
         except Exception:
-
 
             st.error(
                 "PDF錯誤"
@@ -489,17 +535,21 @@ if uploaded_file:
 
 
         # ======================
-        # 下載
+        # Downloads
         # ======================
 
 
-        for file,label,mime in [
+        for file, name, mime in [
 
-            (midi_file,"下載 MIDI","audio/midi"),
+            (midi_file,"output.mid","audio/midi"),
 
-            (musicxml_file,"下載 MusicXML","application/xml"),
+            (musicxml_file,
+             "output.musicxml",
+             "application/xml"),
 
-            (pdf_file,"下載簡譜 PDF","application/pdf")
+            (pdf_file,
+             "jianpu.pdf",
+             "application/pdf")
 
         ]:
 
@@ -509,8 +559,8 @@ if uploaded_file:
                 with open(file,"rb") as f:
 
                     st.download_button(
-                        label,
+                        name,
                         f,
-                        file_name=os.path.basename(file),
+                        file_name=name,
                         mime=mime
                     )
