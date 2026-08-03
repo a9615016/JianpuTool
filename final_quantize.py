@@ -1,106 +1,74 @@
+from music21 import converter, stream, meter, duration, note
 import sys
-from music21 import converter, stream, meter, note, chord
-from fractions import Fraction
 
+src=sys.argv[1]
+out=sys.argv[2]
 
-if len(sys.argv) < 3:
-    print("usage: final_quantize.py input.musicxml output.musicxml")
-    sys.exit(1)
+score=converter.parse(src)
 
-
-input_file = sys.argv[1]
-output_file = sys.argv[2]
-
-
-print("Loading:", input_file)
-
-
-score = converter.parse(input_file)
-
-
-# ===============================
-# 強制建立 4/4 小節
-# ===============================
-
-score = score.makeMeasures(
-    inPlace=False
-)
-
+newScore=stream.Score()
 
 for part in score.parts:
 
-    part.insert(
-        0,
-        meter.TimeSignature("4/4")
-    )
+    p=stream.Part()
+    p.insert(0, meter.TimeSignature("4/4"))
+
+    current=0
+
+    for n in part.recurse().notes:
+
+        q=n.duration.quarterLength
+
+        # 量化
+        if q <= 0.25:
+            q=0.25
+        elif q <=0.5:
+            q=0.5
+        elif q<=1:
+            q=1
+        elif q<=2:
+            q=2
+        else:
+            q=4
+
+        # 超過小節先補滿
+        if current + q > 4:
+            rest_len = 4-current
+            if rest_len > 0:
+                r=note.Rest()
+                r.duration=duration.Duration(rest_len)
+                p.append(r)
+
+            current=0
 
 
-# ===============================
-# 量化音符
-# ===============================
+        nn=n
+        nn.duration=duration.Duration(q)
+        nn.tie=None
 
-for part in score.parts:
+        p.append(nn)
 
-    for n in part.recurse():
+        current += q
 
-        if isinstance(n, note.Note):
-
-            q = Fraction(
-                n.quarterLength
-            ).limit_denominator(16)
-
-            n.quarterLength = float(q)
+        if current == 4:
+            current=0
 
 
-        elif isinstance(n, chord.Chord):
-
-            q = Fraction(
-                n.quarterLength
-            ).limit_denominator(16)
-
-            n.quarterLength = float(q)
+    # 最後補滿
+    if current>0:
+        r=note.Rest()
+        r.duration=duration.Duration(4-current)
+        p.append(r)
 
 
-
-# ===============================
-# 再次建立 Measures
-# ===============================
-
-new_score = stream.Score()
+    newScore.append(p)
 
 
-for part in score.parts:
+newScore=newScore.makeMeasures()
 
-    new_part = stream.Part()
-
-    for m in part.getElementsByClass("Measure"):
-
-        new_part.append(m)
-
-
-    new_score.append(new_part)
-
-
-
-# 如果沒有 measure，補救
-
-if len(new_score.parts[0].getElementsByClass("Measure")) == 0:
-
-    print("沒有Measures，重新切割")
-
-    new_score = score.makeMeasures(
-        inPlace=False
-    )
-
-
-
-print("Writing:", output_file)
-
-
-new_score.write(
+newScore.write(
     "musicxml",
-    fp=output_file
+    fp=out
 )
 
-
-print("FINAL QUANTIZE OK")
+print("DONE",out)
