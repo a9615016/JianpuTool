@@ -1,1 +1,11 @@
 streamlit==1.60.0
+
+basic-pitch==0.4.0
+tensorflow-cpu==2.14.0
+
+numpy==1.24.3
+ml-dtypes==0.2.0
+h5py==3.9.0
+
+resampy==0.4.3
+setuptools==65.5.0
