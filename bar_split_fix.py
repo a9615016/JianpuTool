@@ -12,13 +12,13 @@ score = converter.parse(input_file)
 new_score = stream.Score()
 
 
+
 for old_part in score.parts:
 
 
     new_part = stream.Part()
 
 
-    # 4/4
     new_part.insert(
         0,
         meter.TimeSignature("4/4")
@@ -35,69 +35,73 @@ for old_part in score.parts:
     beat_used = 0
 
 
+
     for el in old_part.flatten().notesAndRests:
 
 
-        dur = float(
+        total = float(
             el.duration.quarterLength
         )
 
 
-        remaining = dur
-
-
-        while remaining > 0:
+        while total > 0:
 
 
             space = 4 - beat_used
 
 
-            take = min(
+            length = min(
                 space,
-                remaining
+                total
             )
 
 
-            # 重新建立物件
+            # 建立新元素
+
             if isinstance(el, note.Note):
 
-                n = note.Note(
+                obj = note.Note(
                     el.pitch
                 )
-
-                n.duration.quarterLength = take
-
-                measure.append(n)
 
 
             elif isinstance(el, chord.Chord):
 
-                c = chord.Chord(
+                obj = chord.Chord(
                     el.pitches
                 )
 
-                c.duration.quarterLength = take
 
-                measure.append(c)
+            else:
 
-
-            elif isinstance(el, note.Rest):
-
-                r = note.Rest()
-
-                r.duration.quarterLength = take
-
-                measure.append(r)
+                obj = note.Rest()
 
 
 
-            beat_used += take
-            remaining -= take
+            obj.duration.quarterLength = length
+
+
+            # ⭐重要
+            obj.duration.clear()
+            obj.duration.quarterLength = length
+            obj.duration.type = None
+            obj.duration.updateTuplet()
 
 
 
-            # 滿4拍
-            if beat_used >= 4:
+            measure.append(
+                obj
+            )
+
+
+
+            beat_used += length
+
+            total -= length
+
+
+
+            if beat_used >= 4 - 0.0001:
 
 
                 new_part.append(
@@ -117,15 +121,23 @@ for old_part in score.parts:
 
 
 
-    # 最後不足補休止
+    if len(measure.elements):
 
-    if beat_used > 0:
+        remain = 4 - beat_used
 
-        rest = note.Rest()
 
-        rest.duration.quarterLength = 4 - beat_used
+        if remain > 0:
 
-        measure.append(rest)
+            r = note.Rest()
+
+            r.duration.quarterLength = remain
+
+            r.duration.type = None
+
+            r.duration.updateTuplet()
+
+            measure.append(r)
+
 
 
         new_part.append(
@@ -140,7 +152,14 @@ for old_part in score.parts:
 
 
 
-# 輸出
+# 重新做 notation
+
+new_score.makeNotation(
+    inPlace=True
+)
+
+
+
 new_score.write(
     "musicxml",
     fp=output_file
