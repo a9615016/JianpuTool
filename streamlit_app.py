@@ -426,7 +426,78 @@ if uploaded_file:
             )
 
 
-            lilypond = None
+            # ======================
+# LilyPond PDF
+# ======================
+
+try:
+
+    st.info(
+        "LilyPond 產生 PDF..."
+    )
+
+
+    # 搜尋 LilyPond
+    lilypond = shutil.which("lilypond")
+
+
+    st.write(
+        "LilyPond path:",
+        lilypond
+    )
+
+
+    if lilypond is None:
+
+        st.error(
+            "找不到 LilyPond"
+        )
+
+        st.stop()
+
+
+
+    result = subprocess.run(
+        [
+            lilypond,
+            "-o",
+            pdf_file[:-4],
+            ly_file
+        ],
+        capture_output=True,
+        text=True
+    )
+
+
+    if result.returncode != 0:
+
+        st.error(
+            "PDF產生失敗"
+        )
+
+        st.code(
+            result.stderr
+        )
+
+        st.stop()
+
+
+    st.success(
+        "🎉 簡譜 PDF 完成"
+    )
+
+
+except Exception:
+
+    st.error(
+        "PDF錯誤"
+    )
+
+    st.code(
+        traceback.format_exc()
+    )
+
+    st.stop()
 
 
             paths = [
