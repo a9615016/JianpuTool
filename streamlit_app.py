@@ -1,6 +1,6 @@
 # ==========================================================
-# JianpuTool Streamlit App V1.0
-# MP3/WAV -> BasicPitch -> MIDI -> MusicXML -> Jianpu PDF
+# JianpuTool Streamlit Cloud V2
+# MP3/WAV -> MIDI -> MusicXML -> Jianpu PDF
 # ==========================================================
 
 import streamlit as st
@@ -8,6 +8,7 @@ import os
 import uuid
 import subprocess
 import shutil
+import sys
 
 
 from basic_pitch.inference import predict
@@ -15,15 +16,19 @@ from basic_pitch import ICASSP_2022_MODEL_PATH
 
 
 # ----------------------------------------------------------
-# Path
+# PATH
 # ----------------------------------------------------------
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = os.path.dirname(
+    os.path.abspath(__file__)
+)
+
 
 UPLOAD_DIR = os.path.join(
     BASE_DIR,
     "uploads"
 )
+
 
 OUTPUT_DIR = os.path.join(
     BASE_DIR,
@@ -36,10 +41,14 @@ os.makedirs(
     exist_ok=True
 )
 
+
 os.makedirs(
     OUTPUT_DIR,
     exist_ok=True
 )
+
+
+PYTHON = sys.executable
 
 
 # ----------------------------------------------------------
@@ -52,14 +61,23 @@ st.set_page_config(
 )
 
 
-st.title("🎵 JianpuTool")
+st.title(
+    "🎵 JianpuTool"
+)
+
 st.write(
-    "MP3 / WAV → MIDI → MusicXML → 數字簡譜 PDF"
+    "MP3 / WAV / MIDI → 數字簡譜 PDF"
+)
+
+
+st.write(
+    "Python:",
+    PYTHON
 )
 
 
 uploaded_file = st.file_uploader(
-    "上傳音樂檔案",
+    "上傳音樂",
     type=[
         "mp3",
         "wav",
@@ -68,8 +86,9 @@ uploaded_file = st.file_uploader(
 )
 
 
+
 # ----------------------------------------------------------
-# Convert
+# MAIN
 # ----------------------------------------------------------
 
 if uploaded_file:
@@ -84,7 +103,6 @@ if uploaded_file:
     )
 
 
-    # save upload
     with open(
         input_file,
         "wb"
@@ -96,13 +114,9 @@ if uploaded_file:
 
 
     st.success(
-        f"上傳完成: {uploaded_file.name}"
+        "檔案上傳完成"
     )
 
-
-    st.write(
-        "檔案位置:"
-    )
 
     st.code(
         input_file
@@ -112,7 +126,7 @@ if uploaded_file:
     if not os.path.exists(input_file):
 
         st.error(
-            "音檔保存失敗"
+            "找不到上傳檔案"
         )
 
         st.stop()
@@ -120,7 +134,7 @@ if uploaded_file:
 
 
     # ------------------------------------------------------
-    # MIDI
+    # Audio -> MIDI
     # ------------------------------------------------------
 
     if ext in [
@@ -130,7 +144,7 @@ if uploaded_file:
 
 
         st.info(
-            "開始 BasicPitch 音樂辨識..."
+            "BasicPitch 分析音樂..."
         )
 
 
@@ -161,7 +175,7 @@ if uploaded_file:
         except Exception as e:
 
             st.error(
-                "BasicPitch錯誤"
+                "BasicPitch失敗"
             )
 
             st.exception(e)
@@ -172,6 +186,7 @@ if uploaded_file:
 
     else:
 
+
         midi_path = input_file
 
 
@@ -181,11 +196,12 @@ if uploaded_file:
     )
 
 
+
     # ------------------------------------------------------
     # MIDI -> MusicXML
     # ------------------------------------------------------
 
-    musicxml_path = os.path.join(
+    raw_xml = os.path.join(
         OUTPUT_DIR,
         "raw.musicxml"
     )
@@ -196,13 +212,16 @@ if uploaded_file:
     )
 
 
+    cmd = [
+        PYTHON,
+        "midi_to_musicxml_clean.py",
+        midi_path,
+        raw_xml
+    ]
+
+
     result = subprocess.run(
-        [
-            "python",
-            "midi_to_musicxml_clean.py",
-            midi_path,
-            musicxml_path
-        ],
+        cmd,
         capture_output=True,
         text=True
     )
@@ -219,7 +238,7 @@ if uploaded_file:
 
 
     # ------------------------------------------------------
-    # Clean MusicXML
+    # Clean
     # ------------------------------------------------------
 
     clean_xml = os.path.join(
@@ -230,16 +249,17 @@ if uploaded_file:
 
     subprocess.run(
         [
-            "python",
+            PYTHON,
             "clean_musicxml.py",
-            musicxml_path,
+            raw_xml,
             clean_xml
         ]
     )
 
 
+
     # ------------------------------------------------------
-    # Jianpu Fix
+    # Fix Jianpu
     # ------------------------------------------------------
 
     final_xml = os.path.join(
@@ -250,7 +270,7 @@ if uploaded_file:
 
     subprocess.run(
         [
-            "python",
+            PYTHON,
             "jianpu_fix_musicxml.py",
             clean_xml,
             final_xml
@@ -258,23 +278,36 @@ if uploaded_file:
     )
 
 
+
     # ------------------------------------------------------
     # jianpu-ly
     # ------------------------------------------------------
 
     st.info(
-        "產生簡譜..."
+        "產生簡譜 LilyPond..."
     )
 
 
-    subprocess.run(
+    result = subprocess.run(
         [
-            "python",
+            PYTHON,
             "-m",
             "jianpu_ly",
             final_xml
-        ]
+        ],
+        capture_output=True,
+        text=True
     )
+
+
+    if result.returncode != 0:
+
+        st.error(
+            result.stderr
+        )
+
+        st.stop()
+
 
 
     ly_file = os.path.join(
@@ -288,7 +321,7 @@ if uploaded_file:
     # ------------------------------------------------------
 
     st.info(
-        "LilyPond輸出PDF..."
+        "產生PDF..."
     )
 
 
@@ -315,16 +348,18 @@ if uploaded_file:
     )
 
 
+
     pdf_file = ly_file.replace(
         ".ly",
         ".pdf"
     )
 
 
+
     if os.path.exists(pdf_file):
 
         st.success(
-            "完成！"
+            "🎉 簡譜 PDF 完成"
         )
 
 
@@ -333,9 +368,10 @@ if uploaded_file:
             "rb"
         ) as f:
 
+
             st.download_button(
-                label="下載簡譜 PDF",
-                data=f,
+                "下載簡譜 PDF",
+                f,
                 file_name="jianpu.pdf",
                 mime="application/pdf"
             )
