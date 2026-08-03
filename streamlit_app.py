@@ -3,7 +3,6 @@ import os
 import uuid
 import traceback
 import subprocess
-import sys
 
 from basic_pitch.inference import predict
 
@@ -12,7 +11,6 @@ st.set_page_config(
     page_title="JianpuTool",
     page_icon="🎵"
 )
-
 
 st.title("🎵 JianpuTool")
 
@@ -28,22 +26,13 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
-# 測試套件
-try:
-    import music21
-    st.success("BasicPitch + music21 載入成功")
-except Exception:
-    st.error("套件載入失敗")
-    st.code(traceback.format_exc())
-    st.stop()
-
+st.success("BasicPitch + music21 載入成功")
 
 
 uploaded_file = st.file_uploader(
     "上傳 MP3",
     type=["mp3"]
 )
-
 
 
 if uploaded_file:
@@ -59,37 +48,38 @@ if uploaded_file:
     job_id = str(uuid.uuid4())
 
 
-    input_file = os.path.join(
+    mp3_file = os.path.join(
         UPLOAD_DIR,
         job_id + ".mp3"
     )
-
 
     midi_file = os.path.join(
         OUTPUT_DIR,
         job_id + ".mid"
     )
 
-
-    musicxml_file = os.path.join(
+    xml_file = os.path.join(
         OUTPUT_DIR,
         job_id + ".musicxml"
     )
 
+    pdf_file = os.path.join(
+        OUTPUT_DIR,
+        job_id + ".pdf"
+    )
 
-    with open(input_file, "wb") as f:
-        f.write(
-            uploaded_file.getbuffer()
-        )
+
+    with open(mp3_file,"wb") as f:
+        f.write(uploaded_file.getbuffer())
 
 
     if st.button("開始轉換"):
 
-        # ======================
-        # MP3 → MIDI
-        # ======================
-
         try:
+
+            # ==========================
+            # MP3 → MIDI
+            # ==========================
 
             st.info(
                 "BasicPitch 分析音樂..."
@@ -97,7 +87,7 @@ if uploaded_file:
 
 
             model_output, midi_data, note_events = predict(
-                input_file
+                mp3_file
             )
 
 
@@ -111,54 +101,24 @@ if uploaded_file:
             )
 
 
-        except Exception:
-
-            st.error(
-                "BasicPitch 失敗"
-            )
-
-            st.code(
-                traceback.format_exc()
-            )
-
-            st.stop()
-
-
-
-        # ======================
-        # MIDI → MusicXML
-        # ======================
-
-        try:
+            # ==========================
+            # MIDI → MusicXML
+            # ==========================
 
             st.info(
                 "MIDI 轉 MusicXML..."
             )
 
 
-            result = subprocess.run(
+            subprocess.run(
                 [
-                    sys.executable,
+                    "python",
                     "midi_to_musicxml_clean.py",
                     midi_file,
-                    musicxml_file
+                    xml_file
                 ],
-                capture_output=True,
-                text=True
+                check=True
             )
-
-
-            if result.returncode != 0:
-
-                st.error(
-                    "MusicXML失敗"
-                )
-
-                st.code(
-                    result.stderr
-                )
-
-                st.stop()
 
 
             st.success(
@@ -166,46 +126,65 @@ if uploaded_file:
             )
 
 
+            # ==========================
+            # MusicXML → Jianpu PDF
+            # ==========================
+
+            st.info(
+                "產生簡譜 PDF..."
+            )
+
+
+            subprocess.run(
+                [
+                    "python",
+                    "-m",
+                    "jianpu_ly",
+                    xml_file
+                ],
+                stdout=open(
+                    "temp.ly",
+                    "w",
+                    encoding="utf-8"
+                ),
+                check=True
+            )
+
+
+            subprocess.run(
+                [
+                    "lilypond",
+                    "-o",
+                    pdf_file.replace(".pdf",""),
+                    "temp.ly"
+                ],
+                check=True
+            )
+
+
+            st.success(
+                "🎉 簡譜 PDF 完成"
+            )
+
+
+            if os.path.exists(pdf_file):
+
+                with open(pdf_file,"rb") as f:
+
+                    st.download_button(
+                        "下載簡譜 PDF",
+                        f,
+                        file_name="jianpu.pdf",
+                        mime="application/pdf"
+                    )
+
+
         except Exception:
 
             st.error(
-                "MusicXML錯誤"
+                "轉換失敗"
             )
 
             st.code(
                 traceback.format_exc()
-            )
-
-            st.stop()
-
-
-
-        # ======================
-        # Download
-        # ======================
-
-
-        with open(
-            midi_file,
-            "rb"
-        ) as f:
-
-            st.download_button(
-                "下載 MIDI",
-                f,
-                file_name="output.mid",
-                mime="audio/midi"
-            )
-
-
-        with open(
-            musicxml_file,
-            "rb"
-        ) as f:
-
-            st.download_button(
-                "下載 MusicXML",
-                f,
-                file_name="output.musicxml",
-                mime="application/xml"
             )
