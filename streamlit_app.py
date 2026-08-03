@@ -426,30 +426,24 @@ if uploaded_file:
             )
 
 
-            lilypond = None
+            # 搜尋 LilyPond
+
+lilypond = shutil.which("lilypond")
 
 
-            paths = [
-                "/usr/bin/lilypond",
-                "/usr/local/bin/lilypond",
-            ]
+st.write(
+    "LilyPond path:",
+    lilypond
+)
 
 
-            for p in paths:
+if lilypond is None:
 
-                if os.path.exists(p):
+    st.error(
+        "找不到 LilyPond"
+    )
 
-                    lilypond = p
-                    break
-
-
-
-            if lilypond is None:
-
-                lilypond = shutil.which(
-                    "lilypond"
-                )
-
+    st.stop()
 
 
             if lilypond is None:
