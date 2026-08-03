@@ -4,6 +4,9 @@ basic-pitch==0.4.0
 tensorflow==2.14.1
 numpy==1.26.4
 
+setuptools==65.5.0
+resampy==0.4.3
+
 music21==9.1.0
 jianpu-ly==1.872
 lxml
