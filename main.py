@@ -10,15 +10,20 @@ app = FastAPI(title="JianpuTool")
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-OUTPUT_DIR = os.path.join(BASE_DIR, "outputs")
+OUTPUT_DIR = os.path.join(
+    BASE_DIR,
+    "outputs"
+)
 
-os.makedirs(OUTPUT_DIR, exist_ok=True)
+os.makedirs(
+    OUTPUT_DIR,
+    exist_ok=True
+)
 
 
 LILYPOND = r"C:\lilypond-2.26.0\bin\lilypond.exe"
 
 
-# 支援格式
 SUPPORTED = [
     ".mp3",
     ".wav",
@@ -26,6 +31,10 @@ SUPPORTED = [
     ".midi"
 ]
 
+
+# ==========================
+# 首頁
+# ==========================
 
 @app.get("/")
 def home():
@@ -37,19 +46,22 @@ def home():
     <h2>JianpuTool</h2>
 
     <p>
-    支援 MP3 / WAV / MIDI
+    支援 MP3 / WAV / MIDI → 簡譜 PDF
     </p>
 
-    <form action="/upload"
+    <form 
+    action="/upload" 
     method="post"
     enctype="multipart/form-data">
 
     <input 
-    type="file" 
+    type="file"
     name="file"
     accept=".mp3,.wav,.mid,.midi">
 
-    <button>
+    <br><br>
+
+    <button type="submit">
     Convert
     </button>
 
@@ -61,8 +73,14 @@ def home():
 
 
 
+# ==========================
+# 上傳轉換
+# ==========================
+
 @app.post("/upload")
-async def upload(file: UploadFile = File(...)):
+async def upload(
+    file: UploadFile = File(...)
+):
 
 
     ext = os.path.splitext(
@@ -77,6 +95,7 @@ async def upload(file: UploadFile = File(...)):
         )
 
 
+
     job = str(uuid.uuid4())
 
 
@@ -85,13 +104,17 @@ async def upload(file: UploadFile = File(...)):
         job
     )
 
+
     os.makedirs(
         workdir,
         exist_ok=True
     )
 
 
-    # 儲存檔案
+
+    # ======================
+    # 儲存輸入檔
+    # ======================
 
     input_file = os.path.join(
         workdir,
@@ -99,22 +122,31 @@ async def upload(file: UploadFile = File(...)):
     )
 
 
-    with open(input_file,"wb") as f:
+    with open(
+        input_file,
+        "wb"
+    ) as f:
 
         f.write(
             await file.read()
         )
 
 
-    print("INPUT:",input_file)
+    print(
+        "INPUT:",
+        input_file
+    )
 
 
 
-    # ==========================
-    # WAV / MP3 -> MIDI
-    # ==========================
+    # ======================
+    # MP3/WAV -> MIDI
+    # ======================
 
-    if ext in [".mp3",".wav"]:
+    if ext in [
+        ".mp3",
+        ".wav"
+    ]:
 
 
         midi_output = os.path.join(
@@ -134,11 +166,10 @@ async def upload(file: UploadFile = File(...)):
         )
 
 
-    # ==========================
-    # MIDI直接使用
-    # ==========================
-
     else:
+
+
+        # MIDI直接使用
 
         midi_output = input_file
 
@@ -151,10 +182,9 @@ async def upload(file: UploadFile = File(...)):
 
 
 
-    # ==========================
+    # ======================
     # MIDI -> MusicXML
-    # ==========================
-
+    # ======================
 
     musicxml = os.path.join(
         workdir,
@@ -174,10 +204,9 @@ async def upload(file: UploadFile = File(...)):
 
 
 
-    # ==========================
+    # ======================
     # Quantize
-    # ==========================
-
+    # ======================
 
     final_xml = os.path.join(
         workdir,
@@ -197,10 +226,9 @@ async def upload(file: UploadFile = File(...)):
 
 
 
-    # ==========================
-    # MusicXML -> Jianpu
-    # ==========================
-
+    # ======================
+    # MusicXML -> Jianpu LY
+    # ======================
 
     ly_file = os.path.join(
         workdir,
@@ -228,10 +256,9 @@ async def upload(file: UploadFile = File(...)):
 
 
 
-    # ==========================
+    # ======================
     # LilyPond PDF
-    # ==========================
-
+    # ======================
 
     subprocess.run(
         [
@@ -253,7 +280,7 @@ async def upload(file: UploadFile = File(...)):
     if not os.path.exists(pdf):
 
         raise Exception(
-            "PDF失敗"
+            "PDF產生失敗"
         )
 
 
