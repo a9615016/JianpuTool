@@ -1,4 +1,10 @@
 import streamlit as st
+
+st.write("測試 music21")
+
+import music21
+
+st.success("music21 安裝成功")
 import os
 import uuid
 import traceback
