@@ -1,0 +1,1 @@
+pip install setuptools==65.5.0
