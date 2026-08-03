@@ -432,6 +432,7 @@ if uploaded_file:
             paths = [
                 "/usr/bin/lilypond",
                 "/usr/local/bin/lilypond",
+                "/app/.apt/usr/bin/lilypond"
             ]
 
 
