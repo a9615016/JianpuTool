@@ -1,13 +1,12 @@
-streamlit==1.37.1
-
-setuptools==65.5.0
+streamlit
 
 basic-pitch==0.4.0
 resampy==0.4.3
-tensorflow==2.14.1
 
-numpy==1.26.4
+tensorflow==2.14.1
+numpy<2
+
 music21==9.1.0
 jianpu-ly==1.872
-lxml==5.3.0
-reportlab==4.2.2
+lxml
+reportlab
