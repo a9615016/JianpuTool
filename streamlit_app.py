@@ -428,22 +428,22 @@ if uploaded_file:
 
             # 搜尋 LilyPond
 
-lilypond = shutil.which("lilypond")
+       lilypond = shutil.which("lilypond")
 
 
-st.write(
-    "LilyPond path:",
-    lilypond
-)
+       st.write(
+       "LilyPond path:",
+       lilypond
+       )
 
 
-if lilypond is None:
+       if lilypond is None:
 
-    st.error(
+       st.error(
         "找不到 LilyPond"
-    )
+       )
 
-    st.stop()
+       st.stop()
 
 
             if lilypond is None:
