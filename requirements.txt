@@ -1,12 +1,9 @@
 streamlit
-fastapi
-uvicorn
-python-multipart
 
+basic-pitch==0.4.0
 music21==9.1.0
 jianpu-ly==1.872
-lxml
-reportlab
 
 numpy==1.26.4
-basic-pitch==0.4.0
+lxml
+reportlab
