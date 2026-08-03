@@ -27,13 +27,11 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
-
 # ======================
 # 套件測試
 # ======================
 
 try:
-
     from basic_pitch.inference import predict
     import music21
 
@@ -83,48 +81,35 @@ if uploaded_file:
         job_id + ".mp3"
     )
 
-
     midi_file = os.path.join(
         OUTPUT_DIR,
         job_id + ".mid"
     )
-
 
     musicxml_file = os.path.join(
         OUTPUT_DIR,
         job_id + ".musicxml"
     )
 
-
     quantize_file = os.path.join(
         OUTPUT_DIR,
         job_id + "_quantize.musicxml"
     )
 
-
-    bar_file = os.path.join(
+    fixed_file = os.path.join(
         OUTPUT_DIR,
-        job_id + "_bar.musicxml"
+        job_id + "_fixed.musicxml"
     )
-
-
-    split_file = os.path.join(
-        OUTPUT_DIR,
-        job_id + "_final.musicxml"
-    )
-
 
     ly_file = os.path.join(
         OUTPUT_DIR,
         job_id + ".ly"
     )
 
-
     pdf_file = os.path.join(
         OUTPUT_DIR,
         job_id + ".pdf"
     )
-
 
 
     with open(
@@ -280,7 +265,7 @@ if uploaded_file:
         except Exception:
 
             st.error(
-                "Quantize錯誤"
+                "Final Quantize錯誤"
             )
 
             st.code(
@@ -292,7 +277,7 @@ if uploaded_file:
 
 
         # ======================
-        # bar split fix
+        # bar_split_fix
         # ======================
 
         try:
@@ -307,7 +292,7 @@ if uploaded_file:
                     sys.executable,
                     "bar_split_fix.py",
                     quantize_file,
-                    bar_file
+                    fixed_file
                 ],
                 capture_output=True,
                 text=True
@@ -335,7 +320,7 @@ if uploaded_file:
         except Exception:
 
             st.error(
-                "bar修正錯誤"
+                "bar_split_fix錯誤"
             )
 
             st.code(
@@ -347,56 +332,7 @@ if uploaded_file:
 
 
         # ======================
-        # split cross bar
-        # ======================
-
-        try:
-
-            st.info(
-                "切割跨小節音符..."
-            )
-
-
-            
-                capture_output=True,
-                text=True
-            )
-
-
-            if result.returncode != 0:
-
-                st.error(
-                    "跨小節修正失敗"
-                )
-
-                st.code(
-                    result.stderr
-                )
-
-                st.stop()
-
-
-            st.success(
-                "跨小節修正完成"
-            )
-
-
-        except Exception:
-
-            st.error(
-                "split錯誤"
-            )
-
-            st.code(
-                traceback.format_exc()
-            )
-
-            st.stop()
-
-
-
-        # ======================
-        # MusicXML → jianpu ly
+        # MusicXML → Jianpu LY
         # ======================
 
         try:
@@ -418,7 +354,7 @@ if uploaded_file:
                         sys.executable,
                         "-m",
                         "jianpu_ly",
-                        split_file
+                        fixed_file
                     ],
                     stdout=f,
                     stderr=subprocess.PIPE,
@@ -447,7 +383,7 @@ if uploaded_file:
         except Exception:
 
             st.error(
-                "jianpu錯誤"
+                "jianpu_ly錯誤"
             )
 
             st.code(
@@ -488,7 +424,10 @@ if uploaded_file:
                 [
                     lilypond,
                     "-o",
-                    pdf_file.replace(".pdf",""),
+                    pdf_file.replace(
+                        ".pdf",
+                        ""
+                    ),
                     ly_file
                 ],
                 capture_output=True,
@@ -499,7 +438,7 @@ if uploaded_file:
             if result.returncode != 0:
 
                 st.error(
-                    "PDF失敗"
+                    "PDF產生失敗"
                 )
 
                 st.code(
@@ -507,6 +446,7 @@ if uploaded_file:
                 )
 
                 st.stop()
+
 
 
             st.success(
@@ -517,7 +457,7 @@ if uploaded_file:
         except Exception:
 
             st.error(
-                "PDF錯誤"
+                "PDF流程錯誤"
             )
 
             st.code(
@@ -529,32 +469,33 @@ if uploaded_file:
 
 
         # ======================
-        # Downloads
+        # 下載
         # ======================
 
 
-        for file, name, mime in [
+        if os.path.exists(midi_file):
 
-            (midi_file,"output.mid","audio/midi"),
-
-            (musicxml_file,
-             "output.musicxml",
-             "application/xml"),
-
-            (pdf_file,
-             "jianpu.pdf",
-             "application/pdf")
-
-        ]:
+            st.download_button(
+                "下載 MIDI",
+                open(midi_file,"rb"),
+                file_name="output.mid"
+            )
 
 
-            if os.path.exists(file):
+        if os.path.exists(fixed_file):
 
-                with open(file,"rb") as f:
+            st.download_button(
+                "下載修正 MusicXML",
+                open(fixed_file,"rb"),
+                file_name="fixed.musicxml"
+            )
 
-                    st.download_button(
-                        name,
-                        f,
-                        file_name=name,
-                        mime=mime
-                    )
+
+        if os.path.exists(pdf_file):
+
+            st.download_button(
+                "下載簡譜 PDF",
+                open(pdf_file,"rb"),
+                file_name="jianpu.pdf",
+                mime="application/pdf"
+            )
