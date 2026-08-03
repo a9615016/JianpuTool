@@ -1,74 +1,175 @@
-from music21 import converter, stream, meter, duration, note
+# final_quantize.py
+# JianpuTool FINAL QUANTIZE
+# MusicXML → 修正節拍 → 4/4 小節重建
+
+from music21 import converter, stream, note, meter
 import sys
 
-src=sys.argv[1]
-out=sys.argv[2]
 
-score=converter.parse(src)
+if len(sys.argv) < 3:
+    print(
+        "Usage: python final_quantize.py input.musicxml output.musicxml"
+    )
+    sys.exit(1)
 
-newScore=stream.Score()
+
+
+src = sys.argv[1]
+dst = sys.argv[2]
+
+
+print("Loading:", src)
+
+
+score = converter.parse(src)
+
+
+
+# ==========================
+# 音符時間量化
+# ==========================
+
+allowed = [
+    0.25,   # 16分
+    0.5,    # 8分
+    0.75,
+    1.0,
+    1.5,
+    2.0,
+    3.0,
+    4.0
+]
+
 
 for part in score.parts:
 
-    p=stream.Part()
-    p.insert(0, meter.TimeSignature("4/4"))
 
-    current=0
+    events = []
 
-    for n in part.recurse().notes:
 
-        q=n.duration.quarterLength
+    for n in part.flatten().notesAndRests:
 
-        # 量化
-        if q <= 0.25:
-            q=0.25
-        elif q <=0.5:
-            q=0.5
-        elif q<=1:
-            q=1
-        elif q<=2:
-            q=2
-        else:
-            q=4
 
-        # 超過小節先補滿
-        if current + q > 4:
+        length = float(n.quarterLength)
+
+
+        best = min(
+            allowed,
+            key=lambda x: abs(x-length)
+        )
+
+
+        n.quarterLength = best
+
+
+        events.append(n)
+
+
+
+    # ==========================
+    # 移除舊小節
+    # ==========================
+
+    part.removeByClass(
+        stream.Measure
+    )
+
+
+    # ==========================
+    # 強制 4/4
+    # ==========================
+
+    new_part = stream.Part()
+
+
+    new_part.insert(
+        0,
+        meter.TimeSignature("4/4")
+    )
+
+
+    current = 0
+
+
+
+    for n in events:
+
+
+        dur = float(
+            n.quarterLength
+        )
+
+
+        # 超過4拍
+        if current + dur > 4:
+
+
             rest_len = 4-current
+
+
             if rest_len > 0:
-                r=note.Rest()
-                r.duration=duration.Duration(rest_len)
-                p.append(r)
 
-            current=0
-
-
-        nn=n
-        nn.duration=duration.Duration(q)
-        nn.tie=None
-
-        p.append(nn)
-
-        current += q
-
-        if current == 4:
-            current=0
+                new_part.append(
+                    note.Rest(
+                        quarterLength=rest_len
+                    )
+                )
 
 
-    # 最後補滿
-    if current>0:
-        r=note.Rest()
-        r.duration=duration.Duration(4-current)
-        p.append(r)
+            current = 0
 
 
-    newScore.append(p)
+
+        new_part.append(n)
 
 
-newScore=newScore.makeMeasures()
+        current += dur
 
-newScore.write(
+
+
+        # 一小節完成
+
+        if abs(current-4) < 0.001:
+
+            current = 0
+
+
+
+    # 補最後不足
+
+    if current > 0:
+
+
+        new_part.append(
+            note.Rest(
+                quarterLength=4-current
+            )
+        )
+
+
+
+    # 重新建立小節
+
+    measures = new_part.makeMeasures()
+
+
+    part.append(
+        measures
+    )
+
+
+
+# ==========================
+# 最後輸出
+# ==========================
+
+score.write(
     "musicxml",
-    fp=out
+    dst
 )
 
-print("DONE",out)
+
+print(
+    "FINAL QUANTIZE OK:",
+    dst
+)
