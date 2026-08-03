@@ -1,8 +1,10 @@
+import shutil
 import streamlit as st
 import os
 import uuid
 import traceback
 import subprocess
+import sys
 
 from basic_pitch.inference import predict
 
@@ -11,6 +13,7 @@ st.set_page_config(
     page_title="JianpuTool",
     page_icon="🎵"
 )
+
 
 st.title("🎵 JianpuTool")
 
@@ -26,13 +29,22 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
-st.success("BasicPitch + music21 載入成功")
+# 測試套件
+try:
+    import music21
+    st.success("BasicPitch + music21 載入成功")
+except Exception:
+    st.error("套件載入失敗")
+    st.code(traceback.format_exc())
+    st.stop()
+
 
 
 uploaded_file = st.file_uploader(
     "上傳 MP3",
     type=["mp3"]
 )
+
 
 
 if uploaded_file:
@@ -48,38 +60,37 @@ if uploaded_file:
     job_id = str(uuid.uuid4())
 
 
-    mp3_file = os.path.join(
+    input_file = os.path.join(
         UPLOAD_DIR,
         job_id + ".mp3"
     )
+
 
     midi_file = os.path.join(
         OUTPUT_DIR,
         job_id + ".mid"
     )
 
-    xml_file = os.path.join(
+
+    musicxml_file = os.path.join(
         OUTPUT_DIR,
         job_id + ".musicxml"
     )
 
-    pdf_file = os.path.join(
-        OUTPUT_DIR,
-        job_id + ".pdf"
-    )
 
-
-    with open(mp3_file,"wb") as f:
-        f.write(uploaded_file.getbuffer())
+    with open(input_file, "wb") as f:
+        f.write(
+            uploaded_file.getbuffer()
+        )
 
 
     if st.button("開始轉換"):
 
-        try:
+        # ======================
+        # MP3 → MIDI
+        # ======================
 
-            # ==========================
-            # MP3 → MIDI
-            # ==========================
+        try:
 
             st.info(
                 "BasicPitch 分析音樂..."
@@ -87,7 +98,7 @@ if uploaded_file:
 
 
             model_output, midi_data, note_events = predict(
-                mp3_file
+                input_file
             )
 
 
@@ -101,75 +112,185 @@ if uploaded_file:
             )
 
 
-            # ==========================
-            # MIDI → MusicXML
-            # ==========================
+        except Exception:
+
+            st.error(
+                "BasicPitch 失敗"
+            )
+
+            st.code(
+                traceback.format_exc()
+            )
+
+            st.stop()
+
+
+
+        # ======================
+        # MIDI → MusicXML
+        # ======================
+
+        try:
 
             st.info(
                 "MIDI 轉 MusicXML..."
             )
 
 
-            subprocess.run(
+            result = subprocess.run(
                 [
-                    "python",
+                    sys.executable,
                     "midi_to_musicxml_clean.py",
                     midi_file,
-                    xml_file
+                    musicxml_file
                 ],
-                check=True
+                capture_output=True,
+                text=True
             )
+
+
+            if result.returncode != 0:
+
+                st.error(
+                    "MusicXML失敗"
+                )
+
+                st.code(
+                    result.stderr
+                )
+
+                st.stop()
 
 
             st.success(
                 "MusicXML 產生成功"
             )
+            # ======================
+        # MusicXML → Jianpu PDF
+        # ======================
 
-
-            # ==========================
-            # MusicXML → Jianpu PDF
-            # ==========================
+        try:
 
             st.info(
-                "產生簡譜 PDF..."
+                "MusicXML 轉簡譜 PDF..."
             )
 
 
-            subprocess.run(
-                [
-                    "python",
-                    "-m",
-                    "jianpu_ly",
-                    xml_file
-                ],
-                stdout=open(
-                    "temp.ly",
-                    "w",
-                    encoding="utf-8"
-                ),
-                check=True
+            ly_file = os.path.join(
+                OUTPUT_DIR,
+                job_id + ".ly"
             )
 
 
-            subprocess.run(
-                [
-                    "lilypond",
-                    "-o",
-                    pdf_file.replace(".pdf",""),
-                    "temp.ly"
-                ],
-                check=True
+            pdf_output = os.path.join(
+                OUTPUT_DIR,
+                job_id
             )
+
+
+            # jianpu_ly 產生 LilyPond
+            with open(
+                ly_file,
+                "w",
+                encoding="utf-8"
+            ) as f:
+
+
+                result = subprocess.run(
+                    [
+                        sys.executable,
+                        "-m",
+                        "jianpu_ly",
+                        musicxml_file
+                    ],
+                    stdout=f,
+                    stderr=subprocess.PIPE,
+                    text=True
+                )
+
+
+            if result.returncode != 0:
+
+                st.error(
+                    "jianpu_ly 失敗"
+                )
+
+                st.code(
+                    result.stderr
+                )
+
+                st.stop()
+
 
 
             st.success(
-                "🎉 簡譜 PDF 完成"
+                "簡譜 LilyPond 產生成功"
             )
+
+
+            # LilyPond 編譯 PDF
+
+            st.info(
+                "LilyPond 產生 PDF..."
+            )
+
+
+            lilypond = shutil.which(
+                "lilypond"
+            )
+
+
+            if lilypond is None:
+
+                st.error(
+                    "找不到 LilyPond"
+                )
+
+                st.stop()
+
+
+
+            result = subprocess.run(
+                [
+                    lilypond,
+                    "-o",
+                    pdf_output,
+                    ly_file
+                ],
+                capture_output=True,
+                text=True
+            )
+
+
+            if result.returncode != 0:
+
+                st.error(
+                    "PDF產生失敗"
+                )
+
+                st.code(
+                    result.stderr
+                )
+
+                st.stop()
+
+
+
+            pdf_file = pdf_output + ".pdf"
 
 
             if os.path.exists(pdf_file):
 
-                with open(pdf_file,"rb") as f:
+                st.success(
+                    "🎉 簡譜 PDF 完成"
+                )
+
+
+                with open(
+                    pdf_file,
+                    "rb"
+                ) as f:
+
 
                     st.download_button(
                         "下載簡譜 PDF",
@@ -182,9 +303,54 @@ if uploaded_file:
         except Exception:
 
             st.error(
-                "轉換失敗"
+                "PDF流程錯誤"
             )
 
             st.code(
                 traceback.format_exc()
+            )
+
+
+        except Exception:
+
+            st.error(
+                "MusicXML錯誤"
+            )
+
+            st.code(
+                traceback.format_exc()
+            )
+
+            st.stop()
+
+
+
+        # ======================
+        # Download
+        # ======================
+
+
+        with open(
+            midi_file,
+            "rb"
+        ) as f:
+
+            st.download_button(
+                "下載 MIDI",
+                f,
+                file_name="output.mid",
+                mime="audio/midi"
+            )
+
+
+        with open(
+            musicxml_file,
+            "rb"
+        ) as f:
+
+            st.download_button(
+                "下載 MusicXML",
+                f,
+                file_name="output.musicxml",
+                mime="application/xml"
             )
