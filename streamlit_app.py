@@ -3,7 +3,16 @@ import os
 import subprocess
 from pathlib import Path
 
-from basic_pitch.inference import predict
+import streamlit as st
+
+
+@st.cache_resource
+def load_basic_pitch():
+    from basic_pitch.inference import predict
+    return predict
+
+
+predict = load_basic_pitch()
 from basic_pitch import ICASSP_2022_MODEL_PATH
 
 
