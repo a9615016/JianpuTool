@@ -24,8 +24,15 @@ UPLOAD_DIR = "uploads"
 OUTPUT_DIR = "outputs"
 
 
-os.makedirs(UPLOAD_DIR, exist_ok=True)
-os.makedirs(OUTPUT_DIR, exist_ok=True)
+os.makedirs(
+    UPLOAD_DIR,
+    exist_ok=True
+)
+
+os.makedirs(
+    OUTPUT_DIR,
+    exist_ok=True
+)
 
 
 
@@ -38,9 +45,11 @@ try:
     from basic_pitch.inference import predict
     import music21
 
+
     st.success(
         "BasicPitch + music21 載入成功"
     )
+
 
 except Exception:
 
@@ -71,15 +80,7 @@ if uploaded_file:
     )
 
 
-    st.write(
-        "檔案名稱：",
-        uploaded_file.name
-    )
-
-
-
     job_id = str(uuid.uuid4())
-
 
 
     mp3_file = os.path.join(
@@ -136,7 +137,9 @@ if uploaded_file:
 
 
 
-    if st.button("開始轉換"):
+    if st.button(
+        "開始轉換"
+    ):
 
 
 
@@ -151,7 +154,7 @@ if uploaded_file:
             )
 
 
-            model_output, midi_data, note_events = predict(
+            _, midi_data, _ = predict(
                 mp3_file
             )
 
@@ -177,12 +180,9 @@ if uploaded_file:
             )
 
             st.stop()
-
-
-
-        # ======================
-        # MIDI → MusicXML
-        # ======================
+          # ======================
+          # MIDI → MusicXML
+          # ======================
 
         try:
 
@@ -217,7 +217,7 @@ if uploaded_file:
 
 
             st.success(
-                "MusicXML 產生成功"
+                "MusicXML產生成功"
             )
 
 
@@ -269,7 +269,6 @@ if uploaded_file:
                 )
 
                 st.stop()
-
 
 
             st.success(
@@ -325,7 +324,6 @@ if uploaded_file:
                 )
 
                 st.stop()
-
 
 
             st.success(
@@ -395,7 +393,6 @@ if uploaded_file:
                 )
 
 
-
             st.success(
                 "簡譜產生成功"
             )
@@ -412,9 +409,6 @@ if uploaded_file:
             )
 
             st.stop()
-
-
-
         # ======================
         # LilyPond PDF
         # ======================
@@ -428,22 +422,15 @@ if uploaded_file:
 
             # 搜尋 LilyPond
 
-       lilypond = shutil.which("lilypond")
+            lilypond = shutil.which(
+                "lilypond"
+            )
 
 
-       st.write(
-       "LilyPond path:",
-       lilypond
-       )
-
-
-       if lilypond is None:
-
-       st.error(
-        "找不到 LilyPond"
-       )
-
-       st.stop()
+            st.write(
+                "LilyPond path:",
+                lilypond
+            )
 
 
             if lilypond is None:
@@ -466,7 +453,6 @@ if uploaded_file:
                 capture_output=True,
                 text=True
             )
-
 
 
             if result.returncode != 0:
@@ -507,7 +493,9 @@ if uploaded_file:
         # ======================
 
 
-        if os.path.exists(pdf_file):
+        if os.path.exists(
+            pdf_file
+        ):
 
             with open(
                 pdf_file,
@@ -522,7 +510,10 @@ if uploaded_file:
                 )
 
 
-        if os.path.exists(midi_file):
+
+        if os.path.exists(
+            midi_file
+        ):
 
             with open(
                 midi_file,
@@ -537,7 +528,10 @@ if uploaded_file:
                 )
 
 
-        if os.path.exists(fixed_xml):
+
+        if os.path.exists(
+            fixed_xml
+        ):
 
             with open(
                 fixed_xml,
