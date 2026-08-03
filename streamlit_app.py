@@ -1,6 +1,6 @@
 # ==========================================================
-# JianpuTool Streamlit Cloud FINAL
-# MP3/WAV -> MIDI -> MusicXML -> Quantize -> Jianpu PDF
+# JianpuTool Streamlit Cloud FINAL V2
+# MP3/WAV/MIDI -> MIDI -> MusicXML -> Quantize -> Jianpu PDF
 # ==========================================================
 
 import streamlit as st
@@ -10,46 +10,23 @@ import subprocess
 import shutil
 import sys
 
-
 from basic_pitch.inference import predict
 from basic_pitch import ICASSP_2022_MODEL_PATH
-
 
 
 # ----------------------------------------------------------
 # PATH
 # ----------------------------------------------------------
 
-BASE_DIR = os.path.dirname(
-    os.path.abspath(__file__)
-)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
+UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
+OUTPUT_DIR = os.path.join(BASE_DIR, "outputs")
 
-UPLOAD_DIR = os.path.join(
-    BASE_DIR,
-    "uploads"
-)
-
-
-OUTPUT_DIR = os.path.join(
-    BASE_DIR,
-    "outputs"
-)
-
-
-os.makedirs(
-    UPLOAD_DIR,
-    exist_ok=True
-)
-
-os.makedirs(
-    OUTPUT_DIR,
-    exist_ok=True
-)
-
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 PYTHON = sys.executable
-
 
 
 # ----------------------------------------------------------
@@ -61,16 +38,11 @@ st.set_page_config(
     page_icon="🎵"
 )
 
-
-st.title(
-    "🎵 JianpuTool"
-)
-
+st.title("🎵 JianpuTool")
 
 st.write(
     "MP3 / WAV / MIDI → 數字簡譜 PDF"
 )
-
 
 st.write(
     "Python:",
@@ -78,9 +50,8 @@ st.write(
 )
 
 
-
 uploaded_file = st.file_uploader(
-    "上傳音樂檔案",
+    "上傳音樂檔",
     type=[
         "mp3",
         "wav",
@@ -89,9 +60,8 @@ uploaded_file = st.file_uploader(
 )
 
 
-
 # ----------------------------------------------------------
-# MAIN
+# PROCESS
 # ----------------------------------------------------------
 
 if uploaded_file:
@@ -106,14 +76,8 @@ if uploaded_file:
     )
 
 
-    with open(
-        input_file,
-        "wb"
-    ) as f:
-
-        f.write(
-            uploaded_file.getbuffer()
-        )
+    with open(input_file, "wb") as f:
+        f.write(uploaded_file.getbuffer())
 
 
     st.success(
@@ -125,14 +89,11 @@ if uploaded_file:
     # Audio -> MIDI
     # ------------------------------------------------------
 
-    if ext in [
-        "mp3",
-        "wav"
-    ]:
+    if ext in ["mp3", "wav"]:
 
 
         st.info(
-            "BasicPitch 音樂辨識..."
+            "BasicPitch 分析..."
         )
 
 
@@ -144,7 +105,7 @@ if uploaded_file:
 
         try:
 
-            model_output, midi_data, note_events = predict(
+            _, midi_data, _ = predict(
                 input_file,
                 ICASSP_2022_MODEL_PATH
             )
@@ -162,24 +123,13 @@ if uploaded_file:
 
         except Exception as e:
 
-            st.error(
-                "BasicPitch錯誤"
-            )
-
             st.exception(e)
-
             st.stop()
 
 
     else:
 
         midi_path = input_file
-
-
-
-    st.success(
-        "MIDI完成"
-    )
 
 
 
@@ -198,7 +148,7 @@ if uploaded_file:
     )
 
 
-    result = subprocess.run(
+    r = subprocess.run(
         [
             PYTHON,
             "midi_to_musicxml_clean.py",
@@ -210,18 +160,15 @@ if uploaded_file:
     )
 
 
-    if result.returncode != 0:
+    if r.returncode != 0:
 
-        st.error(
-            result.stderr
-        )
-
+        st.error(r.stderr)
         st.stop()
 
 
 
     # ------------------------------------------------------
-    # Clean MusicXML
+    # Clean
     # ------------------------------------------------------
 
     clean_xml = os.path.join(
@@ -263,11 +210,11 @@ if uploaded_file:
 
 
     # ------------------------------------------------------
-    # Final Quantize
+    # Quantize
     # ------------------------------------------------------
 
     st.info(
-        "修正小節節拍..."
+        "修正節拍..."
     )
 
 
@@ -277,7 +224,7 @@ if uploaded_file:
     )
 
 
-    result = subprocess.run(
+    q = subprocess.run(
         [
             PYTHON,
             "final_quantize.py",
@@ -289,21 +236,81 @@ if uploaded_file:
     )
 
 
-    if result.returncode != 0:
+    st.text(q.stdout)
+    st.text(q.stderr)
+
+
+    if q.returncode != 0:
 
         st.error(
-            result.stderr
+            "final_quantize失敗"
         )
 
         st.stop()
 
 
-    final_xml = fixed_xml
+
+    # ------------------------------------------------------
+    # Check Measure
+    # ------------------------------------------------------
+
+    st.info(
+        "檢查小節..."
+    )
+
+
+    check = subprocess.run(
+        [
+            PYTHON,
+            "check_measure.py",
+            fixed_xml
+        ],
+        capture_output=True,
+        text=True
+    )
+
+
+    st.code(
+        check.stdout
+    )
+
+
+    if "ERROR" in check.stdout:
+
+        st.error(
+            "小節仍然不正確"
+        )
+
+        st.stop()
 
 
 
     # ------------------------------------------------------
-    # jianpu-ly
+    # Clean again
+    # ------------------------------------------------------
+
+    quant_clean = os.path.join(
+        OUTPUT_DIR,
+        "quant_clean.musicxml"
+    )
+
+
+    subprocess.run(
+        [
+            PYTHON,
+            "clean_musicxml.py",
+            fixed_xml,
+            quant_clean
+        ]
+    )
+
+
+    final_xml = quant_clean
+
+
+
+    # ------------------------------------------------------
+    # Jianpu LY
     # ------------------------------------------------------
 
     st.info(
@@ -311,7 +318,7 @@ if uploaded_file:
     )
 
 
-    result = subprocess.run(
+    ly = subprocess.run(
         [
             PYTHON,
             "-m",
@@ -323,43 +330,43 @@ if uploaded_file:
     )
 
 
-    if result.returncode != 0:
+    if ly.returncode != 0:
 
         st.error(
-            result.stderr
+            ly.stderr
         )
 
         st.stop()
 
 
 
-    ly_file = os.path.join(
-        OUTPUT_DIR,
-        "fixed.ly"
-    )
+    # ------------------------------------------------------
+    # Find LY
+    # ------------------------------------------------------
+
+    ly_file = None
 
 
-    if not os.path.exists(ly_file):
+    for name in os.listdir(OUTPUT_DIR):
 
-        # jianpu-ly 預設名稱保險處理
+        if name.endswith(".ly"):
 
-        possible = [
-            "fixed.musicxml.ly",
-            "fixed.ly",
-            "jianpu.ly"
-        ]
-
-        for f in possible:
-
-            p = os.path.join(
+            ly_file = os.path.join(
                 OUTPUT_DIR,
-                f
+                name
             )
 
-            if os.path.exists(p):
+            break
 
-                ly_file = p
-                break
+
+
+    if ly_file is None:
+
+        st.error(
+            "找不到 .ly"
+        )
+
+        st.stop()
 
 
 
@@ -368,7 +375,7 @@ if uploaded_file:
     # ------------------------------------------------------
 
     st.info(
-        "LilyPond產生PDF..."
+        "產生PDF..."
     )
 
 
@@ -391,35 +398,28 @@ if uploaded_file:
         [
             lilypond,
             ly_file
-        ],
-        capture_output=True,
-        text=True
+        ]
     )
 
 
-
-    pdf_file = ly_file.replace(
+    pdf = ly_file.replace(
         ".ly",
         ".pdf"
     )
 
 
+    if os.path.exists(pdf):
 
-    if os.path.exists(pdf_file):
 
         st.success(
-            "🎉 簡譜PDF完成"
+            "🎉 完成"
         )
 
 
-        with open(
-            pdf_file,
-            "rb"
-        ) as f:
-
+        with open(pdf, "rb") as f:
 
             st.download_button(
-                "下載簡譜PDF",
+                "下載簡譜 PDF",
                 f,
                 file_name="jianpu.pdf",
                 mime="application/pdf"
@@ -429,5 +429,5 @@ if uploaded_file:
     else:
 
         st.error(
-            "PDF產生失敗"
+            "PDF失敗"
         )
