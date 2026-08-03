@@ -1,3 +1,2 @@
-ffmpeg
-lilypond-data
 lilypond
+ffmpeg
