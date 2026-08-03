@@ -1,23 +1,12 @@
 import streamlit as st
-import os
+import requests
 import uuid
-import subprocess
-import traceback
 
 
 st.set_page_config(
     page_title="JianpuTool",
     page_icon="🎵"
 )
-
-
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
-UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
-OUTPUT_DIR = os.path.join(BASE_DIR, "outputs")
-
-os.makedirs(UPLOAD_DIR, exist_ok=True)
-os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
 st.title("🎵 JianpuTool")
@@ -27,6 +16,10 @@ st.write(
 )
 
 
+# 改成你的 Cloudflare Tunnel 網址
+API_URL = "https://你的網址.trycloudflare.com/convert"
+
+
 uploaded_file = st.file_uploader(
     "上傳 MP3",
     type=["mp3"]
@@ -34,18 +27,6 @@ uploaded_file = st.file_uploader(
 
 
 if uploaded_file:
-
-    job_id = str(uuid.uuid4())
-
-    mp3_file = os.path.join(
-        UPLOAD_DIR,
-        job_id + ".mp3"
-    )
-
-
-    with open(mp3_file, "wb") as f:
-        f.write(uploaded_file.getbuffer())
-
 
     st.success("MP3 上傳完成")
 
@@ -57,131 +38,58 @@ if uploaded_file:
 
     if st.button("開始轉換"):
 
-        try:
+        with st.spinner("正在分析音樂..."):
 
-            midi_file = os.path.join(
-                OUTPUT_DIR,
-                job_id + ".mid"
-            )
+            try:
 
-
-            st.info(
-                "BasicPitch 分析音樂..."
-            )
-
-
-            result = subprocess.run(
-                [
-                    "python",
-                    "basicpitch_convert.py",
-                    mp3_file,
-                    midi_file
-                ],
-                capture_output=True,
-                text=True
-            )
+                files = {
+                    "file": (
+                        uploaded_file.name,
+                        uploaded_file.getvalue(),
+                        "audio/mpeg"
+                    )
+                }
 
 
-            if result.returncode != 0:
+                response = requests.post(
+                    API_URL,
+                    files=files,
+                    timeout=600
+                )
+
+
+                if response.status_code == 200:
+
+                    st.success(
+                        "簡譜 PDF 產生完成"
+                    )
+
+
+                    st.download_button(
+                        label="下載簡譜 PDF",
+                        data=response.content,
+                        file_name="jianpu.pdf",
+                        mime="application/pdf"
+                    )
+
+
+                else:
+
+                    st.error(
+                        "轉換失敗"
+                    )
+
+                    st.code(
+                        response.text
+                    )
+
+
+            except Exception as e:
 
                 st.error(
-                    "BasicPitch 失敗"
+                    "連線錯誤"
                 )
 
                 st.code(
-                    result.stderr
+                    str(e)
                 )
-
-                st.stop()
-
-
-            st.success(
-                "MIDI 完成"
-            )
-
-
-            musicxml_file = os.path.join(
-                OUTPUT_DIR,
-                job_id + ".musicxml"
-            )
-
-
-            st.info(
-                "MIDI 轉 MusicXML..."
-            )
-
-
-            result = subprocess.run(
-                [
-                    "python",
-                    "midi_to_musicxml_clean.py",
-                    midi_file,
-                    musicxml_file
-                ],
-                capture_output=True,
-                text=True
-            )
-
-
-            if result.returncode != 0:
-
-                st.error(
-                    "MusicXML 失敗"
-                )
-
-                st.code(
-                    result.stderr
-                )
-
-                st.stop()
-
-
-            st.success(
-                "MusicXML 完成"
-            )
-
-
-            st.info(
-                "產生簡譜 PDF..."
-            )
-
-
-            result = subprocess.run(
-                [
-                    "python",
-                    "-m",
-                    "jianpu_ly",
-                    musicxml_file
-                ],
-                capture_output=True,
-                text=True
-            )
-
-
-            if result.returncode != 0:
-
-                st.error(
-                    "jianpu_ly 失敗"
-                )
-
-                st.code(
-                    result.stderr
-                )
-
-                st.stop()
-
-
-            st.success(
-                "簡譜產生完成"
-            )
-
-
-        except Exception:
-
-            st.error(
-                "錯誤"
-            )
-
-            st.code(
-                traceback.format_exc()
-            )
