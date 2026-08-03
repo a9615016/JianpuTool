@@ -1,78 +1,52 @@
 import sys
-from music21 import converter, stream, note, chord, meter
-
+from music21 import converter, stream, meter
 
 input_file = sys.argv[1]
 output_file = sys.argv[2]
 
 
-print("Loading MusicXML")
-
 score = converter.parse(input_file)
-
-
-print("Fix measures")
 
 
 # 強制 4/4
 for part in score.parts:
-
-    measures = part.getElementsByClass(stream.Measure)
-
-    for m in measures:
-
-        if m.timeSignature is None:
-            m.insert(
-                0,
-                meter.TimeSignature("4/4")
-            )
-
-
-# 修復 duration
-for element in score.recurse():
-
-    if isinstance(element, (note.Note, note.Rest, chord.Chord)):
-
-        ql = element.duration.quarterLength
-
-        if ql <= 0:
-            ql = 1.0
-
-        element.duration.quarterLength = ql
-
-        # 關鍵
-        element.duration._type = None
-
-        element.duration.type = element.duration.type
-
-
-print("Make measures")
-
-
-try:
-
-    score.makeMeasures(
-        inPlace=True
-    )
-
-except Exception as e:
-
-    print(
-        "makeMeasures skip:",
-        e
+    part.insert(
+        0,
+        meter.TimeSignature("4/4")
     )
 
 
-print("Writing")
+# 重新切小節
+new_score = stream.Score()
+
+for part in score.parts:
+
+    new_part = stream.Part()
+
+    measures = part.makeMeasures(
+        inPlace=False
+    )
+
+    for m in measures.getElementsByClass(
+        'Measure'
+    ):
+        new_part.append(m)
+
+    new_score.append(new_part)
 
 
-score.write(
+
+# 關鍵：
+# 讓 music21 自己重新計算 duration
+new_score.makeNotation(
+    inPlace=True
+)
+
+
+new_score.write(
     "musicxml",
     fp=output_file
 )
 
 
-print(
-    "DONE",
-    output_file
-)
+print("bar split fix OK")
