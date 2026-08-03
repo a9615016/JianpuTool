@@ -1,8 +1,8 @@
-streamlit==1.60.0
+streamlit
 basic-pitch==0.4.0
 music21==9.1.0
-numpy==1.26.4
-resampy<0.4.3
-pretty-midi
-lxml
 jianpu-ly==1.872
+lxml
+numpy==1.26.4
+reportlab
+setuptools>=70.0.0
