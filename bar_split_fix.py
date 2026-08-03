@@ -1,5 +1,5 @@
 import sys
-from music21 import converter, stream, note, chord, meter
+from music21 import converter, stream, note, chord, meter, duration
 
 
 input_file = sys.argv[1]
@@ -10,6 +10,19 @@ score = converter.parse(input_file)
 
 
 new_score = stream.Score()
+
+
+
+def make_duration(obj, ql):
+
+    obj.duration = duration.Duration(
+        ql
+    )
+
+    # 強制產生 type
+    obj.duration.quarterLength = ql
+
+    return obj
 
 
 
@@ -56,13 +69,12 @@ for old_part in score.parts:
             )
 
 
-            # 建立新物件
-
             if isinstance(el, note.Note):
 
                 obj = note.Note(
                     el.pitch
                 )
+
 
             elif isinstance(el, chord.Chord):
 
@@ -70,14 +82,17 @@ for old_part in score.parts:
                     el.pitches
                 )
 
+
             else:
 
                 obj = note.Rest()
 
 
 
-            # 設定長度
-            obj.duration.quarterLength = take
+            make_duration(
+                obj,
+                take
+            )
 
 
             measure.append(
@@ -90,8 +105,6 @@ for old_part in score.parts:
             remaining -= take
 
 
-
-            # 滿小節
 
             if used >= 4.0 - 0.0001:
 
@@ -109,22 +122,20 @@ for old_part in score.parts:
                 )
 
 
-                used = 0.0
+                used = 0
 
 
-
-    # 補最後小節
 
     if len(measure.notesAndRests):
 
 
         if used < 4:
 
-
             r = note.Rest()
 
-            r.duration.quarterLength = (
-                4.0 - used
+            make_duration(
+                r,
+                4-used
             )
 
             measure.append(r)
@@ -136,18 +147,31 @@ for old_part in score.parts:
         )
 
 
-
     new_score.append(
         new_part
     )
 
 
 
-# 重新整理 notation
+# 重新排譜
 
 new_score.makeNotation(
     inPlace=True
 )
+
+
+# 再檢查一次 duration
+
+for p in new_score.parts:
+
+    for n in p.flatten().notesAndRests:
+
+        if not n.duration.type:
+
+            n.duration = duration.Duration(
+                n.duration.quarterLength
+            )
+
 
 
 new_score.write(
