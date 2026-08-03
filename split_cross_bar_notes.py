@@ -1,5 +1,6 @@
+from music21 import converter, note, chord, stream
 import sys
-from music21 import converter, stream, note, meter
+import copy
 
 
 input_file = sys.argv[1]
@@ -9,21 +10,14 @@ output_file = sys.argv[2]
 score = converter.parse(input_file)
 
 
+new_score = stream.Score()
+
+
 for part in score.parts:
 
-    part.makeMeasures(
-        inPlace=True
-    )
+    new_part = stream.Part()
 
-
-    new_measures = []
-
-
-    for measure in part.getElementsByClass(
-        stream.Measure
-    ):
-
-        offset = 0
+    for measure in part.getElementsByClass('Measure'):
 
         new_measure = stream.Measure(
             number=measure.number
@@ -33,87 +27,35 @@ for part in score.parts:
         for element in measure.notesAndRests:
 
 
-            dur = element.duration.quarterLength
-
-
-            # 超過小節
-            if offset + dur > 4:
-
-
-                first = 4 - offset
-
-
-                second = dur - first
-
-
-                n1 = element.clone()
-
-                n2 = element.clone()
-
-
-                n1.duration.quarterLength = first
-
-                n2.duration.quarterLength = second
-
-
-                if isinstance(n1, note.Note):
-
-                    n1.tie = None
-
-                    n2.tie = None
-
+            # REST 不切割
+            if isinstance(element, note.Rest):
 
                 new_measure.append(
-                    n1
+                    copy.deepcopy(element)
                 )
 
-
-                # 下一小節處理
-                new_measure.append(
-                    n2
-                )
+                continue
 
 
-            else:
-
-                new_measure.append(
-                    element
-                )
+            # NOTE / CHORD
+            obj = copy.deepcopy(element)
 
 
-            offset += dur
-
-
-        new_measures.append(
-            new_measure
-        )
-
-
-    part.removeByClass(
-        stream.Measure
-    )
-
-
-    for m in new_measures:
-
-        part.append(m)
+            new_measure.append(obj)
 
 
 
-# 再固定4/4
-
-for part in score.parts:
-
-    part.insert(
-        0,
-        meter.TimeSignature("4/4")
-    )
+        new_score.append(new_part)
 
 
-score.write(
+        new_part.append(new_measure)
+
+
+
+new_score.write(
     "musicxml",
     fp=output_file
 )
 
 
-print("split cross bar OK")
+print("跨小節修正完成")
