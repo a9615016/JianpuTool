@@ -1,6 +1,9 @@
 import streamlit as st
-import requests
+import os
 import uuid
+import traceback
+
+from basic_pitch.inference import predict
 
 
 st.set_page_config(
@@ -16,8 +19,15 @@ st.write(
 )
 
 
-# 改成你的 Cloudflare Tunnel 網址
-API_URL = "https://你的網址.trycloudflare.com/convert"
+UPLOAD_DIR = "uploads"
+OUTPUT_DIR = "outputs"
+
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+
+# BasicPitch 測試
+st.success("BasicPitch 載入成功")
 
 
 uploaded_file = st.file_uploader(
@@ -36,60 +46,70 @@ if uploaded_file:
     )
 
 
-    if st.button("開始轉換"):
-
-        with st.spinner("正在分析音樂..."):
-
-            try:
-
-                files = {
-                    "file": (
-                        uploaded_file.name,
-                        uploaded_file.getvalue(),
-                        "audio/mpeg"
-                    )
-                }
+    job_id = str(uuid.uuid4())
 
 
-                response = requests.post(
-                    API_URL,
-                    files=files,
-                    timeout=600
+    input_file = os.path.join(
+        UPLOAD_DIR,
+        job_id + ".mp3"
+    )
+
+
+    output_file = os.path.join(
+        OUTPUT_DIR,
+        job_id + ".mid"
+    )
+
+
+    with open(input_file, "wb") as f:
+        f.write(
+            uploaded_file.getbuffer()
+        )
+
+
+    if st.button("開始轉 MIDI"):
+
+        try:
+
+            st.info(
+                "BasicPitch 分析音樂..."
+            )
+
+
+            model_output, midi_data, note_events = predict(
+                input_file
+            )
+
+
+            midi_data.write(
+                output_file
+            )
+
+
+            st.success(
+                "MIDI 產生成功"
+            )
+
+
+            with open(
+                output_file,
+                "rb"
+            ) as f:
+
+                st.download_button(
+                    "下載 MIDI",
+                    f,
+                    file_name="output.mid",
+                    mime="audio/midi"
                 )
 
 
-                if response.status_code == 200:
+        except Exception:
 
-                    st.success(
-                        "簡譜 PDF 產生完成"
-                    )
+            st.error(
+                "BasicPitch 失敗"
+            )
 
-
-                    st.download_button(
-                        label="下載簡譜 PDF",
-                        data=response.content,
-                        file_name="jianpu.pdf",
-                        mime="application/pdf"
-                    )
-
-
-                else:
-
-                    st.error(
-                        "轉換失敗"
-                    )
-
-                    st.code(
-                        response.text
-                    )
-
-
-            except Exception as e:
-
-                st.error(
-                    "連線錯誤"
-                )
-
-                st.code(
-                    str(e)
-                )
+            st.code(
+                traceback.format_exc()
+            )
