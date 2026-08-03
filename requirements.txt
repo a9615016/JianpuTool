@@ -1,12 +1,11 @@
 streamlit
-
-basic-pitch==0.4.0
-resampy==0.4.3
-
-tensorflow==2.14.1
-numpy<2
+fastapi
+uvicorn
+python-multipart
 
 music21==9.1.0
 jianpu-ly==1.872
 lxml
 reportlab
+
+numpy==1.26.4
