@@ -10,31 +10,14 @@ app = FastAPI(title="JianpuTool")
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-OUTPUT_DIR = os.path.join(
-    BASE_DIR,
-    "outputs"
-)
+OUTPUT_DIR = os.path.join(BASE_DIR, "outputs")
 
-os.makedirs(
-    OUTPUT_DIR,
-    exist_ok=True
-)
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
 LILYPOND = r"C:\lilypond-2.26.0\bin\lilypond.exe"
 
 
-SUPPORTED = [
-    ".mp3",
-    ".wav",
-    ".mid",
-    ".midi"
-]
-
-
-# ==========================
-# 首頁
-# ==========================
 
 @app.get("/")
 def home():
@@ -45,21 +28,9 @@ def home():
 
     <h2>JianpuTool</h2>
 
-    <p>
-    支援 MP3 / WAV / MIDI → 簡譜 PDF
-    </p>
+    <form action="/upload" method="post" enctype="multipart/form-data">
 
-    <form 
-    action="/upload" 
-    method="post"
-    enctype="multipart/form-data">
-
-    <input 
-    type="file"
-    name="file"
-    accept=".mp3,.wav,.mid,.midi">
-
-    <br><br>
+    <input type="file" name="file">
 
     <button type="submit">
     Convert
@@ -73,27 +44,8 @@ def home():
 
 
 
-# ==========================
-# 上傳轉換
-# ==========================
-
 @app.post("/upload")
-async def upload(
-    file: UploadFile = File(...)
-):
-
-
-    ext = os.path.splitext(
-        file.filename
-    )[1].lower()
-
-
-    if ext not in SUPPORTED:
-
-        raise Exception(
-            "只支援 MP3 WAV MIDI"
-        )
-
+async def upload(file: UploadFile = File(...)):
 
 
     job = str(uuid.uuid4())
@@ -104,26 +56,24 @@ async def upload(
         job
     )
 
-
     os.makedirs(
         workdir,
         exist_ok=True
     )
 
 
+    # =====================
+    # 儲存音檔
+    # =====================
 
-    # ======================
-    # 儲存輸入檔
-    # ======================
-
-    input_file = os.path.join(
+    input_audio = os.path.join(
         workdir,
         file.filename
     )
 
 
     with open(
-        input_file,
+        input_audio,
         "wb"
     ) as f:
 
@@ -132,59 +82,41 @@ async def upload(
         )
 
 
-    print(
-        "INPUT:",
-        input_file
-    )
+    print("INPUT:")
+    print(input_audio)
 
 
 
-    # ======================
+    # =====================
     # MP3/WAV -> MIDI
-    # ======================
+    # =====================
 
-    if ext in [
-        ".mp3",
-        ".wav"
-    ]:
-
-
-        midi_output = os.path.join(
-            workdir,
-            "input.mid"
-        )
+    midi_output = os.path.join(
+        workdir,
+        "input.mid"
+    )
 
 
-        subprocess.run(
-            [
-                "python",
-                "basicpitch_convert.py",
-                input_file,
-                midi_output
-            ],
-            check=True
-        )
-
-
-    else:
-
-
-        # MIDI直接使用
-
-        midi_output = input_file
-
-
-
-    print(
-        "MIDI:",
-        midi_output
+    subprocess.run(
+        [
+            "python",
+            "basicpitch_convert.py",
+            input_audio,
+            midi_output
+        ],
+        check=True
     )
 
 
 
-    # ======================
+    print("MIDI:")
+    print(midi_output)
+
+
+
+    # =====================
     # MIDI -> MusicXML
-    # ======================
+    # =====================
 
     musicxml = os.path.join(
         workdir,
@@ -204,9 +136,9 @@ async def upload(
 
 
 
-    # ======================
-    # Quantize
-    # ======================
+    # =====================
+    # FINAL QUANTIZE
+    # =====================
 
     final_xml = os.path.join(
         workdir,
@@ -226,9 +158,9 @@ async def upload(
 
 
 
-    # ======================
-    # MusicXML -> Jianpu LY
-    # ======================
+    # =====================
+    # MUSICXML -> JIANPU
+    # =====================
 
     ly_file = os.path.join(
         workdir,
@@ -241,7 +173,6 @@ async def upload(
         "w",
         encoding="utf-8"
     ) as f:
-
 
         subprocess.run(
             [
@@ -256,9 +187,9 @@ async def upload(
 
 
 
-    # ======================
-    # LilyPond PDF
-    # ======================
+    # =====================
+    # LY -> PDF
+    # =====================
 
     subprocess.run(
         [
