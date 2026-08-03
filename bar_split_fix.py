@@ -1,5 +1,5 @@
 import sys
-from music21 import converter, stream, meter, note, chord
+from music21 import converter, stream, note, chord, meter
 
 
 input_file = sys.argv[1]
@@ -9,106 +9,144 @@ output_file = sys.argv[2]
 score = converter.parse(input_file)
 
 
-# 強制4/4
-for p in score.parts:
+new_score = stream.Score()
 
-    p.insert(
+
+for old_part in score.parts:
+
+
+    new_part = stream.Part()
+
+
+    # 4/4
+    new_part.insert(
         0,
         meter.TimeSignature("4/4")
     )
 
 
-new_score = stream.Score()
+    measure_no = 1
 
-
-for part in score.parts:
-
-    new_part = stream.Part()
-
-    current_measure = stream.Measure(
-        number=1
+    measure = stream.Measure(
+        number=measure_no
     )
 
-    duration = 0
+
+    beat_used = 0
 
 
-    for element in part.flatten().notesAndRests:
+    for el in old_part.flatten().notesAndRests:
 
 
-        q = element.duration.quarterLength
+        dur = float(
+            el.duration.quarterLength
+        )
 
 
-        # 超過4拍，切開
-        if duration + q > 4:
-
-            remain = 4 - duration
+        remaining = dur
 
 
-            if remain > 0:
-
-                if isinstance(element,note.Note):
-
-                    n = note.Note(
-                        element.pitch
-                    )
-                    n.duration.quarterLength = remain
-                    current_measure.append(n)
+        while remaining > 0:
 
 
-                elif isinstance(element,chord.Chord):
-
-                    c = chord.Chord(
-                        element.pitches
-                    )
-                    c.duration.quarterLength = remain
-                    current_measure.append(c)
+            space = 4 - beat_used
 
 
-            new_part.append(current_measure)
-
-
-            current_measure = stream.Measure(
-                number=current_measure.number+1
+            take = min(
+                space,
+                remaining
             )
 
 
-            duration = 0
+            # 重新建立物件
+            if isinstance(el, note.Note):
+
+                n = note.Note(
+                    el.pitch
+                )
+
+                n.duration.quarterLength = take
+
+                measure.append(n)
 
 
-            left = q-remain
+            elif isinstance(el, chord.Chord):
+
+                c = chord.Chord(
+                    el.pitches
+                )
+
+                c.duration.quarterLength = take
+
+                measure.append(c)
 
 
-            if left>0:
+            elif isinstance(el, note.Rest):
 
-                element.duration.quarterLength=left
+                r = note.Rest()
 
-                current_measure.append(element)
+                r.duration.quarterLength = take
 
-                duration=left
-
-
-        else:
-
-            current_measure.append(element)
-
-            duration += q
-
-
-
-    if len(current_measure):
-
-        new_part.append(current_measure)
+                measure.append(r)
 
 
 
-    new_score.append(new_part)
+            beat_used += take
+            remaining -= take
 
 
 
+            # 滿4拍
+            if beat_used >= 4:
+
+
+                new_part.append(
+                    measure
+                )
+
+
+                measure_no += 1
+
+
+                measure = stream.Measure(
+                    number=measure_no
+                )
+
+
+                beat_used = 0
+
+
+
+    # 最後不足補休止
+
+    if beat_used > 0:
+
+        rest = note.Rest()
+
+        rest.duration.quarterLength = 4 - beat_used
+
+        measure.append(rest)
+
+
+        new_part.append(
+            measure
+        )
+
+
+
+    new_score.append(
+        new_part
+    )
+
+
+
+# 輸出
 new_score.write(
     "musicxml",
     fp=output_file
 )
 
 
-print("BAR SPLIT OK")
+print(
+    "BAR SPLIT OK"
+)
