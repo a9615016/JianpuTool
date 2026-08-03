@@ -32,31 +32,31 @@ for old_part in score.parts:
     )
 
 
-    beat_used = 0
+    used = 0.0
 
 
 
     for el in old_part.flatten().notesAndRests:
 
 
-        total = float(
+        remaining = float(
             el.duration.quarterLength
         )
 
 
-        while total > 0:
+        while remaining > 0:
 
 
-            space = 4 - beat_used
+            space = 4.0 - used
 
 
-            length = min(
+            take = min(
                 space,
-                total
+                remaining
             )
 
 
-            # 建立新元素
+            # 建立新物件
 
             if isinstance(el, note.Note):
 
@@ -64,13 +64,11 @@ for old_part in score.parts:
                     el.pitch
                 )
 
-
             elif isinstance(el, chord.Chord):
 
                 obj = chord.Chord(
                     el.pitches
                 )
-
 
             else:
 
@@ -78,15 +76,8 @@ for old_part in score.parts:
 
 
 
-            obj.duration.quarterLength = length
-
-
-            # ⭐重要
-            obj.duration.clear()
-            obj.duration.quarterLength = length
-            obj.duration.type = None
-            obj.duration.updateTuplet()
-
+            # 設定長度
+            obj.duration.quarterLength = take
 
 
             measure.append(
@@ -94,14 +85,15 @@ for old_part in score.parts:
             )
 
 
+            used += take
 
-            beat_used += length
-
-            total -= length
-
+            remaining -= take
 
 
-            if beat_used >= 4 - 0.0001:
+
+            # 滿小節
+
+            if used >= 4.0 - 0.0001:
 
 
                 new_part.append(
@@ -117,24 +109,23 @@ for old_part in score.parts:
                 )
 
 
-                beat_used = 0
+                used = 0.0
 
 
 
-    if len(measure.elements):
+    # 補最後小節
 
-        remain = 4 - beat_used
+    if len(measure.notesAndRests):
 
 
-        if remain > 0:
+        if used < 4:
+
 
             r = note.Rest()
 
-            r.duration.quarterLength = remain
-
-            r.duration.type = None
-
-            r.duration.updateTuplet()
+            r.duration.quarterLength = (
+                4.0 - used
+            )
 
             measure.append(r)
 
@@ -152,12 +143,11 @@ for old_part in score.parts:
 
 
 
-# 重新做 notation
+# 重新整理 notation
 
 new_score.makeNotation(
     inPlace=True
 )
-
 
 
 new_score.write(
