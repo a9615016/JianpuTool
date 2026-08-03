@@ -357,13 +357,7 @@ if uploaded_file:
             )
 
 
-            result = subprocess.run(
-                [
-                    sys.executable,
-                    "split_cross_bar_notes.py",
-                    bar_file,
-                    split_file
-                ],
+            
                 capture_output=True,
                 text=True
             )
