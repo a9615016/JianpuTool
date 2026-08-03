@@ -1,9 +1,10 @@
 streamlit
 
 basic-pitch==0.4.0
+tensorflow==2.14.1
+numpy==1.26.4
+
 music21==9.1.0
 jianpu-ly==1.872
-
-numpy==1.26.4
 lxml
 reportlab
