@@ -1,6 +1,6 @@
 # ==========================================================
-# JianpuTool Streamlit Cloud V2
-# MP3/WAV -> MIDI -> MusicXML -> Jianpu PDF
+# JianpuTool Streamlit Cloud FINAL
+# MP3/WAV -> MIDI -> MusicXML -> Quantize -> Jianpu PDF
 # ==========================================================
 
 import streamlit as st
@@ -13,6 +13,7 @@ import sys
 
 from basic_pitch.inference import predict
 from basic_pitch import ICASSP_2022_MODEL_PATH
+
 
 
 # ----------------------------------------------------------
@@ -41,7 +42,6 @@ os.makedirs(
     exist_ok=True
 )
 
-
 os.makedirs(
     OUTPUT_DIR,
     exist_ok=True
@@ -49,6 +49,7 @@ os.makedirs(
 
 
 PYTHON = sys.executable
+
 
 
 # ----------------------------------------------------------
@@ -65,6 +66,7 @@ st.title(
     "🎵 JianpuTool"
 )
 
+
 st.write(
     "MP3 / WAV / MIDI → 數字簡譜 PDF"
 )
@@ -76,8 +78,9 @@ st.write(
 )
 
 
+
 uploaded_file = st.file_uploader(
-    "上傳音樂",
+    "上傳音樂檔案",
     type=[
         "mp3",
         "wav",
@@ -114,23 +117,8 @@ if uploaded_file:
 
 
     st.success(
-        "檔案上傳完成"
+        "上傳完成"
     )
-
-
-    st.code(
-        input_file
-    )
-
-
-    if not os.path.exists(input_file):
-
-        st.error(
-            "找不到上傳檔案"
-        )
-
-        st.stop()
-
 
 
     # ------------------------------------------------------
@@ -144,7 +132,7 @@ if uploaded_file:
 
 
         st.info(
-            "BasicPitch 分析音樂..."
+            "BasicPitch 音樂辨識..."
         )
 
 
@@ -175,7 +163,7 @@ if uploaded_file:
         except Exception as e:
 
             st.error(
-                "BasicPitch失敗"
+                "BasicPitch錯誤"
             )
 
             st.exception(e)
@@ -183,9 +171,7 @@ if uploaded_file:
             st.stop()
 
 
-
     else:
-
 
         midi_path = input_file
 
@@ -212,16 +198,13 @@ if uploaded_file:
     )
 
 
-    cmd = [
-        PYTHON,
-        "midi_to_musicxml_clean.py",
-        midi_path,
-        raw_xml
-    ]
-
-
     result = subprocess.run(
-        cmd,
+        [
+            PYTHON,
+            "midi_to_musicxml_clean.py",
+            midi_path,
+            raw_xml
+        ],
         capture_output=True,
         text=True
     )
@@ -238,7 +221,7 @@ if uploaded_file:
 
 
     # ------------------------------------------------------
-    # Clean
+    # Clean MusicXML
     # ------------------------------------------------------
 
     clean_xml = os.path.join(
@@ -259,7 +242,7 @@ if uploaded_file:
 
 
     # ------------------------------------------------------
-    # Fix Jianpu
+    # Jianpu Fix
     # ------------------------------------------------------
 
     final_xml = os.path.join(
@@ -276,6 +259,46 @@ if uploaded_file:
             final_xml
         ]
     )
+
+
+
+    # ------------------------------------------------------
+    # Final Quantize
+    # ------------------------------------------------------
+
+    st.info(
+        "修正小節節拍..."
+    )
+
+
+    fixed_xml = os.path.join(
+        OUTPUT_DIR,
+        "fixed.musicxml"
+    )
+
+
+    result = subprocess.run(
+        [
+            PYTHON,
+            "final_quantize.py",
+            final_xml,
+            fixed_xml
+        ],
+        capture_output=True,
+        text=True
+    )
+
+
+    if result.returncode != 0:
+
+        st.error(
+            result.stderr
+        )
+
+        st.stop()
+
+
+    final_xml = fixed_xml
 
 
 
@@ -312,8 +335,32 @@ if uploaded_file:
 
     ly_file = os.path.join(
         OUTPUT_DIR,
-        "final.ly"
+        "fixed.ly"
     )
+
+
+    if not os.path.exists(ly_file):
+
+        # jianpu-ly 預設名稱保險處理
+
+        possible = [
+            "fixed.musicxml.ly",
+            "fixed.ly",
+            "jianpu.ly"
+        ]
+
+        for f in possible:
+
+            p = os.path.join(
+                OUTPUT_DIR,
+                f
+            )
+
+            if os.path.exists(p):
+
+                ly_file = p
+                break
+
 
 
     # ------------------------------------------------------
@@ -321,7 +368,7 @@ if uploaded_file:
     # ------------------------------------------------------
 
     st.info(
-        "產生PDF..."
+        "LilyPond產生PDF..."
     )
 
 
@@ -344,7 +391,9 @@ if uploaded_file:
         [
             lilypond,
             ly_file
-        ]
+        ],
+        capture_output=True,
+        text=True
     )
 
 
@@ -359,7 +408,7 @@ if uploaded_file:
     if os.path.exists(pdf_file):
 
         st.success(
-            "🎉 簡譜 PDF 完成"
+            "🎉 簡譜PDF完成"
         )
 
 
@@ -370,7 +419,7 @@ if uploaded_file:
 
 
             st.download_button(
-                "下載簡譜 PDF",
+                "下載簡譜PDF",
                 f,
                 file_name="jianpu.pdf",
                 mime="application/pdf"
