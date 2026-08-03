@@ -18,6 +18,14 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 LILYPOND = r"C:\lilypond-2.26.0\bin\lilypond.exe"
 
 
+# 支援格式
+SUPPORTED = [
+    ".mp3",
+    ".wav",
+    ".mid",
+    ".midi"
+]
+
 
 @app.get("/")
 def home():
@@ -28,11 +36,20 @@ def home():
 
     <h2>JianpuTool</h2>
 
-    <form action="/upload" method="post" enctype="multipart/form-data">
+    <p>
+    支援 MP3 / WAV / MIDI
+    </p>
 
-    <input type="file" name="file">
+    <form action="/upload"
+    method="post"
+    enctype="multipart/form-data">
 
-    <button type="submit">
+    <input 
+    type="file" 
+    name="file"
+    accept=".mp3,.wav,.mid,.midi">
+
+    <button>
     Convert
     </button>
 
@@ -46,6 +63,18 @@ def home():
 
 @app.post("/upload")
 async def upload(file: UploadFile = File(...)):
+
+
+    ext = os.path.splitext(
+        file.filename
+    )[1].lower()
+
+
+    if ext not in SUPPORTED:
+
+        raise Exception(
+            "只支援 MP3 WAV MIDI"
+        )
 
 
     job = str(uuid.uuid4())
@@ -62,61 +91,70 @@ async def upload(file: UploadFile = File(...)):
     )
 
 
-    # =====================
-    # 儲存音檔
-    # =====================
+    # 儲存檔案
 
-    input_audio = os.path.join(
+    input_file = os.path.join(
         workdir,
         file.filename
     )
 
 
-    with open(
-        input_audio,
-        "wb"
-    ) as f:
+    with open(input_file,"wb") as f:
 
         f.write(
             await file.read()
         )
 
 
-    print("INPUT:")
-    print(input_audio)
+    print("INPUT:",input_file)
 
 
 
-    # =====================
-    # MP3/WAV -> MIDI
-    # =====================
+    # ==========================
+    # WAV / MP3 -> MIDI
+    # ==========================
 
-    midi_output = os.path.join(
-        workdir,
-        "input.mid"
+    if ext in [".mp3",".wav"]:
+
+
+        midi_output = os.path.join(
+            workdir,
+            "input.mid"
+        )
+
+
+        subprocess.run(
+            [
+                "python",
+                "basicpitch_convert.py",
+                input_file,
+                midi_output
+            ],
+            check=True
+        )
+
+
+    # ==========================
+    # MIDI直接使用
+    # ==========================
+
+    else:
+
+        midi_output = input_file
+
+
+
+    print(
+        "MIDI:",
+        midi_output
     )
 
 
-    subprocess.run(
-        [
-            "python",
-            "basicpitch_convert.py",
-            input_audio,
-            midi_output
-        ],
-        check=True
-    )
 
-
-
-    print("MIDI:")
-    print(midi_output)
-
-
-
-    # =====================
+    # ==========================
     # MIDI -> MusicXML
-    # =====================
+    # ==========================
+
 
     musicxml = os.path.join(
         workdir,
@@ -136,9 +174,10 @@ async def upload(file: UploadFile = File(...)):
 
 
 
-    # =====================
-    # FINAL QUANTIZE
-    # =====================
+    # ==========================
+    # Quantize
+    # ==========================
+
 
     final_xml = os.path.join(
         workdir,
@@ -158,9 +197,10 @@ async def upload(file: UploadFile = File(...)):
 
 
 
-    # =====================
-    # MUSICXML -> JIANPU
-    # =====================
+    # ==========================
+    # MusicXML -> Jianpu
+    # ==========================
+
 
     ly_file = os.path.join(
         workdir,
@@ -173,6 +213,7 @@ async def upload(file: UploadFile = File(...)):
         "w",
         encoding="utf-8"
     ) as f:
+
 
         subprocess.run(
             [
@@ -187,9 +228,10 @@ async def upload(file: UploadFile = File(...)):
 
 
 
-    # =====================
-    # LY -> PDF
-    # =====================
+    # ==========================
+    # LilyPond PDF
+    # ==========================
+
 
     subprocess.run(
         [
@@ -211,7 +253,7 @@ async def upload(file: UploadFile = File(...)):
     if not os.path.exists(pdf):
 
         raise Exception(
-            "PDF產生失敗"
+            "PDF失敗"
         )
 
 
