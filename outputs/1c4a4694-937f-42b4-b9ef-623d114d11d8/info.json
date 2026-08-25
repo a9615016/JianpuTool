@@ -1,0 +1,8 @@
+{
+  "real_bpm": 144.23076923076923,
+  "assumed_bpm": 120.0,
+  "tempo_scale": 1.2019230769230769,
+  "key_tonic": "B-",
+  "key_mode": "minor",
+  "tempo_method": "beat_track + onset_strength + half/double normalization"
+}
