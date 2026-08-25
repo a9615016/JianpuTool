@@ -4,6 +4,8 @@ import zipfile
 from pathlib import Path
 from datetime import datetime
 
+from paywall import require_access, render_sidebar_status
+
 
 # ============================================================
 # JianpuTool Professional MVP 3.0
@@ -55,6 +57,15 @@ if "last_error" not in st.session_state:
 
 if "voice_choice" not in st.session_state:
     st.session_state.voice_choice = "piano"
+
+
+# ============================================================
+# 付費牆（每月 NT$99，授權碼解鎖）
+# 尚未解鎖時，只會顯示付費說明頁面，其餘功能全部不會執行
+# ============================================================
+
+if not require_access(price_label="NT$99 / 月"):
+    st.stop()
 
 
 # ============================================================
@@ -542,6 +553,8 @@ with st.sidebar:
     st.caption(
         "JianpuTool Professional MVP 3.0"
     )
+
+    render_sidebar_status()
 
 
 # ============================================================
