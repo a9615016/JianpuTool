@@ -1,32 +1,70 @@
 FROM python:3.10-slim
 
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+ENV PIP_NO_CACHE_DIR=1
+
+# ============================================================
+# 系統套件
+# ============================================================
+
+RUN apt-get update && apt-get install -y \
+    ffmpeg \
+    wget \
+    curl \
+    git \
+    ca-certificates \
+    build-essential \
+    pkg-config \
+    libsndfile1 \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender1 \
+    libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# ============================================================
+# 安裝 LilyPond 2.22.2
+# ============================================================
+
+RUN wget -q \
+    https://lilypond.org/download/binaries/linux-64/lilypond-2.22.2-1.linux-64.sh \
+    -O /tmp/lilypond.sh \
+    && chmod +x /tmp/lilypond.sh \
+    && /tmp/lilypond.sh --batch \
+    && rm -f /tmp/lilypond.sh
+
+# ============================================================
+# 工作目錄
+# ============================================================
+
 WORKDIR /app
+
+# ============================================================
+# Python 套件
+# ============================================================
+
+COPY requirements.txt /app/requirements.txt
+
+RUN python -m pip install --upgrade pip setuptools wheel \
+    && pip install -r /app/requirements.txt
+
+# ============================================================
+# JianpuTool
+# ============================================================
 
 COPY . /app
 
+# ============================================================
+# Hugging Face Spaces
+# Docker 預設使用 7860
+# ============================================================
 
-RUN apt-get update && apt-get install -y \
-    wget \
-    xz-utils \
-    ca-certificates \
-    ffmpeg \
-    musescore \
-    && rm -rf /var/lib/apt/lists/*
+EXPOSE 7860
 
+# ============================================================
+# Streamlit
+# ============================================================
 
-# LilyPond
-RUN wget https://gitlab.com/lilypond/lilypond/-/releases/v2.26.0/downloads/lilypond-2.26.0-linux-x86_64.tar.gz \
-    && tar -xzf lilypond-2.26.0-linux-x86_64.tar.gz \
-    && mv lilypond-2.26.0 /opt/lilypond \
-    && ln -s /opt/lilypond/bin/lilypond /usr/local/bin/lilypond \
-    && rm lilypond-2.26.0-linux-x86_64.tar.gz
-
-
-# Python packages
-RUN pip install --no-cache-dir -r requirements.txt
-
-
-EXPOSE 10000
-
-
-CMD ["uvicorn","main:app","--host","0.0.0.0","--port","10000"]
+CMD ["streamlit", "run", "streamlit_app.py", "--server.address=0.0.0.0", "--server.port=7860", "--server.headless=true"]
