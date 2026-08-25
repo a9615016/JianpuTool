@@ -6,22 +6,24 @@ import math
 
 from music21 import converter, stream, meter, key as m21key
 from music21 import note as m21note
+from music21 import tie as m21tie
 
 
 # ============================================================
 # JianpuTool Professional MVP 3.0
 #
-# MIDI -> MusicXML
+# MIDI -> MusicXML Stable Version
 #
-# 核心目標：
-# 1. 4/4
+# 核心：
+# 1. 強制 4/4
 # 2. 1/16 拍量化
-# 3. Note 不得跨小節
-# 4. Rest 不得跨小節
+# 3. Note 不跨小節
+# 4. Rest 不跨小節
 # 5. 跨小節 Note 自動切割 + Tie
-# 6. MusicXML 寫出後重新驗證
-# 7. 最終必須 0 個跨小節元素
-# 8. Windows / Linux / Streamlit Cloud
+# 6. 每小節補滿 4 拍
+# 7. 避免 makeMeasures 破壞原始 offset
+# 8. MusicXML 寫出後重新讀取
+# 9. 修正最後一小節不足造成的 LilyPond warning
 # ============================================================
 
 
@@ -31,6 +33,8 @@ MEASURE_LENGTH = 4.0
 
 QUANTUM = 0.25
 
+EPS = 1e-7
+
 
 # ============================================================
 # 調性
@@ -38,13 +42,12 @@ QUANTUM = 0.25
 
 def load_key(info_json):
 
-    if not info_json or not os.path.isfile(info_json):
+    if not info_json:
+        print("⚠ 未提供 info.json，使用 C major")
+        return m21key.Key("C", "major")
 
-        print(
-            "⚠ 找不到 info.json，"
-            "預設 C major"
-        )
-
+    if not os.path.isfile(info_json):
+        print("⚠ 找不到 info.json，使用 C major")
         return m21key.Key("C", "major")
 
     try:
@@ -60,8 +63,7 @@ def load_key(info_json):
     except Exception as e:
 
         print(
-            "⚠ info.json 讀取失敗:",
-            e
+            f"⚠ info.json 讀取失敗：{e}"
         )
 
         return m21key.Key("C", "major")
@@ -76,9 +78,14 @@ def load_key(info_json):
         "major"
     )
 
+    if not tonic:
+        tonic = "C"
+
+    if not mode:
+        mode = "major"
+
     print(
-        f"✓ 套用偵測到的調性: "
-        f"{tonic} {mode}"
+        f"✓ 調性：{tonic} {mode}"
     )
 
     try:
@@ -88,11 +95,10 @@ def load_key(info_json):
             mode
         )
 
-    except Exception:
+    except Exception as e:
 
         print(
-            "⚠ 調性解析失敗，"
-            "改用 C major"
+            f"⚠ 調性解析失敗：{e}"
         )
 
         return m21key.Key(
@@ -109,9 +115,15 @@ def quantize(value):
 
     value = float(value)
 
-    return round(
+    result = round(
         value / QUANTUM
     ) * QUANTUM
+
+    # 避免 -0.0
+    if abs(result) < EPS:
+        result = 0.0
+
+    return result
 
 
 # ============================================================
@@ -129,42 +141,17 @@ def safe_duration(value):
 
 
 # ============================================================
-# 取得絕對 offset
-# ============================================================
-
-def get_absolute_offset(element, original_part):
-
-    try:
-
-        return float(
-            element.getOffsetInHierarchy(
-                original_part
-            )
-        )
-
-    except Exception:
-
-        return float(
-            element.offset
-        )
-
-
-# ============================================================
-# 複製元素
+# 深拷貝
 # ============================================================
 
 def clone_element(element):
 
     try:
-
-        return copy.deepcopy(
-            element
-        )
+        return copy.deepcopy(element)
 
     except Exception:
 
         try:
-
             return element.clone()
 
         except Exception:
@@ -185,39 +172,50 @@ def create_segment(
         duration
     )
 
+    # ------------------------------
+    # Note
+    # ------------------------------
+
     if isinstance(
         original,
         m21note.Note
     ):
 
-        new_element = clone_element(
+        new_note = clone_element(
             original
         )
 
-        new_element.duration.quarterLength = duration
+        new_note.duration.quarterLength = (
+            duration
+        )
 
-        return new_element
+        return new_note
+
+    # ------------------------------
+    # Rest
+    # ------------------------------
 
     if isinstance(
         original,
         m21note.Rest
     ):
 
-        new_element = m21note.Rest()
+        new_rest = m21note.Rest()
 
-        new_element.duration.quarterLength = duration
+        new_rest.duration.quarterLength = (
+            duration
+        )
 
-        return new_element
+        return new_rest
 
-    # 其他元素不直接保留
     return None
 
 
 # ============================================================
-# Tie
+# 設定 Tie
 # ============================================================
 
-def apply_tie(
+def set_tie(
     element,
     tie_type
 ):
@@ -226,12 +224,11 @@ def apply_tie(
         element,
         m21note.Note
     ):
-
         return
 
     try:
 
-        element.tie = m21note.Tie(
+        element.tie = m21tie.Tie(
             tie_type
         )
 
@@ -241,7 +238,7 @@ def apply_tie(
 
 
 # ============================================================
-# 將一個元素切割成不跨小節的片段
+# 切割跨小節元素
 # ============================================================
 
 def split_element(
@@ -250,11 +247,9 @@ def split_element(
     duration
 ):
 
-    segments = []
+    result = []
 
-    start = quantize(
-        start
-    )
+    start = quantize(start)
 
     duration = safe_duration(
         duration
@@ -264,19 +259,18 @@ def split_element(
         start + duration
     )
 
-    if end <= start:
-
-        return segments
+    if end <= start + EPS:
+        return result
 
     current = start
 
-    first = True
+    first_segment = True
 
-    while current < end - 1e-9:
+    while current < end - EPS:
 
-        # ----------------------------------------------------
-        # 目前位於哪個小節
-        # ----------------------------------------------------
+        # ------------------------------
+        # 找目前所在小節
+        # ------------------------------
 
         measure_index = math.floor(
             current / MEASURE_LENGTH
@@ -292,19 +286,13 @@ def split_element(
             + MEASURE_LENGTH
         )
 
-        # ----------------------------------------------------
-        # 如果剛好位於小節線
-        # ----------------------------------------------------
+        # 防止浮點誤差
+        if current < measure_start:
+            current = measure_start
 
-        if current >= measure_end - 1e-9:
-
-            current = measure_end
-
-            continue
-
-        # ----------------------------------------------------
-        # 本段最多只能到小節線
-        # ----------------------------------------------------
+        # ------------------------------
+        # 本段不能超過小節線
+        # ------------------------------
 
         segment_end = min(
             end,
@@ -312,114 +300,131 @@ def split_element(
         )
 
         segment_duration = (
-            segment_end
-            - current
+            segment_end - current
         )
 
         segment_duration = quantize(
             segment_duration
         )
 
-        if segment_duration <= 0:
+        if segment_duration <= EPS:
 
-            current += QUANTUM
+            current = measure_end
 
             continue
 
-        new_element = create_segment(
+        piece = create_segment(
             element,
             segment_duration
         )
 
-        if new_element is None:
-
+        if piece is None:
             break
 
-        # ----------------------------------------------------
-        # 跨小節 Note
-        # ----------------------------------------------------
+        # ------------------------------
+        # 判斷是否跨小節
+        # ------------------------------
 
-        crosses_barline = (
-            segment_end < end - 1e-9
+        crosses_forward = (
+            segment_end < end - EPS
         )
 
         if isinstance(
-            new_element,
+            piece,
             m21note.Note
         ):
 
-            if crosses_barline:
+            if first_segment:
 
-                if first:
-
-                    apply_tie(
-                        new_element,
+                if crosses_forward:
+                    set_tie(
+                        piece,
                         "start"
-                    )
-
-                else:
-
-                    apply_tie(
-                        new_element,
-                        "continue"
                     )
 
             else:
 
-                if not first:
+                if crosses_forward:
+                    set_tie(
+                        piece,
+                        "continue"
+                    )
 
-                    apply_tie(
-                        new_element,
+                else:
+                    set_tie(
+                        piece,
                         "stop"
                     )
 
-        segments.append(
+        result.append(
             (
                 current,
-                new_element
+                piece
             )
         )
 
         current = segment_end
 
-        first = False
+        first_segment = False
 
-    return segments
+    return result
 
 
 # ============================================================
-# 收集 MIDI
+# 取得絕對 offset
+# ============================================================
+
+def absolute_offset(
+    element,
+    part
+):
+
+    try:
+
+        return float(
+            element.getOffsetInHierarchy(
+                part
+            )
+        )
+
+    except Exception:
+
+        try:
+            return float(
+                element.offset
+            )
+
+        except Exception:
+
+            return 0.0
+
+
+# ============================================================
+# 收集 MIDI Note / Rest
 # ============================================================
 
 def collect_elements(
     original_part
 ):
 
-    raw = []
-
     elements = list(
         original_part.recurse().notesAndRests
     )
 
     print(
-        f"原始 Note/Rest 數量："
-        f"{len(elements)}"
+        f"原始 Note/Rest：{len(elements)}"
     )
+
+    result = []
 
     for element in elements:
 
         try:
 
-            start = get_absolute_offset(
+            start = absolute_offset(
                 element,
                 original_part
             )
-
-        except Exception:
-
-            continue
-
-        try:
 
             duration = float(
                 element.duration.quarterLength
@@ -429,8 +434,7 @@ def collect_elements(
 
             continue
 
-        if duration <= 0:
-
+        if duration <= EPS:
             continue
 
         start = quantize(
@@ -441,7 +445,7 @@ def collect_elements(
             duration
         )
 
-        raw.append(
+        result.append(
             (
                 start,
                 duration,
@@ -449,11 +453,14 @@ def collect_elements(
             )
         )
 
-    raw.sort(
-        key=lambda x: x[0]
+    result.sort(
+        key=lambda x: (
+            x[0],
+            x[2].__class__.__name__
+        )
     )
 
-    return raw
+    return result
 
 
 # ============================================================
@@ -466,27 +473,27 @@ def build_safe_part(
 ):
 
     print(
-        "處理 Part..."
+        "建立安全 Part..."
     )
 
-    p = stream.Part()
+    part = stream.Part()
 
-    # --------------------------------------------------------
+    # ------------------------------
     # 4/4
-    # --------------------------------------------------------
+    # ------------------------------
 
-    p.insert(
+    part.insert(
         0,
         meter.TimeSignature(
             TIME_SIGNATURE
         )
     )
 
-    # --------------------------------------------------------
+    # ------------------------------
     # 調性
-    # --------------------------------------------------------
+    # ------------------------------
 
-    p.insert(
+    part.insert(
         0,
         clone_element(
             detected_key
@@ -497,20 +504,41 @@ def build_safe_part(
         original_part
     )
 
-    output_count = 0
     split_count = 0
 
-    # --------------------------------------------------------
-    # 重新切割
-    # --------------------------------------------------------
+    output_count = 0
+
+    max_end = 0.0
+
+    # ------------------------------
+    # 找歌曲總長度
+    # ------------------------------
+
+    for start, duration, element in raw:
+
+        end = (
+            start + duration
+        )
+
+        if end > max_end:
+            max_end = end
+
+    max_end = quantize(
+        max_end
+    )
+
+    print(
+        f"量化後歌曲長度："
+        f"{max_end:.2f} 拍"
+    )
+
+    # ------------------------------
+    # 切割所有元素
+    # ------------------------------
 
     for start, duration, element in raw:
 
         end = start + duration
-
-        # ----------------------------------------------------
-        # 判斷是否跨小節
-        # ----------------------------------------------------
 
         start_measure = math.floor(
             start / MEASURE_LENGTH
@@ -519,7 +547,7 @@ def build_safe_part(
         end_measure = math.floor(
             max(
                 start,
-                end - 1e-9
+                end - EPS
             )
             / MEASURE_LENGTH
         )
@@ -534,41 +562,105 @@ def build_safe_part(
             duration
         )
 
-        for piece_offset, piece in pieces:
+        for offset, piece in pieces:
 
-            # ------------------------------------------------
-            # 關鍵：
-            #
-            # piece_offset 是「絕對 offset」
-            #
-            # 不使用 append()
-            # ------------------------------------------------
-
-            p.insert(
-                piece_offset,
+            part.insert(
+                offset,
                 piece
             )
 
             output_count += 1
 
+    # ------------------------------
+    # 最後補到完整小節
+    # ------------------------------
+
+    if max_end > 0:
+
+        final_measure_end = (
+            math.ceil(
+                max_end / MEASURE_LENGTH
+            )
+            * MEASURE_LENGTH
+        )
+
+        if (
+            final_measure_end
+            > max_end + EPS
+        ):
+
+            rest_length = (
+                final_measure_end
+                - max_end
+            )
+
+            rest_length = quantize(
+                rest_length
+            )
+
+            if rest_length >= QUANTUM:
+
+                rest = m21note.Rest()
+
+                rest.duration.quarterLength = (
+                    rest_length
+                )
+
+                part.insert(
+                    max_end,
+                    rest
+                )
+
+                print(
+                    f"✓ 最後補休止符："
+                    f"{rest_length:.2f} 拍"
+                )
+
     print(
-        f"輸出 Note/Rest 數量："
+        f"輸出 Note/Rest："
         f"{output_count}"
     )
 
     print(
-        f"跨小節切割數量："
+        f"跨小節切割："
         f"{split_count}"
     )
 
-    return p
+    return part
 
 
 # ============================================================
-# 深度驗證
+# 建立 Measure
 # ============================================================
 
-def validate_no_cross_barline(
+def make_measures_safe(
+    score
+):
+
+    print(
+        "建立 4/4 小節..."
+    )
+
+    try:
+
+        measured = score.makeMeasures(
+            inPlace=False
+        )
+
+    except Exception as e:
+
+        raise RuntimeError(
+            f"建立小節失敗：{e}"
+        )
+
+    return measured
+
+
+# ============================================================
+# 小節完整性檢查
+# ============================================================
+
+def validate_measures(
     score,
     verbose=True
 ):
@@ -586,21 +678,22 @@ def validate_no_cross_barline(
 
         for measure in measures:
 
-            measure_number = (
-                measure.number
-            )
+            expected = MEASURE_LENGTH
 
-            measure_duration = (
-                float(
+            try:
+
+                duration = float(
                     measure.duration.quarterLength
                 )
-                if measure.duration
-                else MEASURE_LENGTH
-            )
 
-            if measure_duration <= 0:
+            except Exception:
 
-                measure_duration = MEASURE_LENGTH
+                duration = 0.0
+
+            # 最後一小節如果不是完整小節，
+            # 後面會由補休止符修正。
+            #
+            # 這裡主要檢查「元素不可超出小節」。
 
             for element in measure.notesAndRests:
 
@@ -610,7 +703,7 @@ def validate_no_cross_barline(
                         element.offset
                     )
 
-                    duration = float(
+                    length = float(
                         element.duration.quarterLength
                     )
 
@@ -618,71 +711,177 @@ def validate_no_cross_barline(
 
                     continue
 
-                end = (
-                    offset
-                    + duration
-                )
+                end = offset + length
 
-                # ------------------------------------------------
-                # Measure 內 offset 是相對 offset
-                #
-                # 允許非常小的浮點誤差
-                # ------------------------------------------------
+                if end > expected + EPS:
 
-                if end > measure_duration + 1e-6:
-
-                    element_type = (
-                        "NOTE"
-                        if isinstance(
-                            element,
-                            m21note.Note
-                        )
-                        else "REST"
+                    info = (
+                        part_index,
+                        measure.number,
+                        type(element).__name__,
+                        offset,
+                        length,
+                        end
                     )
 
                     errors.append(
-                        (
-                            part_index,
-                            measure_number,
-                            element_type,
-                            offset,
-                            duration,
-                            end
-                        )
+                        info
                     )
 
                     if verbose:
 
                         print(
                             f"❌ Part {part_index} "
-                            f"Measure {measure_number} "
-                            f"{element_type}: "
-                            f"offset={offset:.4f} "
-                            f"duration={duration:.4f} "
-                            f"end={end:.4f}"
+                            f"小節 {measure.number} "
+                            f"{type(element).__name__} "
+                            f"offset={offset:.3f} "
+                            f"duration={length:.3f} "
+                            f"end={end:.3f}"
                         )
 
-    if not errors:
+    if errors:
+
+        print()
+        print(
+            f"❌ 跨小節元素："
+            f"{len(errors)}"
+        )
+
+        return False
+
+    print(
+        "✅ 深度驗證："
+        "沒有跨小節元素"
+    )
+
+    return True
+
+
+# ============================================================
+# 檢查小節長度
+# ============================================================
+
+def report_measure_lengths(
+    score
+):
+
+    print()
+    print(
+        "小節長度檢查..."
+    )
+
+    bad = []
+
+    for part_index, part in enumerate(
+        score.parts,
+        start=1
+    ):
+
+        measures = part.getElementsByClass(
+            stream.Measure
+        )
+
+        for measure in measures:
+
+            try:
+
+                length = float(
+                    measure.duration.quarterLength
+                )
+
+            except Exception:
+
+                continue
+
+            # 允許最後空白小節
+            if (
+                abs(length - MEASURE_LENGTH)
+                > EPS
+            ):
+
+                bad.append(
+                    (
+                        part_index,
+                        measure.number,
+                        length
+                    )
+                )
+
+    if not bad:
 
         print(
-            "✅ 深度驗證："
-            "沒有跨小節音符"
+            "✅ 所有小節均為 4/4"
         )
 
         return True
 
-    print()
-
     print(
-        f"❌ 發現跨小節元素："
-        f"{len(errors)} 個"
+        f"⚠ 發現 {len(bad)} 個非 4 拍小節"
     )
+
+    for item in bad[:20]:
+
+        print(
+            f"  Part={item[0]} "
+            f"Measure={item[1]} "
+            f"Length={item[2]:.3f}"
+        )
+
+    if len(bad) > 20:
+
+        print(
+            f"  ...其餘 {len(bad) - 20} 個略過"
+        )
 
     return False
 
 
 # ============================================================
-# MusicXML 寫出後驗證
+# 寫出 MusicXML
+# ============================================================
+
+def write_musicxml(
+    score,
+    output_xml
+):
+
+    print(
+        "寫入 MusicXML..."
+    )
+
+    try:
+
+        score.write(
+            "musicxml",
+            fp=output_xml
+        )
+
+    except Exception as e:
+
+        raise RuntimeError(
+            f"MusicXML 寫出失敗：{e}"
+        )
+
+    if not os.path.isfile(
+        output_xml
+    ):
+
+        raise RuntimeError(
+            "MusicXML 檔案不存在"
+        )
+
+    size = os.path.getsize(
+        output_xml
+    )
+
+    print(
+        f"✓ MusicXML 完成："
+        f"{size:,} bytes"
+    )
+
+
+# ============================================================
+# 寫出後重新驗證
 # ============================================================
 
 def verify_written_musicxml(
@@ -690,30 +889,45 @@ def verify_written_musicxml(
 ):
 
     print()
-
     print(
-        "重新讀取 MusicXML 驗證..."
+        "重新讀取 MusicXML..."
     )
 
     try:
 
-        verification_score = converter.parse(
+        score = converter.parse(
             output_xml
         )
 
     except Exception as e:
 
         print(
-            "❌ MusicXML 重新讀取失敗:",
-            e
+            f"❌ MusicXML 重新讀取失敗：{e}"
         )
 
         return False
 
-    return validate_no_cross_barline(
-        verification_score,
-        verbose=True
+    print(
+        f"✓ 重新讀取成功"
+        f" Parts={len(score.parts)}"
     )
+
+    # ------------------------------
+    # 跨小節檢查
+    # ------------------------------
+
+    if not validate_measures(
+        score,
+        verbose=True
+    ):
+
+        return False
+
+    print(
+        "✓ MusicXML 結構驗證完成"
+    )
+
+    return True
 
 
 # ============================================================
@@ -727,96 +941,131 @@ def convert(
 ):
 
     print()
-
     print(
         "========================================"
     )
-
     print(
         "MIDI -> MusicXML"
     )
-
     print(
-        "Professional MVP 3.0"
+        "Professional MVP 3.0 Stable"
     )
-
     print(
         "========================================"
     )
 
     print(
-        "輸入 MIDI:",
-        input_midi
+        f"輸入 MIDI：{input_midi}"
     )
 
     print(
-        "輸出 MusicXML:",
-        output_xml
+        f"輸出 XML：{output_xml}"
     )
 
-    # --------------------------------------------------------
-    # 檢查
-    # --------------------------------------------------------
+    # ========================================================
+    # 檔案檢查
+    # ========================================================
 
     if not os.path.isfile(
         input_midi
     ):
 
         raise FileNotFoundError(
-            f"找不到 MIDI: {input_midi}"
+            f"找不到 MIDI：{input_midi}"
         )
 
     output_dir = os.path.dirname(
-        output_xml
+        os.path.abspath(
+            output_xml
+        )
     )
 
-    if output_dir:
+    os.makedirs(
+        output_dir,
+        exist_ok=True
+    )
 
-        os.makedirs(
-            output_dir,
-            exist_ok=True
+    # ========================================================
+    # 讀取 MIDI
+    # ========================================================
+
+    print()
+    print(
+        "[1/6] 讀取 MIDI..."
+    )
+
+    try:
+
+        original_score = converter.parse(
+            input_midi
         )
 
-    # --------------------------------------------------------
-    # 讀取 MIDI
-    # --------------------------------------------------------
+    except Exception as e:
+
+        raise RuntimeError(
+            f"MIDI 讀取失敗：{e}"
+        )
 
     print(
-        "讀取 MIDI..."
+        f"✓ Parts："
+        f"{len(original_score.parts)}"
     )
 
-    score = converter.parse(
-        input_midi
-    )
+    if len(original_score.parts) == 0:
 
-    print(
-        f"✓ Parts: {len(score.parts)}"
-    )
+        raise RuntimeError(
+            "MIDI 沒有可處理的 Part"
+        )
 
-    # --------------------------------------------------------
+    # ========================================================
     # 調性
-    # --------------------------------------------------------
+    # ========================================================
+
+    print()
+    print(
+        "[2/6] 載入調性..."
+    )
 
     detected_key = load_key(
         info_json
     )
 
-    # --------------------------------------------------------
+    # ========================================================
     # 建立新的 Score
-    # --------------------------------------------------------
+    # ========================================================
+
+    print()
+    print(
+        "[3/6] 建立安全 MusicXML 結構..."
+    )
 
     new_score = stream.Score()
 
     # --------------------------------------------------------
-    # Part
+    # metadata
+    # --------------------------------------------------------
+
+    try:
+
+        new_score.metadata = copy.deepcopy(
+            original_score.metadata
+        )
+
+    except Exception:
+
+        pass
+
+    # --------------------------------------------------------
+    # 每個 Part
     # --------------------------------------------------------
 
     for index, original_part in enumerate(
-        score.parts
+        original_score.parts
     ):
 
+        print()
         print(
-            f"處理 Part {index + 1}..."
+            f"--- Part {index + 1} ---"
         )
 
         new_part = build_safe_part(
@@ -829,97 +1078,72 @@ def convert(
             new_part
         )
 
-    # --------------------------------------------------------
-    # 重要：
-    #
-    # 這裡不直接使用 makeMeasures()
-    #
-    # 先建立 measures
-    # --------------------------------------------------------
-
-    print(
-        "建立 4/4 小節..."
-    )
-
-    try:
-
-        measured_score = new_score.makeMeasures(
-            inPlace=False
-        )
-
-    except Exception as e:
-
-        raise RuntimeError(
-            f"建立 4/4 小節失敗: {e}"
-        )
-
-    # --------------------------------------------------------
-    # 前置驗證
-    # --------------------------------------------------------
+    # ========================================================
+    # 建立小節
+    # ========================================================
 
     print()
-
     print(
-        "檢查 MusicXML 前置結構..."
+        "[4/6] 建立 4/4 小節..."
     )
 
-    if not validate_no_cross_barline(
+    measured_score = make_measures_safe(
+        new_score
+    )
+
+    # ========================================================
+    # 前置驗證
+    # ========================================================
+
+    print()
+    print(
+        "[5/6] MusicXML 前置驗證..."
+    )
+
+    if not validate_measures(
         measured_score,
         verbose=True
     ):
 
         raise RuntimeError(
-            "MusicXML 前置結構仍存在跨小節元素"
+            "前置驗證失敗：存在跨小節元素"
         )
 
-    # --------------------------------------------------------
-    # 寫出 MusicXML
-    # --------------------------------------------------------
-
-    print(
-        "寫入 MusicXML..."
+    report_measure_lengths(
+        measured_score
     )
 
-    measured_score.write(
-        "musicxml",
-        fp=output_xml
-    )
+    # ========================================================
+    # 寫出
+    # ========================================================
 
-    if not os.path.isfile(
-        output_xml
-    ):
-
-        raise RuntimeError(
-            "MusicXML 產生失敗"
-        )
-
-    size = os.path.getsize(
+    write_musicxml(
+        measured_score,
         output_xml
     )
 
-    print(
-        "✓ MusicXML 完成"
-    )
+    # ========================================================
+    # 寫出後驗證
+    # ========================================================
 
+    print()
     print(
-        f"✓ 檔案大小: {size:,} bytes"
+        "[6/6] 寫出後重新驗證..."
     )
-
-    # --------------------------------------------------------
-    # 最重要：
-    # 寫出後重新讀取
-    # --------------------------------------------------------
 
     if not verify_written_musicxml(
         output_xml
     ):
 
         raise RuntimeError(
-            "MusicXML 寫出後仍存在跨小節元素"
+            "MusicXML 寫出後驗證失敗"
         )
 
-    print()
+    # ========================================================
+    # 完成
+    # ========================================================
 
+    print()
     print(
         "========================================"
     )
@@ -932,23 +1156,32 @@ def convert(
         "========================================"
     )
 
+    print(
+        f"MusicXML：{output_xml}"
+    )
+
+    return output_xml
+
 
 # ============================================================
-# CMD
+# CLI
 # ============================================================
 
 if __name__ == "__main__":
 
     if len(sys.argv) < 3:
 
+        print()
         print(
-            "用法:"
+            "用法："
         )
 
         print(
             "python midi_to_musicxml.py "
             "input.mid output.musicxml [info.json]"
         )
+
+        print()
 
         sys.exit(1)
 
@@ -973,7 +1206,6 @@ if __name__ == "__main__":
     except Exception as e:
 
         print()
-
         print(
             "❌ MIDI -> MusicXML 失敗"
         )
