@@ -28,7 +28,11 @@ PYTHON = sys.executable
 # 執行單一步驟
 # ============================================================
 
-def run_step(step_name, script, *args):
+def run_step(
+    step_name,
+    script,
+    *args
+):
 
     print()
     print("=" * 60)
@@ -40,8 +44,9 @@ def run_step(step_name, script, *args):
         script
     )
 
-    if not os.path.exists(script_path):
-
+    if not os.path.isfile(
+        script_path
+    ):
         raise FileNotFoundError(
             f"找不到程式：{script_path}"
         )
@@ -55,7 +60,7 @@ def run_step(step_name, script, *args):
     env = os.environ.copy()
 
     # --------------------------------------------------------
-    # UTF-8
+    # Windows / Linux UTF-8
     # --------------------------------------------------------
 
     env["PYTHONUTF8"] = "1"
@@ -82,7 +87,9 @@ def run_step(step_name, script, *args):
         env=env
     )
 
-    print(result.stdout)
+    print(
+        result.stdout
+    )
 
     if result.returncode != 0:
 
@@ -98,7 +105,44 @@ def run_step(step_name, script, *args):
 
 
 # ============================================================
-# 完整 MP3/WAV -> Jianpu PDF
+# 檢查檔案
+# ============================================================
+
+def check_file(
+    path,
+    description
+):
+
+    if not os.path.isfile(path):
+
+        raise RuntimeError(
+            f"{description}產生失敗：\n"
+            f"{path}"
+        )
+
+    size = os.path.getsize(
+        path
+    )
+
+    if size <= 0:
+
+        raise RuntimeError(
+            f"{description}是空檔案：\n"
+            f"{path}"
+        )
+
+    print(
+        f"✅ {description}："
+        f"{path}"
+    )
+
+    print(
+        f"   檔案大小：{size:,} bytes"
+    )
+
+
+# ============================================================
+# 完整轉換
 # ============================================================
 
 def convert_pipeline(
@@ -107,8 +151,6 @@ def convert_pipeline(
 ):
 
     """
-    完整轉換流程：
-
     MP3/WAV
        ↓
     [1] Demucs
@@ -119,7 +161,7 @@ def convert_pipeline(
        ↓
     raw_melody.mid
        ↓
-    [3] BPM + 調性偵測
+    [3] BPM + 調性
        ↓
     info.json
        ↓
@@ -131,17 +173,17 @@ def convert_pipeline(
        ↓
     final.musicxml
        ↓
-    [6] MusicXML Duration Fix
+    [6] Duration Fix
        ↓
     final_fixed.musicxml
        ↓
-    [7] MusicXML -> 數字簡譜 PDF
+    [7] jianpu-ly + LilyPond
        ↓
     jianpu.pdf
     """
 
     # ========================================================
-    # 基本檢查
+    # 工作目錄
     # ========================================================
 
     os.makedirs(
@@ -157,29 +199,42 @@ def convert_pipeline(
         workdir
     )
 
-    if not os.path.exists(
+    # ========================================================
+    # 檢查輸入
+    # ========================================================
+
+    if not os.path.isfile(
         input_audio
     ):
 
         raise FileNotFoundError(
-            f"找不到輸入音檔：{input_audio}"
+            f"找不到輸入音檔："
+            f"{input_audio}"
         )
 
+    # ========================================================
+    # 開始
+    # ========================================================
+
     print()
+
     print("=" * 60)
-    print("JianpuTool 完整自動轉換")
+    print("JianpuTool 完整 7 步驟自動轉換")
     print("=" * 60)
+
     print(
         f"輸入音檔：{input_audio}"
     )
+
     print(
         f"工作目錄：{workdir}"
     )
+
     print("=" * 60)
 
 
     # ========================================================
-    # [1/7] Demucs 人聲分離
+    # [1/7] Demucs
     # ========================================================
 
     vocals = os.path.join(
@@ -194,16 +249,9 @@ def convert_pipeline(
         vocals
     )
 
-    if not os.path.exists(
-        vocals
-    ):
-
-        raise RuntimeError(
-            f"Demucs 執行完成，但是找不到：{vocals}"
-        )
-
-    print(
-        f"✅ 人聲檔案：{vocals}"
+    check_file(
+        vocals,
+        "人聲檔案"
     )
 
 
@@ -223,21 +271,14 @@ def convert_pipeline(
         raw_midi
     )
 
-    if not os.path.exists(
-        raw_midi
-    ):
-
-        raise RuntimeError(
-            f"BasicPitch 執行完成，但是找不到：{raw_midi}"
-        )
-
-    print(
-        f"✅ MIDI：{raw_midi}"
+    check_file(
+        raw_midi,
+        "原始 MIDI"
     )
 
 
     # ========================================================
-    # [3/7] BPM + 調性偵測
+    # [3/7] BPM + 調性
     # ========================================================
 
     info_json = os.path.join(
@@ -253,18 +294,23 @@ def convert_pipeline(
         info_json
     )
 
-    if os.path.exists(
+    if os.path.isfile(
         info_json
     ):
 
-        print(
-            f"✅ info.json：{info_json}"
+        check_file(
+            info_json,
+            "info.json"
         )
 
     else:
 
         print(
             "⚠ key_detect 沒有產生 info.json"
+        )
+
+        print(
+            "⚠ 後續將使用預設調性"
         )
 
 
@@ -285,16 +331,9 @@ def convert_pipeline(
         info_json
     )
 
-    if not os.path.exists(
-        clean_midi
-    ):
-
-        raise RuntimeError(
-            f"旋律清理完成，但是找不到：{clean_midi}"
-        )
-
-    print(
-        f"✅ 清理後 MIDI：{clean_midi}"
+    check_file(
+        clean_midi,
+        "清理後 MIDI"
     )
 
 
@@ -315,16 +354,9 @@ def convert_pipeline(
         info_json
     )
 
-    if not os.path.exists(
-        musicxml
-    ):
-
-        raise RuntimeError(
-            f"MusicXML 產生完成，但是找不到：{musicxml}"
-        )
-
-    print(
-        f"✅ 原始 MusicXML：{musicxml}"
+    check_file(
+        musicxml,
+        "原始 MusicXML"
     )
 
 
@@ -344,17 +376,9 @@ def convert_pipeline(
         fixed_musicxml
     )
 
-    if not os.path.exists(
-        fixed_musicxml
-    ):
-
-        raise RuntimeError(
-            "MusicXML Duration Fix 執行完成，"
-            f"但是找不到：{fixed_musicxml}"
-        )
-
-    print(
-        f"✅ 修正後 MusicXML：{fixed_musicxml}"
+    check_file(
+        fixed_musicxml,
+        "修正後 MusicXML"
     )
 
 
@@ -374,28 +398,49 @@ def convert_pipeline(
         pdf
     )
 
-    if not os.path.exists(
-        pdf
-    ):
+    check_file(
+        pdf,
+        "數字簡譜 PDF"
+    )
 
-        raise RuntimeError(
-            f"LilyPond 執行完成，但是找不到 PDF：{pdf}"
-        )
+
+    # ========================================================
+    # 完成
+    # ========================================================
 
     print()
+
     print("=" * 60)
-    print("🎉 完整轉換成功")
+    print("🎉🎉🎉 完整轉換成功 🎉🎉🎉")
     print("=" * 60)
+
+    print(
+        f"📥 輸入：{input_audio}"
+    )
+
+    print(
+        f"🎵 人聲：{vocals}"
+    )
+
+    print(
+        f"🎹 MIDI：{clean_midi}"
+    )
+
+    print(
+        f"🎼 MusicXML：{fixed_musicxml}"
+    )
+
     print(
         f"📄 數字簡譜 PDF：{pdf}"
     )
+
     print("=" * 60)
 
     return pdf
 
 
 # ============================================================
-# 命令列模式
+# CMD
 # ============================================================
 
 if __name__ == "__main__":
@@ -403,18 +448,40 @@ if __name__ == "__main__":
     if len(sys.argv) < 3:
 
         print()
-        print("使用方法：")
-        print()
+
         print(
-            'python pipeline.py "C.mp3" "outputs\\C"'
+            "JianpuTool 使用方法："
         )
+
+        print()
+
+        print(
+            'python pipeline.py '
+            '"C:\\music\\song.mp3" '
+            '"outputs\\song"'
+        )
+
+        print()
+
+        print(
+            "例如："
+        )
+
+        print(
+            'python pipeline.py '
+            '"C:\\Users\\user\\Desktop\\JianpuTool\\C.mp3" '
+            '"outputs\\C"'
+        )
+
         print()
 
         sys.exit(1)
 
+
     input_audio = sys.argv[1]
 
     workdir = sys.argv[2]
+
 
     try:
 
@@ -424,7 +491,11 @@ if __name__ == "__main__":
         )
 
         print()
-        print("✅ Pipeline 完成")
+
+        print(
+            "✅ Pipeline 完成"
+        )
+
         print(
             f"PDF = {pdf}"
         )
@@ -432,10 +503,15 @@ if __name__ == "__main__":
     except Exception as e:
 
         print()
+
         print("=" * 60)
         print("❌ Pipeline 失敗")
         print("=" * 60)
-        print(str(e))
+
+        print(
+            str(e)
+        )
+
         print("=" * 60)
 
         sys.exit(1)
