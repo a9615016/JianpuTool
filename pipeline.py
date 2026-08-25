@@ -1,6 +1,37 @@
 import os
 import subprocess
 import sys
+import traceback
+
+
+# ============================================================
+# JianpuTool Professional MVP 3.0
+#
+# Pipeline
+#
+# MP3/WAV
+#   ↓
+# 1 Demucs
+#   ↓
+# 2 BasicPitch
+#   ↓
+# 3 BPM + Key
+#   ↓
+# 4 Melody Clean + Quantize
+#   ↓
+# 5 MIDI -> MusicXML
+#   ↓
+# 6 MusicXML Duration Fix
+#   ↓
+# 7 MusicXML -> Jianpu PDF
+#
+# 特點：
+# - Windows / Linux / Streamlit Cloud
+# - UTF-8
+# - 完整 stdout/stderr
+# - 明確錯誤定位
+# - 每一步檢查輸出檔案
+# ============================================================
 
 
 # ============================================================
@@ -25,6 +56,53 @@ PYTHON = sys.executable
 
 
 # ============================================================
+# 顯示標題
+# ============================================================
+
+def print_header(title):
+
+    print()
+    print("=" * 70)
+    print(title)
+    print("=" * 70)
+
+
+# ============================================================
+# 檢查檔案
+# ============================================================
+
+def check_file(path, description):
+
+    if not os.path.isfile(path):
+
+        raise RuntimeError(
+            f"{description}產生失敗：\n"
+            f"{path}"
+        )
+
+    size = os.path.getsize(path)
+
+    if size <= 0:
+
+        raise RuntimeError(
+            f"{description}是空檔案：\n"
+            f"{path}"
+        )
+
+    print(
+        f"✅ {description}"
+    )
+
+    print(
+        f"   路徑：{path}"
+    )
+
+    print(
+        f"   大小：{size:,} bytes"
+    )
+
+
+# ============================================================
 # 執行單一步驟
 # ============================================================
 
@@ -34,39 +112,51 @@ def run_step(
     *args
 ):
 
-    print()
-    print("=" * 60)
-    print(step_name)
-    print("=" * 60)
+    print_header(step_name)
 
     script_path = os.path.join(
         BASE_DIR,
         script
     )
 
-    if not os.path.isfile(
-        script_path
-    ):
+    # --------------------------------------------------------
+    # 檢查 Python script
+    # --------------------------------------------------------
+
+    if not os.path.isfile(script_path):
+
         raise FileNotFoundError(
-            f"找不到程式：{script_path}"
+            f"找不到程式：\n"
+            f"{script_path}"
         )
+
+    # --------------------------------------------------------
+    # 建立 command
+    # --------------------------------------------------------
 
     cmd = [
         PYTHON,
         script_path,
-        *args
+        *[
+            str(x)
+            for x in args
+        ]
     ]
 
-    env = os.environ.copy()
+    # --------------------------------------------------------
+    # UTF-8 environment
+    # --------------------------------------------------------
 
-    # --------------------------------------------------------
-    # Windows / Linux UTF-8
-    # --------------------------------------------------------
+    env = os.environ.copy()
 
     env["PYTHONUTF8"] = "1"
     env["PYTHONIOENCODING"] = "utf-8"
 
-    print("執行：")
+    # --------------------------------------------------------
+    # 顯示 command
+    # --------------------------------------------------------
+
+    print("執行指令：")
 
     print(
         " ".join(
@@ -77,72 +167,80 @@ def run_step(
 
     print()
 
-    result = subprocess.run(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        env=env
-    )
+    # --------------------------------------------------------
+    # 執行
+    # --------------------------------------------------------
 
-    print(
-        result.stdout
-    )
+    try:
 
-    if result.returncode != 0:
-
-        raise RuntimeError(
-            f"\n[{step_name}] 執行失敗\n"
-            f"Exit code: {result.returncode}\n"
-            f"Command: {' '.join(cmd)}\n\n"
-            f"----- 程式輸出 -----\n"
-            f"{result.stdout}"
+        result = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            env=env
         )
 
-    return result.stdout
+    except Exception as e:
+
+        print()
+        print("❌ subprocess 執行例外")
+        print(str(e))
+
+        raise RuntimeError(
+            f"[{step_name}] subprocess 執行失敗：{e}"
+        ) from e
+
+    # --------------------------------------------------------
+    # 完整輸出
+    # --------------------------------------------------------
+
+    output = result.stdout or ""
+
+    print(output)
+
+    # --------------------------------------------------------
+    # 成功
+    # --------------------------------------------------------
+
+    if result.returncode == 0:
+
+        print()
+        print(
+            f"✅ {step_name} 成功"
+        )
+
+        return output
+
+    # --------------------------------------------------------
+    # 失敗
+    # --------------------------------------------------------
+
+    print()
+    print("=" * 70)
+    print(
+        f"❌ {step_name} 失敗"
+    )
+    print(
+        f"Exit code: {result.returncode}"
+    )
+    print("=" * 70)
+
+    raise RuntimeError(
+        f"\n"
+        f"[{step_name}] 執行失敗\n\n"
+        f"Exit code: {result.returncode}\n\n"
+        f"Command:\n"
+        f"{' '.join(cmd)}\n\n"
+        f"----- 程式完整輸出 -----\n"
+        f"{output}"
+    )
 
 
 # ============================================================
-# 檢查檔案
-# ============================================================
-
-def check_file(
-    path,
-    description
-):
-
-    if not os.path.isfile(path):
-
-        raise RuntimeError(
-            f"{description}產生失敗：\n"
-            f"{path}"
-        )
-
-    size = os.path.getsize(
-        path
-    )
-
-    if size <= 0:
-
-        raise RuntimeError(
-            f"{description}是空檔案：\n"
-            f"{path}"
-        )
-
-    print(
-        f"✅ {description}："
-        f"{path}"
-    )
-
-    print(
-        f"   檔案大小：{size:,} bytes"
-    )
-
-
-# ============================================================
-# 完整轉換
+# 完整 Pipeline
 # ============================================================
 
 def convert_pipeline(
@@ -150,46 +248,19 @@ def convert_pipeline(
     workdir
 ):
 
-    """
-    MP3/WAV
-       ↓
-    [1] Demucs
-       ↓
-    vocals.wav
-       ↓
-    [2] BasicPitch
-       ↓
-    raw_melody.mid
-       ↓
-    [3] BPM + 調性
-       ↓
-    info.json
-       ↓
-    [4] 旋律清理 + 量化
-       ↓
-    clean_melody.mid
-       ↓
-    [5] MIDI -> MusicXML
-       ↓
-    final.musicxml
-       ↓
-    [6] Duration Fix
-       ↓
-    final_fixed.musicxml
-       ↓
-    [7] jianpu-ly + LilyPond
-       ↓
-    jianpu.pdf
-    """
-
-    # ========================================================
-    # 工作目錄
-    # ========================================================
-
-    os.makedirs(
-        workdir,
-        exist_ok=True
+    print_header(
+        "🎵 JianpuTool Professional MVP 3.0"
     )
+
+    print(
+        "完整 MP3/WAV → 數字簡譜 PDF Pipeline"
+    )
+
+    print()
+
+    # ========================================================
+    # 路徑
+    # ========================================================
 
     input_audio = os.path.abspath(
         input_audio
@@ -199,42 +270,49 @@ def convert_pipeline(
         workdir
     )
 
+    os.makedirs(
+        workdir,
+        exist_ok=True
+    )
+
+    print(
+        f"Python：{PYTHON}"
+    )
+
+    print(
+        f"BASE_DIR：{BASE_DIR}"
+    )
+
+    print(
+        f"Input：{input_audio}"
+    )
+
+    print(
+        f"Workdir：{workdir}"
+    )
+
     # ========================================================
-    # 檢查輸入
+    # Input
     # ========================================================
 
-    if not os.path.isfile(
-        input_audio
-    ):
+    if not os.path.isfile(input_audio):
 
         raise FileNotFoundError(
-            f"找不到輸入音檔："
+            f"找不到輸入音檔：\n"
             f"{input_audio}"
         )
 
-    # ========================================================
-    # 開始
-    # ========================================================
-
-    print()
-
-    print("=" * 60)
-    print("JianpuTool 完整 7 步驟自動轉換")
-    print("=" * 60)
-
-    print(
-        f"輸入音檔：{input_audio}"
+    input_size = os.path.getsize(
+        input_audio
     )
 
     print(
-        f"工作目錄：{workdir}"
+        f"輸入檔案大小："
+        f"{input_size:,} bytes"
     )
 
-    print("=" * 60)
-
-
     # ========================================================
-    # [1/7] Demucs
+    # 1. Demucs
     # ========================================================
 
     vocals = os.path.join(
@@ -251,12 +329,11 @@ def convert_pipeline(
 
     check_file(
         vocals,
-        "人聲檔案"
+        "人聲 WAV"
     )
 
-
     # ========================================================
-    # [2/7] BasicPitch
+    # 2. BasicPitch
     # ========================================================
 
     raw_midi = os.path.join(
@@ -276,9 +353,8 @@ def convert_pipeline(
         "原始 MIDI"
     )
 
-
     # ========================================================
-    # [3/7] BPM + 調性
+    # 3. BPM + Key
     # ========================================================
 
     info_json = os.path.join(
@@ -294,9 +370,7 @@ def convert_pipeline(
         info_json
     )
 
-    if os.path.isfile(
-        info_json
-    ):
+    if os.path.isfile(info_json):
 
         check_file(
             info_json,
@@ -306,16 +380,15 @@ def convert_pipeline(
     else:
 
         print(
-            "⚠ key_detect 沒有產生 info.json"
+            "⚠ key_detect.py 沒有產生 info.json"
         )
 
         print(
-            "⚠ 後續將使用預設調性"
+            "⚠ 後續將使用預設 C major"
         )
 
-
     # ========================================================
-    # [4/7] 旋律清理 + 量化
+    # 4. Melody Clean
     # ========================================================
 
     clean_midi = os.path.join(
@@ -336,9 +409,8 @@ def convert_pipeline(
         "清理後 MIDI"
     )
 
-
     # ========================================================
-    # [5/7] MIDI -> MusicXML
+    # 5. MIDI -> MusicXML
     # ========================================================
 
     musicxml = os.path.join(
@@ -359,9 +431,8 @@ def convert_pipeline(
         "原始 MusicXML"
     )
 
-
     # ========================================================
-    # [6/7] MusicXML Duration Fix
+    # 6. Duration Fix
     # ========================================================
 
     fixed_musicxml = os.path.join(
@@ -381,9 +452,8 @@ def convert_pipeline(
         "修正後 MusicXML"
     )
 
-
     # ========================================================
-    # [7/7] MusicXML -> 數字簡譜 PDF
+    # 7. Jianpu PDF
     # ========================================================
 
     pdf = os.path.join(
@@ -403,23 +473,20 @@ def convert_pipeline(
         "數字簡譜 PDF"
     )
 
-
     # ========================================================
     # 完成
     # ========================================================
 
-    print()
-
-    print("=" * 60)
-    print("🎉🎉🎉 完整轉換成功 🎉🎉🎉")
-    print("=" * 60)
-
-    print(
-        f"📥 輸入：{input_audio}"
+    print_header(
+        "🎉🎉🎉 完整轉換成功 🎉🎉🎉"
     )
 
     print(
-        f"🎵 人聲：{vocals}"
+        f"📥 Input：{input_audio}"
+    )
+
+    print(
+        f"🎤 Vocals：{vocals}"
     )
 
     print(
@@ -431,10 +498,10 @@ def convert_pipeline(
     )
 
     print(
-        f"📄 數字簡譜 PDF：{pdf}"
+        f"📄 PDF：{pdf}"
     )
 
-    print("=" * 60)
+    print()
 
     return pdf
 
@@ -448,40 +515,24 @@ if __name__ == "__main__":
     if len(sys.argv) < 3:
 
         print()
-
         print(
-            "JianpuTool 使用方法："
+            "JianpuTool Pipeline"
         )
-
         print()
 
         print(
             'python pipeline.py '
-            '"C:\\music\\song.mp3" '
-            '"outputs\\song"'
-        )
-
-        print()
-
-        print(
-            "例如："
-        )
-
-        print(
-            'python pipeline.py '
-            '"C:\\Users\\user\\Desktop\\JianpuTool\\C.mp3" '
-            '"outputs\\C"'
+            '"input.mp3" '
+            '"outputs/song"'
         )
 
         print()
 
         sys.exit(1)
 
-
     input_audio = sys.argv[1]
 
     workdir = sys.argv[2]
-
 
     try:
 
@@ -491,7 +542,6 @@ if __name__ == "__main__":
         )
 
         print()
-
         print(
             "✅ Pipeline 完成"
         )
@@ -503,15 +553,21 @@ if __name__ == "__main__":
     except Exception as e:
 
         print()
-
-        print("=" * 60)
-        print("❌ Pipeline 失敗")
-        print("=" * 60)
+        print("=" * 70)
+        print("❌ PIPELINE 失敗")
+        print("=" * 70)
+        print()
 
         print(
             str(e)
         )
 
-        print("=" * 60)
+        print()
+        print("===== Traceback =====")
+
+        traceback.print_exc()
+
+        print()
+        print("=" * 70)
 
         sys.exit(1)
