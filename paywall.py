@@ -26,28 +26,57 @@ paywall.py
 """
 
 from datetime import datetime
+from pathlib import Path
 
 import streamlit as st
 
 
 DEFAULT_PRICE_LABEL = "NT$99 / 月"
 
+# 授權碼檔案：放在專案根目錄，不放在 .streamlit 資料夾裡
+# 一行一組授權碼，# 開頭的行當作註解忽略
+CODES_FILE = Path(__file__).parent / "access_codes.txt"
+
 
 # ============================================================
 # 讀取合法授權碼清單
+#
+# 優先順序：
+#   1) Streamlit Cloud 後台的 Secrets（部署到雲端時建議用這個，
+#      在網站 Settings -> Secrets 貼上即可，不需要任何檔案）
+#   2) 專案根目錄的 access_codes.txt（本機測試方便用，
+#      這個檔案已加進 .gitignore，不會被上傳到 GitHub）
 # ============================================================
 
 def _get_valid_codes():
 
-    raw = st.secrets.get("ACCESS_CODES", None)
+    codes = []
 
-    if raw is None:
-        return []
+    # 1) Streamlit Cloud 後台 Secrets（若有設定就優先採用）
+    try:
+        raw = st.secrets.get("ACCESS_CODES", None)
+    except Exception:
+        raw = None
 
-    if isinstance(raw, str):
-        codes = [c.strip() for c in raw.split(",") if c.strip()]
-    else:
-        codes = [str(c).strip() for c in raw if str(c).strip()]
+    if raw:
+        if isinstance(raw, str):
+            codes = [c.strip() for c in raw.split(",") if c.strip()]
+        else:
+            codes = [str(c).strip() for c in raw if str(c).strip()]
+
+        return codes
+
+    # 2) 根目錄 access_codes.txt（本機測試用，不放在 .streamlit 裡）
+    if CODES_FILE.exists():
+
+        for line in CODES_FILE.read_text(encoding="utf-8").splitlines():
+
+            line = line.strip()
+
+            if not line or line.startswith("#"):
+                continue
+
+            codes.append(line)
 
     return codes
 
