@@ -1,9 +1,14 @@
 import sys
 import os
-import json
 import math
+from collections import defaultdict
 
-from mido import MidiFile, MidiTrack, Message, MetaMessage
+from mido import (
+    MidiFile,
+    MidiTrack,
+    Message,
+    MetaMessage
+)
 
 
 # ============================================================
@@ -13,131 +18,160 @@ from mido import MidiFile, MidiTrack, Message, MetaMessage
 # 最短音符時間（秒）
 MIN_NOTE_LENGTH_SEC = 0.060
 
+# MIDI 音符合理人聲範圍
+# C3 = 48
+# C6 = 84
+MIN_PITCH = 48
+MAX_PITCH = 84
+
 # 1/16 拍
+# quarter note = 1
+# eighth = 0.5
+# sixteenth = 0.25
 QUANTIZE_GRID = 0.25
 
-# 人聲合理音域：C3 ~ C6
-MIN_MIDI_NOTE = 48
-MAX_MIDI_NOTE = 84
+# 是否強制單音旋律
+MONOPHONIC = True
 
-# 最低 velocity
-VELOCITY_THRESHOLD = 12
-
-# 旋律最大合理跳躍
-MAX_MELODY_JUMP = 12
-
-# 太大的跳躍視為可疑
-LARGE_JUMP = 7
-
-# 太短的音符
-VERY_SHORT_RATIO = 0.12
-
-# 旋律候選搜尋範圍
-LOOK_AHEAD_TICKS = 240
+# 最大同時音符
+# 單旋律 = 1
+MAX_POLYPHONY = 1
 
 
 # ============================================================
-# info.json
+# Note 資料結構
 # ============================================================
 
-def load_info(info_json):
-    info = {
-        "tempo_scale": 1.0,
-        "real_bpm": 120.0,
-        "key_tonic": "C",
-        "key_mode": "major",
-    }
+class NoteData:
 
-    if not info_json or not os.path.isfile(info_json):
-        print("⚠ 找不到 info.json，使用預設 BPM=120")
-        return info
+    def __init__(
+        self,
+        pitch,
+        start,
+        end,
+        velocity=80,
+        channel=0
+    ):
+        self.pitch = int(pitch)
+        self.start = float(start)
+        self.end = float(end)
+        self.velocity = int(velocity)
+        self.channel = int(channel)
 
-    try:
-        with open(info_json, "r", encoding="utf-8") as f:
-            data = json.load(f)
+    @property
+    def duration(self):
+        return max(0.0, self.end - self.start)
 
-        info.update(data)
-
-    except Exception as exc:
-        print(f"⚠ info.json 讀取失敗：{exc}")
-
-    try:
-        info["tempo_scale"] = float(info.get("tempo_scale", 1.0))
-    except Exception:
-        info["tempo_scale"] = 1.0
-
-    try:
-        info["real_bpm"] = float(info.get("real_bpm", 120.0))
-    except Exception:
-        info["real_bpm"] = 120.0
-
-    if not 0.25 <= info["tempo_scale"] <= 2.5:
-        info["tempo_scale"] = 1.0
-
-    print(
-        f"✓ BPM 校正比例={info['tempo_scale']:.4f}, "
-        f"real_bpm={info['real_bpm']:.2f}"
-    )
-
-    if info.get("key_tonic"):
-        print(
-            f"✓ 調性={info.get('key_tonic')} "
-            f"{info.get('key_mode', 'major')}"
+    def copy(self):
+        return NoteData(
+            self.pitch,
+            self.start,
+            self.end,
+            self.velocity,
+            self.channel
         )
 
-    return info
+    def __repr__(self):
+        return (
+            f"Note("
+            f"{self.pitch}, "
+            f"{self.start:.4f}, "
+            f"{self.end:.4f}, "
+            f"dur={self.duration:.4f}"
+            f")"
+        )
 
 
 # ============================================================
-# MIDI 讀取
+# MIDI 時間工具
 # ============================================================
 
-def read_midi(filename):
-    mid = MidiFile(filename)
+def get_tempo(mid):
+    """
+    取得第一個 tempo。
+    預設 120 BPM。
+    """
 
-    ticks_per_beat = mid.ticks_per_beat
-
-    events = []
-
-    for track_index, track in enumerate(mid.tracks):
-
-        current_tick = 0
-
-        active = {}
+    for track in mid.tracks:
 
         for msg in track:
 
-            current_tick += msg.time
+            if (
+                msg.is_meta
+                and msg.type == "set_tempo"
+            ):
+                return msg.tempo
 
-            # Note ON
-            if msg.type == "note_on" and msg.velocity > 0:
+    # 120 BPM
+    return 500000
 
-                key = msg.note
 
-                # BasicPitch 偶爾會出現同音重複 note_on
-                # 如果已存在，先結束舊音符
-                if key in active:
+def get_time_signature(mid):
+    """
+    取得第一個 Time Signature。
 
-                    old_start, old_velocity = active[key]
+    預設 4/4。
+    """
 
-                    duration = current_tick - old_start
+    for track in mid.tracks:
 
-                    if duration > 0:
+        for msg in track:
 
-                        events.append({
-                            "start": old_start,
-                            "duration": duration,
-                            "note": key,
-                            "velocity": old_velocity,
-                            "track": track_index,
-                        })
-
-                active[key] = (
-                    current_tick,
-                    msg.velocity
+            if (
+                msg.is_meta
+                and msg.type == "time_signature"
+            ):
+                return (
+                    msg.numerator,
+                    msg.denominator
                 )
 
-            # Note OFF
+    return 4, 4
+
+
+def get_ticks_per_beat(mid):
+
+    return mid.ticks_per_beat
+
+
+# ============================================================
+# MIDI → 秒
+# ============================================================
+
+def collect_midi_notes(mid):
+    """
+    讀取所有 MIDI track 的 note。
+
+    回傳：
+
+        notes
+        meta_events
+    """
+
+    notes = []
+
+    # 每個 track 都要自己的 note stack
+    for track_index, track in enumerate(mid.tracks):
+
+        absolute_tick = 0
+
+        active = defaultdict(list)
+
+        for msg in track:
+
+            absolute_tick += msg.time
+
+            if msg.type == "note_on" and msg.velocity > 0:
+
+                active[
+                    (msg.channel, msg.note)
+                ].append(
+                    (
+                        absolute_tick,
+                        msg.velocity
+                    )
+                )
+
             elif (
                 msg.type == "note_off"
                 or (
@@ -146,830 +180,858 @@ def read_midi(filename):
                 )
             ):
 
-                key = msg.note
-
-                if key in active:
-
-                    start_tick, velocity = active.pop(key)
-
-                    duration = current_tick - start_tick
-
-                    if duration > 0:
-
-                        events.append({
-                            "start": start_tick,
-                            "duration": duration,
-                            "note": key,
-                            "velocity": velocity,
-                            "track": track_index,
-                        })
-
-    events.sort(
-        key=lambda e: (
-            e["start"],
-            e["note"]
-        )
-    )
-
-    return events, ticks_per_beat
-
-
-# ============================================================
-# BPM 時間校正
-# ============================================================
-
-def apply_tempo_scale(events, tempo_scale):
-
-    if abs(tempo_scale - 1.0) < 0.0001:
-        return events
-
-    print(
-        f"✓ 套用 tempo_scale={tempo_scale:.4f}"
-    )
-
-    for e in events:
-
-        e["start"] = int(
-            round(e["start"] * tempo_scale)
-        )
-
-        e["duration"] = max(
-            1,
-            int(
-                round(
-                    e["duration"] * tempo_scale
-                )
-            )
-        )
-
-    return events
-
-
-# ============================================================
-# 音域
-# ============================================================
-
-def filter_pitch_range(events):
-
-    result = []
-
-    for e in events:
-
-        note = int(e["note"])
-
-        if MIN_MIDI_NOTE <= note <= MAX_MIDI_NOTE:
-
-            result.append(e)
-
-    return result
-
-
-# ============================================================
-# 修正極端音高
-# ============================================================
-
-def fix_pitch(note):
-
-    note = int(note)
-
-    while note < MIN_MIDI_NOTE:
-        note += 12
-
-    while note > MAX_MIDI_NOTE:
-        note -= 12
-
-    return note
-
-
-# ============================================================
-# 短音 / 雜訊
-# ============================================================
-
-def remove_noise(events, ticks_per_beat):
-
-    # 例如 480 TPB：
-    # 0.06 秒大約 29 ticks
-    min_ticks = max(
-        20,
-        int(
-            ticks_per_beat
-            * 0.125
-        )
-    )
-
-    result = []
-
-    for e in events:
-
-        duration = e["duration"]
-        velocity = e["velocity"]
-
-        # 正常音符
-        if duration >= min_ticks:
-
-            if velocity >= VELOCITY_THRESHOLD:
-                result.append(e)
-
-            continue
-
-        # 很短的音符只保留比較強的
-        if (
-            duration >= min_ticks * 0.5
-            and velocity >= 35
-        ):
-            result.append(e)
-
-    return result
-
-
-# ============================================================
-# 音符評分
-# ============================================================
-
-def note_score(event, previous=None, ticks_per_beat=480):
-
-    score = 0.0
-
-    velocity = float(event["velocity"])
-
-    duration = float(event["duration"])
-
-    note = int(event["note"])
-
-    # --------------------------------------------------------
-    # 1. velocity
-    # --------------------------------------------------------
-
-    score += min(
-        velocity,
-        100
-    ) * 0.20
-
-    # --------------------------------------------------------
-    # 2. 長音通常比較像主旋律
-    # --------------------------------------------------------
-
-    quarter_length = (
-        duration / ticks_per_beat
-    )
-
-    score += min(
-        quarter_length,
-        2.0
-    ) * 8.0
-
-    # --------------------------------------------------------
-    # 3. 音域偏好
-    # --------------------------------------------------------
-
-    # 人聲中音區給一點優勢
-    if 55 <= note <= 78:
-        score += 5
-
-    # --------------------------------------------------------
-    # 4. 與上一個音符的連續性
-    # --------------------------------------------------------
-
-    if previous is not None:
-
-        diff = abs(
-            note - int(previous["note"])
-        )
-
-        if diff == 0:
-            score += 8
-
-        elif diff <= 2:
-            score += 10
-
-        elif diff <= 4:
-            score += 7
-
-        elif diff <= 7:
-            score += 3
-
-        elif diff <= LARGE_JUMP:
-            score -= 5
-
-        elif diff <= MAX_MELODY_JUMP:
-            score -= 12
-
-        else:
-            score -= 30
-
-    return score
-
-
-# ============================================================
-# 找出同時間附近的候選音符
-# ============================================================
-
-def build_candidate_groups(events, tolerance):
-
-    events = sorted(
-        events,
-        key=lambda e: (
-            e["start"],
-            e["note"]
-        )
-    )
-
-    groups = []
-
-    current = []
-
-    current_start = None
-
-    for e in events:
-
-        start = e["start"]
-
-        if current_start is None:
-
-            current_start = start
-            current = [e]
-            continue
-
-        if start - current_start <= tolerance:
-
-            current.append(e)
-
-        else:
-
-            groups.append(current)
-
-            current_start = start
-
-            current = [e]
-
-    if current:
-        groups.append(current)
-
-    return groups
-
-
-# ============================================================
-# 旋律追蹤 V2
-# ============================================================
-
-def choose_melody_v2(
-    events,
-    ticks_per_beat
-):
-
-    if not events:
-        return []
-
-    events = sorted(
-        events,
-        key=lambda e: (
-            e["start"],
-            e["note"]
-        )
-    )
-
-    # --------------------------------------------------------
-    # 將非常接近的音符視為同一組候選
-    # --------------------------------------------------------
-
-    tolerance = max(
-        20,
-        int(
-            ticks_per_beat * 0.10
-        )
-    )
-
-    groups = build_candidate_groups(
-        events,
-        tolerance
-    )
-
-    print(
-        f"旋律候選群組: {len(groups)}"
-    )
-
-    melody = []
-
-    previous = None
-
-    for group in groups:
-
-        if not group:
-            continue
-
-        best = None
-
-        best_score = -999999
-
-        for candidate in group:
-
-            score = note_score(
-                candidate,
-                previous,
-                ticks_per_beat
-            )
-
-            # ------------------------------------------------
-            # 如果和上一個音符重疊
-            # 優先考慮較自然的旋律
-            # ------------------------------------------------
-
-            if previous is not None:
-
-                prev_end = (
-                    previous["start"]
-                    + previous["duration"]
-                )
-
-                if candidate["start"] < prev_end:
-
-                    diff = abs(
-                        candidate["note"]
-                        - previous["note"]
-                    )
-
-                    if diff <= 4:
-                        score += 12
-
-                    elif diff <= 7:
-                        score += 2
-
-                    else:
-                        score -= 10
-
-            if score > best_score:
-
-                best_score = score
-                best = candidate
-
-        if best is None:
-            continue
-
-        # ----------------------------------------------------
-        # 防止不合理的大跳躍
-        # ----------------------------------------------------
-
-        if previous is not None:
-
-            diff = abs(
-                best["note"]
-                - previous["note"]
-            )
-
-            if diff > MAX_MELODY_JUMP:
-
-                alternatives = []
-
-                for candidate in group:
-
-                    alt_diff = abs(
-                        candidate["note"]
-                        - previous["note"]
-                    )
-
-                    if alt_diff <= MAX_MELODY_JUMP:
-
-                        alternatives.append(
-                            (
-                                alt_diff,
-                                candidate
-                            )
+                key = (msg.channel, msg.note)
+
+                if active[key]:
+
+                    start_tick, velocity = active[key].pop()
+
+                    if absolute_tick > start_tick:
+
+                        notes.append(
+                            {
+                                "track": track_index,
+                                "channel": msg.channel,
+                                "pitch": msg.note,
+                                "start_tick": start_tick,
+                                "end_tick": absolute_tick,
+                                "velocity": velocity
+                            }
                         )
 
-                if alternatives:
+    return notes
 
-                    alternatives.sort(
-                        key=lambda x: x[0]
+
+# ============================================================
+# MIDI tick → quarter beat
+# ============================================================
+
+def tick_to_beat(tick, ticks_per_beat):
+
+    return tick / float(ticks_per_beat)
+
+
+# ============================================================
+# 取得旋律音符
+# ============================================================
+
+def extract_melody(mid):
+
+    raw_notes = collect_midi_notes(mid)
+
+    ticks_per_beat = mid.ticks_per_beat
+
+    notes = []
+
+    for n in raw_notes:
+
+        start = tick_to_beat(
+            n["start_tick"],
+            ticks_per_beat
+        )
+
+        end = tick_to_beat(
+            n["end_tick"],
+            ticks_per_beat
+        )
+
+        notes.append(
+            NoteData(
+                pitch=n["pitch"],
+                start=start,
+                end=end,
+                velocity=n["velocity"],
+                channel=n["channel"]
+            )
+        )
+
+    return notes
+
+
+# ============================================================
+# 音域過濾
+# ============================================================
+
+def filter_pitch_range(notes):
+
+    result = []
+
+    for n in notes:
+
+        if MIN_PITCH <= n.pitch <= MAX_PITCH:
+
+            result.append(n)
+
+    return result
+
+
+# ============================================================
+# 去除太短音符
+# ============================================================
+
+def remove_short_notes(notes):
+
+    result = []
+
+    for n in notes:
+
+        if n.duration >= MIN_NOTE_LENGTH_SEC:
+
+            result.append(n)
+
+    return result
+
+
+# ============================================================
+# 量化時間
+# ============================================================
+
+def quantize_value(value):
+
+    return round(
+        value / QUANTIZE_GRID
+    ) * QUANTIZE_GRID
+
+
+def quantize_notes(notes):
+
+    result = []
+
+    for n in notes:
+
+        start = quantize_value(n.start)
+        end = quantize_value(n.end)
+
+        # 避免量化後變成 0 長度
+        if end <= start:
+
+            end = (
+                start
+                + QUANTIZE_GRID
+            )
+
+        new_note = NoteData(
+            pitch=n.pitch,
+            start=start,
+            end=end,
+            velocity=n.velocity,
+            channel=n.channel
+        )
+
+        result.append(new_note)
+
+    return result
+
+
+# ============================================================
+# 排序
+# ============================================================
+
+def sort_notes(notes):
+
+    return sorted(
+        notes,
+        key=lambda n: (
+            n.start,
+            n.end,
+            n.pitch
+        )
+    )
+
+
+# ============================================================
+# 單音旋律處理
+# ============================================================
+
+def make_monophonic(notes):
+
+    if not notes:
+
+        return []
+
+    notes = sort_notes(notes)
+
+    result = []
+
+    current_end = -1
+
+    for note in notes:
+
+        # 第一個
+        if not result:
+
+            result.append(
+                note.copy()
+            )
+
+            current_end = note.end
+
+            continue
+
+        previous = result[-1]
+
+        # ----------------------------------------------------
+        # 情況 1：
+        # 新音符開始 >= 前一個結束
+        # ----------------------------------------------------
+
+        if note.start >= previous.end:
+
+            result.append(
+                note.copy()
+            )
+
+            current_end = note.end
+
+            continue
+
+        # ----------------------------------------------------
+        # 情況 2：
+        # 音符重疊
+        # ----------------------------------------------------
+
+        if note.start < previous.end:
+
+            # 如果同音高
+            if note.pitch == previous.pitch:
+
+                # 延長前一個
+                previous.end = max(
+                    previous.end,
+                    note.end
+                )
+
+                current_end = previous.end
+
+                continue
+
+            # ------------------------------------------------
+            # 不同音高：
+            # 保留較長的音符
+            # ------------------------------------------------
+
+            previous_duration = (
+                previous.end
+                - previous.start
+            )
+
+            note_duration = (
+                note.end
+                - note.start
+            )
+
+            if note_duration > previous_duration:
+
+                # 移除前一個
+                result.pop()
+
+                # 新音符從目前位置開始
+                new_note = note.copy()
+
+                # 避免與更前面的音符重疊
+                if result:
+
+                    last = result[-1]
+
+                    if new_note.start < last.end:
+
+                        new_note.start = last.end
+
+                if new_note.end > new_note.start:
+
+                    result.append(
+                        new_note
                     )
 
-                    best = alternatives[0][1]
+                    current_end = new_note.end
 
-        # ----------------------------------------------------
-        # 複製 event
-        # ----------------------------------------------------
+            else:
 
-        selected = dict(best)
-
-        melody.append(selected)
-
-        previous = selected
-
-    return melody
-
-
-# ============================================================
-# 合併非常接近的同音
-# ============================================================
-
-def merge_same_pitch(events, ticks_per_beat):
-
-    if not events:
-        return []
-
-    events = sorted(
-        events,
-        key=lambda e: (
-            e["start"],
-            e["note"]
-        )
-    )
-
-    result = []
-
-    merge_gap = max(
-        10,
-        int(
-            ticks_per_beat * 0.08
-        )
-    )
-
-    for e in events:
-
-        if not result:
-
-            result.append(
-                dict(e)
-            )
-
-            continue
-
-        prev = result[-1]
-
-        prev_end = (
-            prev["start"]
-            + prev["duration"]
-        )
-
-        gap = (
-            e["start"]
-            - prev_end
-        )
-
-        if (
-            e["note"] == prev["note"]
-            and gap <= merge_gap
-        ):
-
-            new_end = max(
-                prev_end,
-                e["start"]
-                + e["duration"]
-            )
-
-            prev["duration"] = (
-                new_end
-                - prev["start"]
-            )
-
-            prev["velocity"] = max(
-                prev["velocity"],
-                e["velocity"]
-            )
-
-        else:
-
-            result.append(
-                dict(e)
-            )
+                # 保留前一個
+                continue
 
     return result
 
 
 # ============================================================
-# 量化
+# ★ 修正音符間重疊
 # ============================================================
 
-def quantize_events(
-    events,
-    ticks_per_beat
+def fix_overlaps(notes):
+
+    if not notes:
+
+        return []
+
+    notes = sort_notes(notes)
+
+    result = []
+
+    for note in notes:
+
+        note = note.copy()
+
+        if not result:
+
+            result.append(note)
+
+            continue
+
+        previous = result[-1]
+
+        # 如果新音符開始時間早於上一音符結束
+        if note.start < previous.end:
+
+            # 同音高：
+            # 視為延音
+            if note.pitch == previous.pitch:
+
+                previous.end = max(
+                    previous.end,
+                    note.end
+                )
+
+                continue
+
+            # 不同音高：
+            # 把前一音符切到新音符開始
+            previous.end = note.start
+
+            # 如果前一個因此變成 0
+            if previous.end <= previous.start:
+
+                result.pop()
+
+        if note.end > note.start:
+
+            result.append(note)
+
+    return result
+
+
+# ============================================================
+# ★★★ 核心：
+# 修正跨小節音符
+# ============================================================
+
+def split_notes_at_barlines(
+    notes,
+    numerator=4,
+    denominator=4
 ):
+    """
+    將所有跨小節音符切開。
 
-    grid = (
-        ticks_per_beat
-        * QUANTIZE_GRID
+    例如：
+
+        4/4
+
+        小節：
+        0 ───────── 4 ───────── 8
+
+        原音符：
+        3.5 ───────────── 5
+
+        會變成：
+
+        3.5 ─── 4
+        4 ───── 5
+
+    保證：
+
+        note.end <= bar_end
+
+    所以任何單一 MIDI note
+    都不會跨越小節線。
+
+    """
+
+    if not notes:
+
+        return []
+
+    # 一拍 = quarter note
+    beats_per_measure = (
+        numerator
+        * (4.0 / denominator)
     )
+
+    if beats_per_measure <= 0:
+
+        beats_per_measure = 4.0
 
     result = []
 
-    for e in events:
+    for note in notes:
 
-        start = float(e["start"])
+        start = note.start
+        end = note.end
 
-        end = float(
-            e["start"]
-            + e["duration"]
-        )
+        if end <= start:
 
-        qstart = int(
-            round(
-                start / grid
+            continue
+
+        current_start = start
+
+        # ----------------------------------------------------
+        # 不斷切割直到音符結束
+        # ----------------------------------------------------
+
+        safety = 0
+
+        while current_start < end:
+
+            safety += 1
+
+            if safety > 10000:
+
+                print(
+                    "⚠️ 警告：音符切割超過安全次數"
+                )
+
+                break
+
+            # 找到 current_start 所在的小節
+            measure_index = math.floor(
+                current_start
+                / beats_per_measure
             )
-            * grid
-        )
 
-        qend = int(
-            round(
-                end / grid
-            )
-            * grid
-        )
+            bar_end = (
+                measure_index + 1
+            ) * beats_per_measure
 
-        if qend <= qstart:
-
-            qend = (
-                qstart
-                + int(grid)
+            # 本段結束點
+            segment_end = min(
+                end,
+                bar_end
             )
 
-        new_event = dict(e)
+            # 防止浮點數造成問題
+            if segment_end <= current_start:
 
-        new_event["start"] = qstart
+                segment_end = (
+                    current_start
+                    + QUANTIZE_GRID
+                )
 
-        new_event["duration"] = (
-            qend - qstart
-        )
+                segment_end = min(
+                    segment_end,
+                    end
+                )
 
-        result.append(
-            new_event
-        )
+            # ------------------------------------------------
+            # 建立小節內音符
+            # ------------------------------------------------
+
+            segment = NoteData(
+                pitch=note.pitch,
+                start=current_start,
+                end=segment_end,
+                velocity=note.velocity,
+                channel=note.channel
+            )
+
+            if segment.duration > 0:
+
+                result.append(segment)
+
+            current_start = segment_end
 
     return result
 
 
 # ============================================================
-# 重疊修正
+# ★ 修正量化後跨小節問題
 # ============================================================
 
-def fix_overlaps(events):
+def fix_cross_measure_after_quantize(
+    notes,
+    numerator=4,
+    denominator=4
+):
+    """
+    第二次檢查。
 
-    if not events:
+    因為量化可能造成：
+
+        start = 3.75
+        end   = 4.25
+
+    所以這裡再做一次 barline split。
+
+    """
+
+    notes = sort_notes(notes)
+
+    notes = split_notes_at_barlines(
+        notes,
+        numerator,
+        denominator
+    )
+
+    return notes
+
+
+# ============================================================
+# 移除極短切割音符
+# ============================================================
+
+def remove_tiny_segments(notes):
+
+    result = []
+
+    for note in notes:
+
+        # 正常保留
+        if note.duration >= 0.01:
+
+            result.append(note)
+
+    return result
+
+
+# ============================================================
+# 合併相鄰同音符
+# ============================================================
+
+def merge_adjacent_same_pitch(
+    notes,
+    numerator=4,
+    denominator=4
+):
+    """
+    注意：
+
+    不能把跨小節的音符合併回去。
+
+    因此只有：
+
+        A.end == B.start
+
+    且兩者仍然在同一小節內
+
+    才合併。
+
+    """
+
+    if not notes:
+
         return []
 
-    events = sorted(
-        events,
-        key=lambda e: (
-            e["start"],
-            e["note"]
-        )
+    notes = sort_notes(notes)
+
+    beats_per_measure = (
+        numerator
+        * (4.0 / denominator)
     )
 
     result = []
 
-    for e in events:
-
-        e = dict(e)
+    for note in notes:
 
         if not result:
 
-            result.append(e)
+            result.append(
+                note.copy()
+            )
 
             continue
 
-        prev = result[-1]
+        previous = result[-1]
 
-        prev_end = (
-            prev["start"]
-            + prev["duration"]
+        same_pitch = (
+            previous.pitch
+            == note.pitch
         )
 
-        # ----------------------------------------------------
-        # 沒有重疊
-        # ----------------------------------------------------
+        adjacent = abs(
+            previous.end
+            - note.start
+        ) < 1e-8
 
-        if e["start"] >= prev_end:
+        if same_pitch and adjacent:
 
-            result.append(e)
+            # ------------------------------------------------
+            # 判斷是否跨小節
+            # ------------------------------------------------
 
-            continue
+            previous_measure = math.floor(
+                previous.start
+                / beats_per_measure
+            )
 
-        # ----------------------------------------------------
-        # 重疊
-        # ----------------------------------------------------
+            note_measure = math.floor(
+                note.start
+                / beats_per_measure
+            )
 
-        new_duration = (
-            e["start"]
-            - prev["start"]
-        )
-
-        # 如果新音符完全蓋住舊音符
-        if new_duration <= 0:
-
+            # 同一小節才合併
             if (
-                e["velocity"]
-                > prev["velocity"]
+                previous_measure
+                == note_measure
             ):
 
-                result[-1] = e
+                previous.end = note.end
 
-            continue
+                continue
 
-        prev["duration"] = (
-            new_duration
+        result.append(
+            note.copy()
         )
 
-        if prev["duration"] > 0:
-
-            result.append(e)
-
-    return [
-        e
-        for e in result
-        if e["duration"] > 0
-    ]
+    return result
 
 
 # ============================================================
-# 消除過短音符
+# 確保每個音符都在小節內
 # ============================================================
 
-def remove_tiny_after_quantize(
-    events,
+def validate_bar_boundaries(
+    notes,
+    numerator=4,
+    denominator=4
+):
+    """
+    檢查：
+
+        note.end 不得超過小節尾端
+        note.start 不得小於小節開始
+
+    """
+
+    beats_per_measure = (
+        numerator
+        * (4.0 / denominator)
+    )
+
+    errors = []
+
+    for index, note in enumerate(notes):
+
+        measure_index = math.floor(
+            note.start
+            / beats_per_measure
+        )
+
+        measure_start = (
+            measure_index
+            * beats_per_measure
+        )
+
+        measure_end = (
+            measure_index + 1
+        ) * beats_per_measure
+
+        # start 越界
+        if (
+            note.start
+            < measure_start - 1e-7
+        ):
+
+            errors.append(
+                (
+                    index,
+                    "START",
+                    note
+                )
+            )
+
+        # end 越界
+        if (
+            note.end
+            > measure_end + 1e-7
+        ):
+
+            errors.append(
+                (
+                    index,
+                    "END",
+                    note
+                )
+            )
+
+    return errors
+
+
+# ============================================================
+# Beat → MIDI Tick
+# ============================================================
+
+def beat_to_tick(
+    beat,
     ticks_per_beat
 ):
 
-    minimum = max(
-        30,
-        int(
-            ticks_per_beat
-            * 0.125
+    return int(
+        round(
+            beat
+            * ticks_per_beat
         )
     )
 
-    result = []
-
-    for e in events:
-
-        if e["duration"] >= minimum:
-
-            result.append(e)
-
-    return result
-
 
 # ============================================================
-# 修正音符位置
+# 建立 MIDI
 # ============================================================
 
-def normalize_events(events):
-
-    result = []
-
-    for e in events:
-
-        item = dict(e)
-
-        item["note"] = fix_pitch(
-            item["note"]
-        )
-
-        item["start"] = max(
-            0,
-            int(item["start"])
-        )
-
-        item["duration"] = max(
-            1,
-            int(item["duration"])
-        )
-
-        item["velocity"] = max(
-            1,
-            min(
-                127,
-                int(item["velocity"])
-            )
-        )
-
-        result.append(item)
-
-    return result
-
-
-# ============================================================
-# 寫 MIDI
-# ============================================================
-
-def write_midi(
-    events,
-    output_file,
-    ticks_per_beat,
-    bpm=120
+def create_output_midi(
+    original_mid,
+    notes,
+    output_path
 ):
 
-    mid = MidiFile(
+    ticks_per_beat = (
+        original_mid.ticks_per_beat
+    )
+
+    # --------------------------------------------------------
+    # 建立 MIDI
+    # --------------------------------------------------------
+
+    out_mid = MidiFile(
         ticks_per_beat=ticks_per_beat
     )
 
     track = MidiTrack()
 
-    mid.tracks.append(track)
+    out_mid.tracks.append(track)
 
-    tempo_us = int(
-        round(
-            60_000_000
-            / max(
-                20,
-                bpm
-            )
+    # --------------------------------------------------------
+    # 收集 meta events
+    # --------------------------------------------------------
+
+    tempo = get_tempo(
+        original_mid
+    )
+
+    numerator, denominator = (
+        get_time_signature(
+            original_mid
         )
     )
 
+    # Tempo
     track.append(
         MetaMessage(
             "set_tempo",
-            tempo=tempo_us,
+            tempo=tempo,
             time=0
         )
     )
 
+    # Time Signature
     track.append(
         MetaMessage(
             "time_signature",
-            numerator=4,
-            denominator=4,
+            numerator=numerator,
+            denominator=denominator,
             clocks_per_click=24,
             notated_32nd_notes_per_beat=8,
             time=0
         )
     )
 
-    messages = []
+    # --------------------------------------------------------
+    # 將音符轉成 tick event
+    # --------------------------------------------------------
 
-    for e in events:
+    events = []
 
-        start = int(
-            e["start"]
+    for note in notes:
+
+        start_tick = beat_to_tick(
+            note.start,
+            ticks_per_beat
         )
 
-        end = int(
-            e["start"]
-            + e["duration"]
+        end_tick = beat_to_tick(
+            note.end,
+            ticks_per_beat
         )
 
-        note = int(
-            e["note"]
-        )
+        if end_tick <= start_tick:
 
-        velocity = int(
-            max(
+            continue
+
+        events.append(
+            (
+                start_tick,
                 1,
-                min(
-                    127,
-                    e["velocity"]
-                )
+                note.pitch,
+                note.velocity,
+                note.channel
             )
         )
 
-        messages.append(
+        events.append(
             (
-                start,
-                1,
-                Message(
-                    "note_on",
-                    note=note,
-                    velocity=velocity,
-                    time=0
-                )
-            )
-        )
-
-        messages.append(
-            (
-                end,
+                end_tick,
                 0,
-                Message(
-                    "note_off",
-                    note=note,
-                    velocity=0,
-                    time=0
-                )
+                note.pitch,
+                0,
+                note.channel
             )
         )
 
-    # note_off 先於 note_on
-    # 避免同 tick 音符互相重疊
-    messages.sort(
+    # --------------------------------------------------------
+    # 排序
+    #
+    # 同 tick：
+    # note_off 優先
+    # note_on 後面
+    # --------------------------------------------------------
+
+    events.sort(
         key=lambda x: (
             x[0],
             x[1]
         )
     )
 
-    previous_tick = 0
+    current_tick = 0
 
-    for tick, _, msg in messages:
+    for (
+        tick,
+        event_type,
+        pitch,
+        velocity,
+        channel
+    ) in events:
 
-        msg.time = max(
-            0,
-            int(
-                tick
-                - previous_tick
+        delta = tick - current_tick
+
+        if delta < 0:
+
+            delta = 0
+
+        if event_type == 0:
+
+            msg = Message(
+                "note_off",
+                note=pitch,
+                velocity=0,
+                channel=channel,
+                time=delta
             )
-        )
+
+        else:
+
+            msg = Message(
+                "note_on",
+                note=pitch,
+                velocity=velocity,
+                channel=channel,
+                time=delta
+            )
 
         track.append(msg)
 
-        previous_tick = tick
+        current_tick = tick
+
+    # --------------------------------------------------------
+    # 結尾
+    # --------------------------------------------------------
 
     track.append(
         MetaMessage(
@@ -978,8 +1040,62 @@ def write_midi(
         )
     )
 
-    mid.save(
-        output_file
+    # --------------------------------------------------------
+    # 儲存
+    # --------------------------------------------------------
+
+    os.makedirs(
+        os.path.dirname(
+            os.path.abspath(output_path)
+        ),
+        exist_ok=True
+    )
+
+    out_mid.save(
+        output_path
+    )
+
+
+# ============================================================
+# Debug 顯示
+# ============================================================
+
+def print_statistics(
+    title,
+    notes
+):
+
+    if not notes:
+
+        print(
+            f"{title}: 0"
+        )
+
+        return
+
+    durations = [
+        n.duration
+        for n in notes
+    ]
+
+    print(
+        f"{title}: {len(notes)}"
+    )
+
+    print(
+        f"  最低音: {min(n.pitch for n in notes)}"
+    )
+
+    print(
+        f"  最高音: {max(n.pitch for n in notes)}"
+    )
+
+    print(
+        f"  最短: {min(durations):.4f}"
+    )
+
+    print(
+        f"  最長: {max(durations):.4f}"
     )
 
 
@@ -987,220 +1103,421 @@ def write_midi(
 # 主流程
 # ============================================================
 
-def process(
-    input_file,
-    output_file,
-    info_json=None
+def process_midi(
+    input_path,
+    output_path
 ):
 
-    print(
-        "========================================"
-    )
+    print("=" * 60)
+    print("JianpuTool Melody Clean + Quantize")
+    print("★ Cross-Measure Fix")
+    print("=" * 60)
 
-    print(
-        "[4/6] 精準旋律清理 + 量化 V2"
-    )
-
-    print(
-        "========================================"
-    )
+    print()
+    print(f"輸入：{input_path}")
+    print(f"輸出：{output_path}")
+    print()
 
     # --------------------------------------------------------
-    # 1. 讀取資訊
+    # 1. 讀取 MIDI
     # --------------------------------------------------------
 
-    info = load_info(
-        info_json
-    )
+    print("[1/9] 讀取 MIDI")
 
-    tempo_scale = info[
-        "tempo_scale"
-    ]
-
-    real_bpm = info[
-        "real_bpm"
-    ]
-
-    # --------------------------------------------------------
-    # 2. 讀取 MIDI
-    # --------------------------------------------------------
-
-    events, tpb = read_midi(
-        input_file
+    mid = MidiFile(
+        input_path
     )
 
     print(
-        f"原始音符: {len(events)}"
+        f"  ticks_per_beat = "
+        f"{mid.ticks_per_beat}"
     )
 
-    if not events:
+    # --------------------------------------------------------
+    # Time Signature
+    # --------------------------------------------------------
+
+    numerator, denominator = (
+        get_time_signature(mid)
+    )
+
+    print(
+        f"  拍號 = "
+        f"{numerator}/{denominator}"
+    )
+
+    tempo = get_tempo(mid)
+
+    bpm = (
+        60_000_000
+        / tempo
+    )
+
+    print(
+        f"  BPM = {bpm:.2f}"
+    )
+
+    # --------------------------------------------------------
+    # 2. Extract
+    # --------------------------------------------------------
+
+    print()
+    print("[2/9] 擷取旋律音符")
+
+    notes = extract_melody(mid)
+
+    print_statistics(
+        "  原始音符",
+        notes
+    )
+
+    # --------------------------------------------------------
+    # 3. Pitch filter
+    # --------------------------------------------------------
+
+    print()
+    print("[3/9] 音域過濾")
+
+    notes = filter_pitch_range(
+        notes
+    )
+
+    print_statistics(
+        "  音域過濾後",
+        notes
+    )
+
+    # --------------------------------------------------------
+    # 4. Remove short
+    # --------------------------------------------------------
+
+    print()
+    print("[4/9] 移除過短音符")
+
+    notes = remove_short_notes(
+        notes
+    )
+
+    print_statistics(
+        "  過短音符移除後",
+        notes
+    )
+
+    # --------------------------------------------------------
+    # 5. Monophonic
+    # --------------------------------------------------------
+
+    print()
+    print("[5/9] 單音旋律清理")
+
+    if MONOPHONIC:
+
+        notes = make_monophonic(
+            notes
+        )
+
+        notes = fix_overlaps(
+            notes
+        )
+
+    print_statistics(
+        "  單音化後",
+        notes
+    )
+
+    # --------------------------------------------------------
+    # 6. Quantize
+    # --------------------------------------------------------
+
+    print()
+    print("[6/9] 1/16 拍量化")
+
+    notes = quantize_notes(
+        notes
+    )
+
+    notes = sort_notes(
+        notes
+    )
+
+    print_statistics(
+        "  量化後",
+        notes
+    )
+
+    # --------------------------------------------------------
+    # 7. ★ Cross measure split
+    # --------------------------------------------------------
+
+    print()
+    print("[7/9] ★ 修正跨小節音符")
+
+    before_split = len(notes)
+
+    notes = split_notes_at_barlines(
+        notes,
+        numerator,
+        denominator
+    )
+
+    after_split = len(notes)
+
+    print(
+        f"  原本音符數：{before_split}"
+    )
+
+    print(
+        f"  切割後音符數：{after_split}"
+    )
+
+    print(
+        f"  新增切割音符："
+        f"{after_split - before_split}"
+    )
+
+    # --------------------------------------------------------
+    # 8. Final validation
+    # --------------------------------------------------------
+
+    print()
+    print("[8/9] 最終小節檢查")
+
+    notes = remove_tiny_segments(
+        notes
+    )
+
+    errors = validate_bar_boundaries(
+        notes,
+        numerator,
+        denominator
+    )
+
+    if errors:
+
+        print(
+            f"  ❌ 發現 {len(errors)} 個跨小節問題"
+        )
+
+        # ----------------------------------------------------
+        # 再修一次
+        # ----------------------------------------------------
+
+        notes = split_notes_at_barlines(
+            notes,
+            numerator,
+            denominator
+        )
+
+        errors = validate_bar_boundaries(
+            notes,
+            numerator,
+            denominator
+        )
+
+    if errors:
+
+        print(
+            "  ❌ 仍然存在跨小節音符"
+        )
+
+        for error in errors[:10]:
+
+            index, error_type, note = error
+
+            print(
+                f"    {index}: "
+                f"{error_type} "
+                f"{note}"
+            )
 
         raise RuntimeError(
-            "MIDI 沒有找到任何音符"
+            "MIDI 跨小節修正失敗"
+        )
+
+    else:
+
+        print(
+            "  ✅ 所有音符均位於合法小節範圍"
         )
 
     # --------------------------------------------------------
-    # 3. BPM 校正
+    # 不合併跨小節
     # --------------------------------------------------------
 
-    events = apply_tempo_scale(
-        events,
-        tempo_scale
+    notes = merge_adjacent_same_pitch(
+        notes,
+        numerator,
+        denominator
+    )
+
+    # merge 後再次 split
+    notes = split_notes_at_barlines(
+        notes,
+        numerator,
+        denominator
     )
 
     # --------------------------------------------------------
-    # 4. 音域篩選
+    # 最終排序
     # --------------------------------------------------------
 
-    events = filter_pitch_range(
-        events
-    )
-
-    print(
-        f"音域篩選: {len(events)}"
+    notes = sort_notes(
+        notes
     )
 
     # --------------------------------------------------------
-    # 5. 音高標準化
+    # 9. Output
     # --------------------------------------------------------
 
-    for e in events:
+    print()
+    print("[9/9] 建立乾淨 MIDI")
 
-        e["note"] = fix_pitch(
-            e["note"]
+    create_output_midi(
+        mid,
+        notes,
+        output_path
+    )
+
+    # --------------------------------------------------------
+    # 最終檢查
+    # --------------------------------------------------------
+
+    check_mid = MidiFile(
+        output_path
+    )
+
+    check_notes = extract_melody(
+        check_mid
+    )
+
+    final_errors = (
+        validate_bar_boundaries(
+            check_notes,
+            numerator,
+            denominator
+        )
+    )
+
+    print()
+    print("=" * 60)
+
+    if final_errors:
+
+        print(
+            "❌ 最終 MIDI 檢查失敗"
         )
 
-    # --------------------------------------------------------
-    # 6. 雜訊清理
-    # --------------------------------------------------------
-
-    events = remove_noise(
-        events,
-        tpb
-    )
-
-    print(
-        f"雜訊過濾: {len(events)}"
-    )
-
-    # --------------------------------------------------------
-    # 7. 旋律追蹤 V2
-    # --------------------------------------------------------
-
-    melody = choose_melody_v2(
-        events,
-        tpb
-    )
-
-    print(
-        f"旋律追蹤 V2: {len(melody)}"
-    )
-
-    if not melody:
+        print(
+            f"跨小節錯誤："
+            f"{len(final_errors)}"
+        )
 
         raise RuntimeError(
-            "旋律追蹤後沒有剩餘音符"
+            "輸出的 MIDI 仍存在跨小節問題"
         )
 
-    # --------------------------------------------------------
-    # 8. 合併同音
-    # --------------------------------------------------------
-
-    melody = merge_same_pitch(
-        melody,
-        tpb
+    print(
+        "🎉 完成！"
     )
 
     print(
-        f"同音合併: {len(melody)}"
-    )
-
-    # --------------------------------------------------------
-    # 9. 量化
-    # --------------------------------------------------------
-
-    melody = quantize_events(
-        melody,
-        tpb
-    )
-
-    # --------------------------------------------------------
-    # 10. 修正重疊
-    # --------------------------------------------------------
-
-    melody = fix_overlaps(
-        melody
-    )
-
-    # --------------------------------------------------------
-    # 11. 移除量化後太短音符
-    # --------------------------------------------------------
-
-    melody = remove_tiny_after_quantize(
-        melody,
-        tpb
-    )
-
-    # --------------------------------------------------------
-    # 12. 最後標準化
-    # --------------------------------------------------------
-
-    melody = normalize_events(
-        melody
-    )
-
-    melody = sorted(
-        melody,
-        key=lambda e: (
-            e["start"],
-            e["note"]
-        )
+        f"最終音符數："
+        f"{len(check_notes)}"
     )
 
     print(
-        f"最終音符: {len(melody)}"
-    )
-
-    # --------------------------------------------------------
-    # 13. 輸出 MIDI
-    # --------------------------------------------------------
-
-    write_midi(
-        melody,
-        output_file,
-        tpb,
-        real_bpm
+        "✅ 無跨小節音符"
     )
 
     print(
-        f"完成: {output_file}"
+        "✅ 1/16 拍量化"
     )
+
+    print(
+        "✅ 單音旋律"
+    )
+
+    print(
+        "✅ 可交給 MusicXML 轉換"
+    )
+
+    print(
+        f"輸出：{output_path}"
+    )
+
+    print("=" * 60)
+
+    return output_path
 
 
 # ============================================================
 # CLI
 # ============================================================
 
-if __name__ == "__main__":
+def main():
 
     if len(sys.argv) < 3:
 
+        print()
         print(
-            "使用方法:"
+            "用法："
         )
 
         print(
-            "python melody_clean_quantize_v2.py "
-            "input.mid output.mid [info.json]"
+            "python melody_clean_quantize.py "
+            "input.mid output.mid"
+        )
+
+        print()
+
+        print(
+            "例如："
+        )
+
+        print(
+            "python melody_clean_quantize.py "
+            "raw_melody.mid vocal_clean.mid"
         )
 
         sys.exit(1)
 
-    process(
-        sys.argv[1],
-        sys.argv[2],
-        sys.argv[3]
-        if len(sys.argv) > 3
-        else None
-    )
+    input_path = sys.argv[1]
+    output_path = sys.argv[2]
 
+    if not os.path.isfile(input_path):
+
+        print(
+            f"❌ 找不到輸入 MIDI："
+            f"{input_path}"
+        )
+
+        sys.exit(1)
+
+    try:
+
+        process_midi(
+            input_path,
+            output_path
+        )
+
+    except Exception as e:
+
+        print()
+        print(
+            "❌ 處理失敗："
+        )
+
+        print(
+            str(e)
+        )
+
+        raise
+
+
+# ============================================================
+# Entry
+# ============================================================
+
+if __name__ == "__main__":
+
+    main()
