@@ -1,877 +1,853 @@
-import streamlit as st
-import tempfile
+import os
+import time
 import zipfile
+import tempfile
 from pathlib import Path
-from datetime import datetime
 
-from paywall import require_access, render_sidebar_status
-
-
-# ============================================================
-# JianpuTool Professional MVP 3.0
-#
-# MP3 / WAV / M4A / FLAC
-#       ↓
-# Demucs 人聲分離
-#       ↓
-# BasicPitch 主旋律 MIDI
-#       ↓
-# Melody Clean
-#       ↓
-# MIDI -> MusicXML
-#       ↓
-# MusicXML Duration Fix
-#       ↓
-# jianpu-ly
-#       ↓
-# LilyPond
-#       ↓
-# 數字簡譜 PDF
-# ============================================================
+import requests
+import streamlit as st
 
 
 # ============================================================
-# Streamlit 設定
+# 頁面設定
 # ============================================================
 
 st.set_page_config(
     page_title="JianpuTool Professional",
     page_icon="🎵",
-    layout="wide",
-    initial_sidebar_state="expanded",
+    layout="centered",
 )
+
+
+# ============================================================
+# 載入環境變數
+# ============================================================
+
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()
+except Exception:
+    pass
+
+
+# ============================================================
+# FastAPI 後端網址
+#
+# 本機：
+# http://127.0.0.1:8000
+#
+# Cloudflare：
+# https://xxxx.trycloudflare.com
+# ============================================================
+
+FASTAPI_BASE_URL = os.getenv(
+    "FASTAPI_BASE_URL",
+    "https://instructors-donations-prefix-lock.trycloudflare.com",
+).strip().rstrip("/")
+
+
+# ============================================================
+# ACCESS_CODE
+#
+# 對應 main.py 的：
+#
+# X-Access-Code
+# ============================================================
+
+ACCESS_CODE = os.getenv(
+    "ACCESS_CODE",
+    "",
+).strip()
 
 
 # ============================================================
 # Session State
 # ============================================================
 
-if "result" not in st.session_state:
-    st.session_state.result = None
+defaults = {
+    "logged_in": False,
+    "email": "",
+    "session_token": "",
+    "code_sent": False,
+    "code_email": "",
+    "last_code_time": 0.0,
+    "payment_url": "",
+    "trade_no": "",
+    "payment_started": False,
+    "member_info": None,
+}
 
-if "running" not in st.session_state:
-    st.session_state.running = False
+for key, value in defaults.items():
 
-if "last_error" not in st.session_state:
-    st.session_state.last_error = None
-
-if "voice_choice" not in st.session_state:
-    st.session_state.voice_choice = "piano"
-
-
-# ============================================================
-# 付費牆（每月 NT$99，授權碼解鎖）
-# 尚未解鎖時，只會顯示付費說明頁面，其餘功能全部不會執行
-# ============================================================
-
-if not require_access(price_label="NT$99 / 月"):
-    st.stop()
+    if key not in st.session_state:
+        st.session_state[key] = value
 
 
 # ============================================================
-# CSS
+# 工具函式
 # ============================================================
 
-st.markdown(
-    """
-    <style>
+def api_url(path: str) -> str:
 
-    .main-title {
-        font-size: 42px;
-        font-weight: 800;
-        margin-bottom: 0;
-    }
-
-    .subtitle {
-        font-size: 18px;
-        color: #777;
-        margin-bottom: 20px;
-    }
-
-    .success-title {
-        font-size: 30px;
-        font-weight: 800;
-    }
-
-    .file-card {
-        padding: 12px;
-        border-radius: 12px;
-        border: 1px solid rgba(128,128,128,0.25);
-        margin-bottom: 8px;
-    }
-
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+    return (
+        FASTAPI_BASE_URL
+        + "/"
+        + path.lstrip("/")
+    )
 
 
-# ============================================================
-# 工具：檔案大小
-# ============================================================
+def api_error_message(response):
 
-def human_size(path):
+    try:
+        data = response.json()
 
-    path = Path(path)
+        if isinstance(data, dict):
 
-    if not path.exists():
-        return "-"
+            if "detail" in data:
+                return str(data["detail"])
 
-    size = path.stat().st_size
+            if "message" in data:
+                return str(data["message"])
 
-    if size < 1024:
-        return f"{size:,} B"
+    except Exception:
+        pass
 
-    if size < 1024 * 1024:
-        return f"{size / 1024:.1f} KB"
-
-    return f"{size / 1024 / 1024:.2f} MB"
+    return response.text or f"HTTP {response.status_code}"
 
 
-# ============================================================
-# 工具：讀檔
-# ============================================================
+def clear_login():
 
-def read_binary(path):
+    st.session_state.logged_in = False
+    st.session_state.email = ""
+    st.session_state.session_token = ""
+    st.session_state.code_sent = False
+    st.session_state.code_email = ""
+    st.session_state.last_code_time = 0.0
+    st.session_state.member_info = None
+    st.session_state.payment_url = ""
+    st.session_state.trade_no = ""
+    st.session_state.payment_started = False
 
-    path = Path(path)
 
-    if not path.exists():
+def get_member():
+
+    email = st.session_state.email
+    token = st.session_state.session_token
+
+    if not email or not token:
         return None
 
-    with open(path, "rb") as f:
-        return f.read()
+    try:
 
-
-# ============================================================
-# 建立 ZIP
-# ============================================================
-
-def create_zip(workdir):
-
-    workdir = Path(workdir)
-
-    zip_path = workdir / "jianputool_result.zip"
-
-    files_to_zip = [
-
-        "vocals.wav",
-
-        "raw_melody.mid",
-
-        "clean_melody.mid",
-
-        "final.musicxml",
-
-        "final_fixed.musicxml",
-
-        "score.ly",
-
-        "jianpu.pdf",
-
-        "song.mp3",
-
-    ]
-
-    added = 0
-
-    with zipfile.ZipFile(
-        zip_path,
-        "w",
-        compression=zipfile.ZIP_DEFLATED,
-    ) as z:
-
-        for filename in files_to_zip:
-
-            path = workdir / filename
-
-            if path.is_file():
-
-                z.write(
-                    path,
-                    arcname=filename,
-                )
-
-                added += 1
-
-    if added == 0:
-
-        raise RuntimeError(
-            "沒有結果檔案可以加入 ZIP"
+        response = requests.get(
+            api_url("/api/member"),
+            params={
+                "email": email,
+            },
+            headers={
+                "X-Session-Token": token,
+            },
+            timeout=20,
         )
 
-    return zip_path
+        if response.status_code == 200:
+
+            return response.json()
+
+        return None
+
+    except Exception:
+
+        return None
 
 
-# ============================================================
-# 結果檔案狀態
-# ============================================================
+def is_member_active(member):
 
-def show_file_status(
-    workdir,
-    filename,
-    label,
-):
+    if not member:
+        return False
 
-    path = Path(workdir) / filename
+    # 支援目前 membership.py / database.py
+    # 可能使用的欄位名稱
 
-    if path.exists():
-
-        st.success(
-            f"✅ {label}："
-            f"`{filename}`"
-            f"  ({human_size(path)})"
-        )
-
+    if member.get("active") is True:
         return True
 
-    st.warning(
-        f"⚠️ {label}：尚未產生"
-    )
+    if member.get("is_active") is True:
+        return True
+
+    if member.get("member_active") is True:
+        return True
+
+    status = str(
+        member.get("status", "")
+    ).upper()
+
+    if status in (
+        "ACTIVE",
+        "PAID",
+        "MEMBER",
+    ):
+        return True
 
     return False
 
 
 # ============================================================
-# 下載區
+# 後端健康檢查
 # ============================================================
 
-def show_downloads(result):
-
-    if not result:
-        return
-
-    workdir = Path(
-        result["workdir"]
-    )
-
-    st.divider()
-
-    st.header(
-        "📥 下載結果"
-    )
-
-    # ========================================================
-    # PDF
-    # ========================================================
-
-    pdf_path = (
-        workdir / "jianpu.pdf"
-    )
-
-    if pdf_path.exists():
-
-        st.download_button(
-
-            label="📄 下載數字簡譜 PDF",
-
-            data=read_binary(
-                pdf_path
-            ),
-
-            file_name="jianpu.pdf",
-
-            mime="application/pdf",
-
-            use_container_width=True,
-
-            type="primary",
-
-            key="download_pdf_mvp30",
-        )
-
-    # ========================================================
-    # MP3
-    # ========================================================
-
-    mp3_path = result.get(
-        "mp3"
-    )
-
-    if (
-        mp3_path
-        and Path(mp3_path).exists()
-    ):
-
-        mp3_data = read_binary(
-            mp3_path
-        )
-
-        st.audio(
-            mp3_data,
-            format="audio/mpeg",
-        )
-
-        st.download_button(
-
-            label="🎧 下載合成 MP3",
-
-            data=mp3_data,
-
-            file_name="song.mp3",
-
-            mime="audio/mpeg",
-
-            use_container_width=True,
-
-            key="download_mp3_mvp30",
-        )
-
-    # ========================================================
-    # MIDI
-    # ========================================================
-
-    col1, col2 = st.columns(2)
-
-    raw_midi = (
-        workdir / "raw_melody.mid"
-    )
-
-    clean_midi = (
-        workdir / "clean_melody.mid"
-    )
-
-    with col1:
-
-        if raw_midi.exists():
-
-            st.download_button(
-
-                label="🎹 下載 raw_melody.mid",
-
-                data=read_binary(
-                    raw_midi
-                ),
-
-                file_name="raw_melody.mid",
-
-                mime="audio/midi",
-
-                use_container_width=True,
-
-                key="download_raw_midi_mvp30",
-            )
-
-    with col2:
-
-        if clean_midi.exists():
-
-            st.download_button(
-
-                label="🎼 下載 clean_melody.mid",
-
-                data=read_binary(
-                    clean_midi
-                ),
-
-                file_name="clean_melody.mid",
-
-                mime="audio/midi",
-
-                use_container_width=True,
-
-                key="download_clean_midi_mvp30",
-            )
-
-    # ========================================================
-    # MusicXML
-    # ========================================================
-
-    col1, col2 = st.columns(2)
-
-    final_xml = (
-        workdir / "final.musicxml"
-    )
-
-    fixed_xml = (
-        workdir / "final_fixed.musicxml"
-    )
-
-    with col1:
-
-        if final_xml.exists():
-
-            st.download_button(
-
-                label="🎼 下載 final.musicxml",
-
-                data=read_binary(
-                    final_xml
-                ),
-
-                file_name="final.musicxml",
-
-                mime="application/xml",
-
-                use_container_width=True,
-
-                key="download_final_xml_mvp30",
-            )
-
-    with col2:
-
-        if fixed_xml.exists():
-
-            st.download_button(
-
-                label="🛠️ 下載 final_fixed.musicxml",
-
-                data=read_binary(
-                    fixed_xml
-                ),
-
-                file_name="final_fixed.musicxml",
-
-                mime="application/xml",
-
-                use_container_width=True,
-
-                key="download_fixed_xml_mvp30",
-            )
-
-    # ========================================================
-    # ZIP
-    # ========================================================
+def check_backend():
 
     try:
 
-        zip_path = create_zip(
-            workdir
+        response = requests.get(
+            api_url("/api/health"),
+            timeout=10,
         )
 
-        st.download_button(
-
-            label="📦 下載全部結果 ZIP",
-
-            data=read_binary(
-                zip_path
-            ),
-
-            file_name="jianputool_result.zip",
-
-            mime="application/zip",
-
-            use_container_width=True,
-
-            key="download_zip_mvp30",
-        )
-
-        st.caption(
-            "ZIP 會自動包含目前實際產生的 "
-            "MIDI、MusicXML、PDF、MP3、LilyPond 等檔案。"
-        )
+        return response
 
     except Exception as e:
 
-        st.warning(
-            f"ZIP 建立失敗：{e}"
-        )
+        return e
 
 
 # ============================================================
-# Header
+# 頁首
 # ============================================================
 
-st.markdown(
-    '<div class="main-title">'
-    '🎵 JianpuTool Professional'
-    '</div>',
-    unsafe_allow_html=True,
-)
+st.title("🎵 JianpuTool Professional")
 
-st.markdown(
-    '<div class="subtitle">'
-    'MP3 / WAV → 主旋律 MIDI → 數字簡譜 PDF'
-    '</div>',
-    unsafe_allow_html=True,
-)
-
-st.info(
-    "🎯 Professional MVP 3.0："
-    "自動人聲分離、主旋律擷取、"
-    "MIDI 清理、MusicXML 修正、"
-    "數字簡譜 PDF，以及完整結果下載。"
+st.caption(
+    "MP3 / WAV → MIDI → 數字簡譜 PDF"
 )
 
 
 # ============================================================
-# Sidebar
+# 側邊欄
 # ============================================================
 
 with st.sidebar:
 
-    st.header(
-        "⚙️ 轉換設定"
+    st.subheader("⚙️ 系統設定")
+
+    st.write(
+        "後端 API："
     )
 
-    voice_choice = st.selectbox(
-
-        "🎙️ 合成音色",
-
-        options=[
-            "piano",
-            "la",
-            "flute",
-            "strings",
-        ],
-
-        format_func=lambda v: {
-
-            "piano": "🎹 鋼琴",
-
-            "la": "🎤 哼唱人聲（La）",
-
-            "flute": "🪈 長笛",
-
-            "strings": "🎻 弦樂",
-
-        }[v],
-
-        key="voice_choice",
+    st.code(
+        FASTAPI_BASE_URL
     )
 
     st.divider()
 
-    st.markdown(
-        "### 🔄 轉換流程"
+    if st.button(
+        "🔍 測試後端",
+        use_container_width=True,
+    ):
+
+        result = check_backend()
+
+        if isinstance(result, Exception):
+
+            st.error(
+                f"後端無法連線：{result}"
+            )
+
+        elif result.status_code == 200:
+
+            st.success(
+                "✅ FastAPI 後端正常"
+            )
+
+            try:
+                st.json(result.json())
+            except Exception:
+                pass
+
+        else:
+
+            st.error(
+                f"後端 HTTP {result.status_code}"
+            )
+
+
+# ============================================================
+# 尚未登入
+# ============================================================
+
+if not st.session_state.logged_in:
+
+    st.subheader("👤 會員登入")
+
+    st.write(
+        "使用 Email 驗證碼登入，不需要設定網站密碼。"
     )
 
-    st.markdown(
-        """
-        1. 🎤 人聲分離
-        2. 🎹 主旋律 MIDI
-        3. 🧹 旋律清理
-        4. 🎼 MusicXML
-        5. 🛠️ Duration 修正
-        6. 🔢 數字簡譜
-        7. 📄 PDF
-        """
+    st.info(
+        "登入後即可查看會員狀態並進行 NT$99 / 30天訂閱。"
     )
+
+    # --------------------------------------------------------
+    # Email
+    # --------------------------------------------------------
+
+    email = st.text_input(
+        "📧 Email",
+        value=st.session_state.code_email,
+        placeholder="請輸入您的 Email",
+    ).strip().lower()
+
+    # --------------------------------------------------------
+    # 取得驗證碼
+    # --------------------------------------------------------
+
+    if st.button(
+        "📧 取得驗證碼",
+        use_container_width=True,
+    ):
+
+        if not email:
+
+            st.error(
+                "❌ 請輸入 Email"
+            )
+
+        elif "@" not in email:
+
+            st.error(
+                "❌ Email 格式不正確"
+            )
+
+        else:
+
+            try:
+
+                response = requests.post(
+                    api_url(
+                        "/api/auth/request-code"
+                    ),
+                    json={
+                        "email": email,
+                    },
+                    timeout=30,
+                )
+
+                if response.status_code == 200:
+
+                    st.session_state.code_sent = True
+                    st.session_state.code_email = email
+                    st.session_state.last_code_time = time.time()
+
+                    st.success(
+                        f"✅ 驗證碼已寄到 {email}"
+                    )
+
+                    st.info(
+                        "請查看 Gmail，輸入收到的 6 位驗證碼。"
+                    )
+
+                else:
+
+                    st.error(
+                        f"❌ API 錯誤 "
+                        f"({response.status_code})"
+                    )
+
+                    st.code(
+                        api_error_message(response)
+                    )
+
+            except requests.exceptions.RequestException as e:
+
+                st.error(
+                    "❌ 無法連線後端 API"
+                )
+
+                st.code(
+                    str(e)
+                )
+
+    # --------------------------------------------------------
+    # 驗證碼
+    # --------------------------------------------------------
+
+    if st.session_state.code_sent:
+
+        st.divider()
+
+        st.subheader(
+            "🔐 Email 驗證"
+        )
+
+        code = st.text_input(
+            "6 位驗證碼",
+            max_chars=6,
+            placeholder="請輸入 Gmail 收到的 6 位數字",
+        ).strip()
+
+        # ----------------------------------------------------
+        # 有效時間
+        # ----------------------------------------------------
+
+        elapsed = (
+            time.time()
+            - st.session_state.last_code_time
+        )
+
+        remaining = max(
+            0,
+            600 - int(elapsed),
+        )
+
+        minutes = remaining // 60
+        seconds = remaining % 60
+
+        st.caption(
+            f"驗證碼有效時間："
+            f"{minutes} 分 {seconds:02d} 秒"
+        )
+
+        # ----------------------------------------------------
+        # 登入
+        # ----------------------------------------------------
+
+        if st.button(
+            "🔓 登入",
+            use_container_width=True,
+        ):
+
+            if not code:
+
+                st.error(
+                    "❌ 請輸入驗證碼"
+                )
+
+            elif len(code) != 6:
+
+                st.error(
+                    "❌ 驗證碼必須是 6 位"
+                )
+
+            elif remaining <= 0:
+
+                st.error(
+                    "❌ 驗證碼已過期，請重新取得。"
+                )
+
+                st.session_state.code_sent = False
+
+            else:
+
+                try:
+
+                    response = requests.post(
+                        api_url(
+                            "/api/auth/verify-code"
+                        ),
+                        json={
+                            "email":
+                                st.session_state.code_email,
+
+                            "code":
+                                code,
+                        },
+                        timeout=30,
+                    )
+
+                    if response.status_code == 200:
+
+                        data = response.json()
+
+                        token = data.get(
+                            "token",
+                            "",
+                        )
+
+                        if not token:
+
+                            st.error(
+                                "❌ 後端沒有回傳 Session Token"
+                            )
+
+                        else:
+
+                            st.session_state.logged_in = True
+
+                            st.session_state.email = (
+                                st.session_state.code_email
+                            )
+
+                            st.session_state.session_token = token
+
+                            st.session_state.code_sent = False
+
+                            st.session_state.member_info = None
+
+                            st.success(
+                                "🎉 Email 驗證成功！"
+                            )
+
+                            st.rerun()
+
+                    else:
+
+                        st.error(
+                            f"❌ 登入失敗 "
+                            f"({response.status_code})"
+                        )
+
+                        st.code(
+                            api_error_message(response)
+                        )
+
+                except requests.exceptions.RequestException as e:
+
+                    st.error(
+                        "❌ 無法連線後端 API"
+                    )
+
+                    st.code(
+                        str(e)
+                    )
 
     st.divider()
 
     st.caption(
-        "JianpuTool Professional MVP 3.0"
+        "🎵 JianpuTool Professional"
     )
 
-    render_sidebar_status()
+    st.stop()
 
 
 # ============================================================
-# Upload
+# 登入成功
 # ============================================================
 
-uploaded_file = st.file_uploader(
+email = st.session_state.email
+token = st.session_state.session_token
 
-    "🎵 上傳音檔",
+st.success(
+    "✅ 登入成功"
+)
 
-    type=[
-        "mp3",
-        "wav",
-        "m4a",
-        "flac",
-    ],
-
-    help=(
-        "建議使用人聲清楚、"
-        "背景伴奏較少的音檔。"
-    ),
+st.write(
+    f"會員 Email：{email}"
 )
 
 
-if uploaded_file:
+# ============================================================
+# 取得會員資料
+# ============================================================
 
-    st.success(
-        f"已選擇：{uploaded_file.name}"
+if st.session_state.member_info is None:
+
+    st.session_state.member_info = get_member()
+
+member = st.session_state.member_info
+
+
+# ============================================================
+# 會員中心
+# ============================================================
+
+st.divider()
+
+st.subheader("👤 會員中心")
+
+
+if member is None:
+
+    st.warning(
+        "⚠️ 暫時無法取得會員資料。"
     )
 
-    with st.expander(
-        "🎧 預覽原始音檔",
-        expanded=True,
-    ):
+    active = False
 
-        st.audio(
-            uploaded_file.getvalue(),
-            format=uploaded_file.type,
+else:
+
+    active = is_member_active(member)
+
+
+# ============================================================
+# 會員有效
+# ============================================================
+
+if active:
+
+    st.success(
+        "🟢 會員有效"
+    )
+
+    st.write(
+        "方案：NT$99 / 30天"
+    )
+
+    expire_date = (
+        member.get("member_until")
+        or member.get("expire_date")
+        or member.get("expires_at")
+    )
+
+    if expire_date:
+
+        st.info(
+            f"會員到期時間：{expire_date}"
         )
 
     st.divider()
 
-    start_button = st.button(
-
-        "🚀 開始完整轉換",
-
-        type="primary",
-
-        use_container_width=True,
-
-        disabled=st.session_state.running,
+    st.subheader(
+        "🎼 JianpuTool 轉換"
     )
 
-    if start_button:
+    st.write(
+        "會員已開通，可以開始將 MP3 / WAV 轉換成數字簡譜 PDF。"
+    )
 
-        st.session_state.running = True
+    # --------------------------------------------------------
+    # 檢查 ACCESS_CODE
+    # --------------------------------------------------------
 
-        st.session_state.last_error = None
+    if not ACCESS_CODE:
 
-        st.session_state.result = None
-
-        # ====================================================
-        # 工作目錄
-        # ====================================================
-
-        workdir = Path(
-            tempfile.mkdtemp(
-                prefix="jianputool_"
-            )
+        st.error(
+            "❌ 尚未設定 ACCESS_CODE。"
         )
 
-        input_ext = Path(
-            uploaded_file.name
-        ).suffix.lower()
-
-        input_audio = (
-            workdir /
-            f"input{input_ext}"
+        st.warning(
+            "請在本機 `.env` 設定 ACCESS_CODE，"
+            "例如："
         )
 
-        with open(
-            input_audio,
-            "wb"
-        ) as f:
-
-            f.write(
-                uploaded_file.getvalue()
-            )
-
-        # ====================================================
-        # Progress
-        # ====================================================
-
-        st.subheader(
-            "🔄 轉換進度"
+        st.code(
+            "ACCESS_CODE=JianpuTool2026"
         )
 
-        progress = st.progress(
-            0
+        st.stop()
+
+    # --------------------------------------------------------
+    # 上傳音檔
+    # --------------------------------------------------------
+
+    uploaded_file = st.file_uploader(
+        "🎵 上傳 MP3 / WAV",
+        type=[
+            "mp3",
+            "wav",
+            "flac",
+        ],
+    )
+
+    if uploaded_file is not None:
+
+        st.audio(
+            uploaded_file
         )
 
-        status = st.empty()
+        st.write(
+            f"檔案：{uploaded_file.name}"
+        )
 
-        detail = st.empty()
+        st.write(
+            f"大小："
+            f"{len(uploaded_file.getvalue()) / 1024 / 1024:.2f} MB"
+        )
 
-        try:
+        # ----------------------------------------------------
+        # 開始轉換
+        # ----------------------------------------------------
 
-            import pipeline
+        if st.button(
+            "🚀 開始轉換",
+            type="primary",
+            use_container_width=True,
+        ):
 
-            status.info(
-                "🎵 初始化 Pipeline..."
+            progress = st.progress(
+                0
             )
 
-            detail.write(
-                f"工作目錄：`{workdir}`"
-            )
+            status = st.empty()
 
-            progress.progress(
-                5
-            )
-
-            # =================================================
-            # Pipeline
-            # =================================================
-
-            status.info(
-                "⚙️ 正在執行完整 Pipeline..."
-            )
-
-            detail.write(
-                "Demucs → BasicPitch → "
-                "Melody Clean → MusicXML → "
-                "Duration Fix → jianpu-ly → LilyPond"
-            )
-
-            progress.progress(
-                10
-            )
-
-            pdf_path = (
-                pipeline.convert_pipeline(
-                    str(input_audio),
-                    str(workdir),
-                )
-            )
-
-            progress.progress(
-                85
-            )
-
-            # =================================================
-            # MIDI -> MP3
-            # =================================================
-
-            mp3_path = None
-
-            clean_midi_path = (
-                workdir /
-                "clean_melody.mid"
-            )
-
-            if clean_midi_path.exists():
+            try:
 
                 status.info(
-                    "🎧 正在合成主旋律 MP3..."
+                    "📤 正在上傳音檔..."
                 )
 
-                try:
-
-                    import midi_to_mp3
-
-                    mp3_path = (
-                        workdir /
-                        "song.mp3"
-                    )
-
-                    midi_to_mp3.render_mp3(
-
-                        str(
-                            clean_midi_path
-                        ),
-
-                        str(
-                            mp3_path
-                        ),
-
-                        voice=voice_choice,
-                    )
-
-                    if not mp3_path.exists():
-
-                        mp3_path = None
-
-                except Exception as mp3_error:
-
-                    st.warning(
-                        "⚠️ MP3 合成失敗，"
-                        "但不影響簡譜 PDF："
-                        f"{mp3_error}"
-                    )
-
-                    mp3_path = None
-
-            # =================================================
-            # 最終檢查
-            # =================================================
-
-            progress.progress(
-                95
-            )
-
-            status.info(
-                "🔍 正在檢查輸出..."
-            )
-
-            required_files = [
-
-                "clean_melody.mid",
-
-                "jianpu.pdf",
-
-            ]
-
-            missing = [
-
-                filename
-
-                for filename in required_files
-
-                if not (
-                    workdir /
-                    filename
-                ).exists()
-
-            ]
-
-            if missing:
-
-                raise RuntimeError(
-
-                    "Pipeline 執行完成，"
-                    "但缺少必要輸出："
-                    + ", ".join(missing)
-
+                progress.progress(
+                    10
                 )
 
-            progress.progress(
-                100
-            )
+                file_bytes = (
+                    uploaded_file.getvalue()
+                )
 
-            status.success(
-                "🎉 完整轉換成功！"
-            )
+                response = requests.post(
+                    api_url("/upload"),
+                    files={
+                        "file": (
+                            uploaded_file.name,
+                            file_bytes,
+                            uploaded_file.type
+                            or "audio/mpeg",
+                        )
+                    },
+                    headers={
+                        "X-Access-Code":
+                            ACCESS_CODE,
+                    },
+                    timeout=1800,
+                )
 
-            detail.success(
-                "MP3 → 主旋律 MIDI → "
-                "MusicXML → 數字簡譜 PDF 完成"
-            )
+                progress.progress(
+                    90
+                )
 
-            # =================================================
-            # 儲存結果
-            # =================================================
+                if response.status_code == 200:
 
-            st.session_state.result = {
+                    status.success(
+                        "✅ PDF 轉換完成！"
+                    )
 
-                "workdir": str(
-                    workdir
-                ),
+                    progress.progress(
+                        100
+                    )
 
-                "pdf": str(
-                    pdf_path
-                ),
+                    # ------------------------------------------------
+                    # 儲存 PDF
+                    # ------------------------------------------------
 
-                "mp3": (
-                    str(mp3_path)
-                    if mp3_path
-                    else None
-                ),
+                    pdf_bytes = response.content
 
-                "input": str(
-                    input_audio
-                ),
+                    base_name = Path(
+                        uploaded_file.name
+                    ).stem
 
-                "original_name":
-                    uploaded_file.name,
+                    pdf_name = (
+                        f"{base_name}_jianpu.pdf"
+                    )
 
-                "created_at":
-                    datetime.now().isoformat(),
+                    # ------------------------------------------------
+                    # 建立 ZIP
+                    # ------------------------------------------------
 
-            }
+                    with tempfile.TemporaryDirectory() as tmpdir:
 
-            st.session_state.running = False
+                        pdf_path = (
+                            Path(tmpdir)
+                            / pdf_name
+                        )
 
-            st.balloons()
+                        zip_path = (
+                            Path(tmpdir)
+                            / f"{base_name}_jianpu.zip"
+                        )
 
-        except Exception as e:
+                        pdf_path.write_bytes(
+                            pdf_bytes
+                        )
 
-            st.session_state.running = False
+                        with zipfile.ZipFile(
+                            zip_path,
+                            "w",
+                            zipfile.ZIP_DEFLATED,
+                        ) as z:
 
-            st.session_state.result = None
+                            z.write(
+                                pdf_path,
+                                arcname=pdf_name,
+                            )
 
-            st.session_state.last_error = str(
-                e
-            )
+                        zip_bytes = (
+                            zip_path.read_bytes()
+                        )
 
-            progress.progress(
-                100
-            )
+                    st.success(
+                        "🎉 JianpuTool 轉換完成！"
+                    )
 
-            status.error(
-                "❌ 轉換失敗"
-            )
+                    st.divider()
 
-            with st.expander(
-                "🔎 查看完整錯誤資訊",
-                expanded=True,
-            ):
+                    st.subheader(
+                        "📥 下載結果"
+                    )
+
+                    st.download_button(
+                        label="📄 下載簡譜 PDF",
+                        data=pdf_bytes,
+                        file_name=pdf_name,
+                        mime="application/pdf",
+                        use_container_width=True,
+                    )
+
+                    st.download_button(
+                        label="📦 下載 ZIP",
+                        data=zip_bytes,
+                        file_name=(
+                            f"{base_name}_jianpu.zip"
+                        ),
+                        mime="application/zip",
+                        use_container_width=True,
+                    )
+
+                else:
+
+                    progress.progress(
+                        100
+                    )
+
+                    status.error(
+                        f"❌ 轉換失敗 "
+                        f"({response.status_code})"
+                    )
+
+                    st.code(
+                        api_error_message(
+                            response
+                        )
+                    )
+
+            except requests.exceptions.Timeout:
+
+                progress.progress(
+                    100
+                )
+
+                status.error(
+                    "❌ 轉換逾時"
+                )
+
+                st.warning(
+                    "音檔轉換可能仍在後端處理，"
+                    "請檢查 FastAPI 終端機。"
+                )
+
+            except requests.exceptions.RequestException as e:
+
+                progress.progress(
+                    100
+                )
+
+                status.error(
+                    "❌ 無法連線後端 API"
+                )
+
+                st.code(
+                    str(e)
+                )
+
+            except Exception as e:
+
+                progress.progress(
+                    100
+                )
+
+                status.error(
+                    "❌ 發生錯誤"
+                )
 
                 st.exception(
                     e
@@ -879,209 +855,295 @@ if uploaded_file:
 
 
 # ============================================================
-# Result
+# 尚未訂閱
 # ============================================================
 
-if st.session_state.result:
+else:
 
-    result = (
-        st.session_state.result
+    st.warning(
+        "🔴 尚未訂閱"
     )
 
-    workdir = Path(
-        result["workdir"]
+    st.write(
+        "目前方案："
+    )
+
+    st.markdown(
+        """
+### 💳 NT$99 / 30天
+
+- 使用 JianpuTool
+- MP3 / WAV 音訊轉換
+- AI 主旋律分析
+- 數字簡譜 PDF
+- ZIP 下載
+"""
     )
 
     st.divider()
 
-    st.markdown(
-        '<div class="success-title">'
-        '🎉 轉換完成'
-        '</div>',
-        unsafe_allow_html=True,
-    )
-
-    st.caption(
-        f"原始檔案："
-        f"{result.get('original_name', '-')}"
-    )
-
-    # ========================================================
-    # Output status
-    # ========================================================
-
     st.subheader(
-        "📊 輸出結果"
+        "💳 訂閱會員"
     )
 
-    output_files = [
-
-        (
-            "vocals.wav",
-            "🎤 人聲 WAV",
-        ),
-
-        (
-            "raw_melody.mid",
-            "🎹 主旋律 MIDI",
-        ),
-
-        (
-            "clean_melody.mid",
-            "🎼 整理後 MIDI",
-        ),
-
-        (
-            "final.musicxml",
-            "🎼 原始 MusicXML",
-        ),
-
-        (
-            "final_fixed.musicxml",
-            "🛠️ 修正後 MusicXML",
-        ),
-
-        (
-            "score.ly",
-            "🎵 LilyPond score",
-        ),
-
-        (
-            "jianpu.pdf",
-            "📄 數字簡譜 PDF",
-        ),
-
-        (
-            "song.mp3",
-            "🎧 合成 MP3",
-        ),
-
-    ]
-
-    for filename, label in output_files:
-
-        show_file_status(
-            workdir,
-            filename,
-            label,
-        )
-
-    # ========================================================
-    # PDF Preview
-    # ========================================================
-
-    pdf_path = (
-        workdir /
-        "jianpu.pdf"
+    st.write(
+        "NT$99 / 30天"
     )
 
-    if pdf_path.exists():
+    st.write(
+        "付款成功後，系統會自動開通 30 天會員。"
+    )
 
-        st.divider()
+    # --------------------------------------------------------
+    # 建立 ECPay 訂單
+    # --------------------------------------------------------
 
-        st.subheader(
-            "📄 數字簡譜預覽"
-        )
+    if st.button(
+        "💳 NT$99 立即訂閱",
+        type="primary",
+        use_container_width=True,
+    ):
 
         try:
 
-            pdf_bytes = read_binary(
-                pdf_path
+            response = requests.post(
+                api_url(
+                    "/api/orders"
+                ),
+                json={
+                    "email": email,
+                },
+                headers={
+                    "X-Session-Token":
+                        token,
+                },
+                timeout=30,
             )
 
-            st.pdf(
-                pdf_bytes
+            if response.status_code != 200:
+
+                st.error(
+                    f"❌ 建立訂單失敗 "
+                    f"({response.status_code})"
+                )
+
+                st.code(
+                    api_error_message(
+                        response
+                    )
+                )
+
+            else:
+
+                data = response.json()
+
+                # ------------------------------------------------
+                # 已經是會員
+                # ------------------------------------------------
+
+                if data.get(
+                    "already_member"
+                ):
+
+                    st.success(
+                        "🟢 您已經是有效會員。"
+                    )
+
+                    st.session_state.member_info = (
+                        get_member()
+                    )
+
+                    st.rerun()
+
+                else:
+
+                    trade_no = data.get(
+                        "trade_no",
+                        "",
+                    )
+
+                    payment_url = data.get(
+                        "payment_url",
+                        "",
+                    )
+
+                    st.session_state.trade_no = (
+                        trade_no
+                    )
+
+                    st.session_state.payment_url = (
+                        payment_url
+                    )
+
+                    st.session_state.payment_started = (
+                        True
+                    )
+
+                    st.success(
+                        "✅ ECPay 訂單建立成功！"
+                    )
+
+                    st.write(
+                        f"訂單編號：{trade_no}"
+                    )
+
+                    if payment_url:
+
+                        st.markdown(
+                            f"""
+### 💳 前往 ECPay 付款
+
+請按下面按鈕進入綠界付款頁面。
+"""
+                        )
+
+                        st.link_button(
+                            "💳 前往 ECPay 付款",
+                            payment_url,
+                            use_container_width=True,
+                        )
+
+        except requests.exceptions.RequestException as e:
+
+            st.error(
+                "❌ 無法連線後端 API"
             )
 
-        except Exception as e:
-
-            st.warning(
-                "PDF 預覽失敗，"
-                "但 PDF 已成功產生："
-                f"{e}"
+            st.code(
+                str(e)
             )
-
-    # ========================================================
-    # Downloads
-    # ========================================================
-
-    show_downloads(
-        result
-    )
-
-    # ========================================================
-    # MuseScore
-    # ========================================================
-
-    st.divider()
-
-    st.info(
-        "💡 想進一步修改樂譜時，"
-        "可以下載 `final_fixed.musicxml`，"
-        "再使用 MuseScore 4 開啟與編輯。"
-    )
 
 
 # ============================================================
-# 首頁
+# 等待付款 / 查詢訂單
 # ============================================================
 
 if (
-    not uploaded_file
-    and not st.session_state.result
+    st.session_state.payment_started
+    and st.session_state.trade_no
 ):
 
     st.divider()
 
     st.subheader(
-        "✨ JianpuTool 可以做什麼？"
+        "🔄 付款狀態"
     )
 
-    col1, col2, col3 = st.columns(
-        3
+    st.write(
+        f"訂單：{st.session_state.trade_no}"
     )
 
-    with col1:
+    if st.button(
+        "🔍 查詢付款狀態",
+        use_container_width=True,
+    ):
 
-        st.markdown(
-            """
-            ### 🎤 主旋律擷取
+        try:
 
-            從音檔分離人聲，
-            再使用 AI 擷取主旋律。
-            """
+            response = requests.get(
+                api_url(
+                    f"/api/orders/"
+                    f"{st.session_state.trade_no}"
+                ),
+                timeout=20,
+            )
+
+            if response.status_code == 200:
+
+                order = response.json()
+
+                status = str(
+                    order.get(
+                        "status",
+                        ""
+                    )
+                ).upper()
+
+                if status == "PAID":
+
+                    st.success(
+                        "🎉 付款成功！"
+                    )
+
+                    st.success(
+                        "🟢 30 天會員已開通。"
+                    )
+
+                    st.session_state.member_info = (
+                        get_member()
+                    )
+
+                    st.session_state.payment_started = (
+                        False
+                    )
+
+                    st.rerun()
+
+                else:
+
+                    st.info(
+                        f"目前訂單狀態：{status or 'PENDING'}"
+                    )
+
+                    st.write(
+                        "如果您剛完成超商付款，"
+                        "請稍候再查詢一次。"
+                    )
+
+            else:
+
+                st.error(
+                    f"❌ 查詢訂單失敗 "
+                    f"({response.status_code})"
+                )
+
+                st.code(
+                    api_error_message(
+                        response
+                    )
+                )
+
+        except requests.exceptions.RequestException as e:
+
+            st.error(
+                "❌ 無法連線後端 API"
+            )
+
+            st.code(
+                str(e)
+            )
+
+
+# ============================================================
+# 登出
+# ============================================================
+
+st.divider()
+
+if st.button(
+    "🚪 登出",
+    use_container_width=True,
+):
+
+    try:
+
+        requests.post(
+            api_url(
+                "/api/auth/logout"
+            ),
+            headers={
+                "X-Session-Token":
+                    token,
+            },
+            timeout=10,
         )
 
-    with col2:
+    except Exception:
+        pass
 
-        st.markdown(
-            """
-            ### 🎼 MIDI / MusicXML
+    clear_login()
 
-            自動整理旋律，
-            產生可編輯的 MIDI
-            與 MusicXML。
-            """
-        )
-
-    with col3:
-
-        st.markdown(
-            """
-            ### 🔢 數字簡譜
-
-            自動產生數字簡譜 PDF，
-            並提供完整 ZIP 下載。
-            """
-        )
-
-    st.divider()
-
-    st.info(
-        "📌 建議使用人聲清楚、"
-        "背景伴奏較少的音檔，"
-        "通常比較容易得到乾淨的主旋律。"
-    )
+    st.rerun()
 
 
 # ============================================================
@@ -1091,7 +1153,10 @@ if (
 st.divider()
 
 st.caption(
-    "JianpuTool Professional MVP 3.0 | "
-    "MP3/WAV → 主旋律 MIDI → MusicXML → "
-    "數字簡譜 PDF"
+    "🎵 JianpuTool Professional"
+)
+
+st.caption(
+    "Email 登入 → NT$99 / 30天 → ECPay → "
+    "自動開通 → MP3/WAV → 簡譜 PDF → ZIP"
 )
